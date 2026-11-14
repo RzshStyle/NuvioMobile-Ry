@@ -2,7 +2,7 @@
 
 # Nuvio + IPTV Mobile
 
-**Everything in Nuvio Mobile, plus everything IPTV: a Live TV guide, a Sports hub that finds every game on your own channels, catch-up, recordings, a Calendar, your provider's movies and series, and a built-in VPN for your playback, all in one app for Android phones and tablets. Your Live TV setup follows your Nuvio account, so it's the same on your phone and on your TV.**
+**Everything in Nuvio Mobile, plus everything IPTV: a Live TV guide, Multiview, a Sports hub that finds every game on your own channels, catch-up, recordings, a Calendar, your provider's movies and series, and a built-in VPN for your playback, all in one app for Android phones and tablets. Your Live TV setup follows your Nuvio account, so it's the same on your phone and on your TV.**
 
 [![Latest release](https://img.shields.io/github/v/release/homelessbrian/NuvioPlusIPTV-Mobile?include_prereleases&label=latest&style=for-the-badge)](https://github.com/homelessbrian/NuvioPlusIPTV-Mobile/releases)
 [![Downloads](https://img.shields.io/github/downloads/homelessbrian/NuvioPlusIPTV-Mobile/total?style=for-the-badge)](https://github.com/homelessbrian/NuvioPlusIPTV-Mobile/releases)
@@ -11,18 +11,42 @@
 [![Discord](https://img.shields.io/badge/chat-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/NvK5JVvvm)
 [![Support on Ko-fi](https://img.shields.io/badge/support-Ko--fi-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/homelessbrian)
 
-[Sports hub](#-sports-hub) · [Calendar](#-calendar) · [VPN](#-built-in-vpn) · [Download](#-installation) · [Features](#-features) · [Setup](#-getting-started) · [Report a bug](#-reporting-bugs-and-requesting-features) · [Discord](https://discord.gg/NvK5JVvvm) · [Support](#-support-the-project) · [TV app](https://github.com/homelessbrian/NuvioPlusIPTV)
+[What's new](#-new-in-this-update) · [Multiview](#-multiview) · [Sports hub](#-sports-hub) · [Calendar](#-calendar) · [VPN](#-built-in-vpn) · [Download](#-installation) · [Features](#-features) · [Setup](#-getting-started) · [Report a bug](#-reporting-bugs-and-requesting-features) · [Discord](https://discord.gg/NvK5JVvvm) · [Support](#-support-the-project) · [TV app](https://github.com/homelessbrian/NuvioPlusIPTV)
 
 > ### 🙌 Big thanks to [ghbarker](https://github.com/ghbarker)
-> The **built-in VPN** is his work. He wrote the WireGuard and OpenVPN support and contributed it to this project, so your playback can be protected without a separate VPN app. This app is also built on his original phone port. Thank you!
+> The **built-in VPN**, **Multiview** and **Stalker / Ministra portals** are his work, and this app is built on his original phone port. Thank you!
 
 </div>
 
 ---
 
+## 🆕 New in this update
+
+- **🖥️ Multiview:** watch several channels or games at once, with your groups and live games from Sports in the picker. [More below](#-multiview).
+- **📡 Stalker / Ministra portals:** add them as a source for Live TV and On Demand.
+- **⚡ The guide opens straight away,** every time, with updates happening quietly in the background. Playlists load much faster and the app uses less memory.
+- **🖼️ Seek thumbnails:** preview pictures above the seek bar in movies, shows, catch-up, recordings and sports replays.
+- **📣 Full-time alerts** with the final score, and **Score alerts** for any single game, straight from its game page.
+- **🏆 Sports in the bottom bar,** next to Live TV.
+- **☁️ More of your setup syncs:** VPN profiles now move between phone and TV, and a new **Behavior and options** switch syncs things like refresh, recording, catch-up and sorting choices.
+- **Built on Nuvio Mobile 0.6.12-beta.**
+
+---
+
+## 🖥️ Multiview
+
+Watch several channels, or several games, at the same time.
+
+- **Open it** from the player's **Multiview** button on any channel, or choose **Add to Multiview** in a channel's menu.
+- **Pick channels** from your groups, or live games from the **Sports** tab, and choose a game's other streams.
+- **The sound follows the pane you pick.**
+- **Keeps itself going:** a pane that drops reconnects by itself, and one that won't play moves to a backup copy of the channel. A call or another app pausing it doesn't count.
+
+---
+
 ## 📱 One setup, every screen
 
-- **Setup Sync (Nuvio Account Sync):** sign in to Nuvio and your playlists, guides, favorites, Calendar follows, VPN profiles and settings come back by themselves, on your phone, tablet and TV. Change something on one and it shows up on the others. You can **choose what to sync**.
+- **Setup Sync (Nuvio Account Sync):** sign in to Nuvio and your playlists, guides, favorites, Calendar follows, VPN profiles, behavior and options come back by themselves, on your phone, tablet and TV. Change something on one and it shows up on the others. You can **choose what to sync**.
 - **Works with the TV app:** [Nuvio + IPTV](https://github.com/homelessbrian/NuvioPlusIPTV) for Google TV, Android TV and Fire TV uses the same setup. Set it up once, on whichever screen is easier.
 - **Encrypted:** your saved setup (which includes your IPTV logins) is encrypted before it's stored.
 - **Phone-only choices stay on the phone:** things like Channel Display are just for this device, so your TV looks the way you left it.
@@ -47,7 +71,8 @@ Sports shows scores and schedules, and works out **which of your own channels ar
 - **Choose leagues:** a row on All Events turns any league on or off.
 - **Tables:** league tables with form, place changes and playoff lines, and your team marked.
 - **Game pages:** the score by period, scoring as it happens, team stats, line-ups, leaderboards and fight cards.
-- **Never miss it:** reminders, **Game Alerts** (offered when you first follow a team) with the live score while your team plays and a heads-up when a game starts, even with the app closed, and **Record a game** with extra time for overtime.
+- **Never miss it:** reminders, **Game Alerts** (offered when you first follow a team) with the live score while your team plays, a heads-up when a game starts and the **final score at full time**, even with the app closed, and **Record a game** with extra time for overtime.
+- **Score alerts on any game:** turn them on from a game's page, even for teams you don't follow.
 - **Spoiler-free:** **Hide Scores** keeps results off the screen until you're ready.
 
 ---
@@ -93,24 +118,26 @@ Protect what you watch without installing a separate VPN app. **Settings → VPN
 ### 🎬 While watching
 - **Channel panel:** a Channels button in the player opens your groups and a mini guide beside the video (below it when your phone is upright, along the bottom on a tablet). Switch channels without leaving the player.
 - **Swipe to change channel:** swipe up or down in the middle of the picture.
+- **Seek thumbnails:** preview pictures above the seek bar. Change them under **Settings → Playback → Video**.
 - **Catch-up:** watch past shows with a seek bar, or restart what's on now. The app remembers which kind of replay link your provider answers and tries it first.
 - **Reminders** for upcoming shows, with a notification.
 
 ### 📡 Your sources, your way
 - **Multiple M3U playlists** and **multiple XMLTV guides,** merged into one guide.
 - **Xtream logins,** with separate switches for TV channels and for movies & series.
-- **Smart guide matching** (fine-tune any channel with **Assign EPG**), plus guide and catch-up time shifts for providers that are off by an hour or more.
+- **Stalker / Ministra portals** for Live TV and On Demand.
+- **Smart guide matching** (fine-tune any channel with **Assign EPG**), plus guide and catch-up time shifts (up to 24 hours) for providers that are off.
 
 ### ⏺️ Recordings
-- **Record a show** from the guide or a game from Sports, and watch it later in **Recordings**.
+- **Record a show, or a whole series,** from the guide, or a game from Sports, and watch it later in **Recordings**. Series recordings skip repeats and episodes you cancelled.
 
 ### 🗂️ Channel management
-- **Hide, reorder and rename** channels and groups.
+- **Hide, reorder and rename** channels and groups. **Hide all groups** at once, or **Hide all / Show all** inside a group.
 - **New groups** you add to a playlist show up next to their neighbours, and hiding a playlist group never empties your own groups.
 
 ### 🎞️ On Demand
 - **Movies and series from your Xtream provider,** with categories, search and sorting.
-- **📡 On Demand in the source list:** your provider's copy shows up next to your addons' sources on a title's page, best quality first, with quality tags. Choose where its tab goes, and whether auto-play may pick it.
+- **📡 On Demand in the source list:** your provider's copy shows up next to your addons' sources on a title's page, in the player's source list and in the Up next window, best quality first, with quality tags. Choose where its tab goes, and whether auto-play may pick it.
 - **Adult titles** never appear in Continue watching.
 
 ### 🔒 Parental controls
@@ -241,7 +268,7 @@ Nuvio + IPTV is free. If it's made your phone or TV better and you'd like to say
 ## 🙏 Credits
 
 - **[Nuvio Mobile](https://github.com/NuvioMedia/NuvioMobile)** by the NuvioMedia team: this app is built on their work.
-- **🙌 [ghbarker](https://github.com/ghbarker): a huge thank you.** He built the **built-in VPN** (WireGuard and OpenVPN playback protection) and contributed it to this project. His [port of Nuvio Mobile with IPTV](https://github.com/ghbarker/NuvioMobile-IPTV) is also what this app is built on, with his permission.
+- **🙌 [ghbarker](https://github.com/ghbarker): a huge thank you.** He built the **built-in VPN** (WireGuard and OpenVPN playback protection), **Multiview** and **Stalker / Ministra portals**, and contributed them to this project. His [port of Nuvio Mobile with IPTV](https://github.com/ghbarker/NuvioMobile-IPTV) is also what this app is built on, with his permission.
 - Live TV and Sports come from **[Nuvio + IPTV](https://github.com/homelessbrian/NuvioPlusIPTV)** for TV.
 - Sports data from **ESPN**'s public feed, **[TheSportsDB](https://www.thesportsdb.com)**, **HockeyTech** and **MLB**'s stats service. Pictures and logos from **[TMDB](https://www.themoviedb.org)**. Nuvio + IPTV isn't affiliated with any of them, and team and league names and logos belong to their owners.
 - Built with Kotlin Multiplatform and Compose Multiplatform.
