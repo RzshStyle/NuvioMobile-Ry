@@ -12,6 +12,8 @@ import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.model.LiveTvClock
 import com.nuvio.app.features.livetv.player.LiveTvCatchup
+import com.nuvio.app.features.livetv.stalker.StalkerGateway
+import com.nuvio.stalker.StalkerContentKind
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -95,7 +97,9 @@ internal object LiveTvRecordingScheduler {
     fun add(channel: LiveChannel, program: EpgProgram, seriesId: String? = null): String {
         val now = LiveTvClock.nowMs()
         val (preMs, postMs) = padding()
-        val useCatchup = channel.catchup != null && channel.catchup.days > 0
+        val useCatchup = channel.catchup != null && channel.catchup.days > 0 &&
+            (channel.stalker == null || (!program.stalkerProgramId.isNullOrBlank() && program.stalkerSourceIdentity != null &&
+                program.stalkerSourceIdentity == channel.stalker.sourceIdentity))
         val title = program.title.trim()
         if (!useCatchup && now >= program.startMs && now < program.stopMs) {
             if (LiveTvRecorder.activeFor(channel.key) == null) {
@@ -117,6 +121,8 @@ internal object LiveTvRecordingScheduler {
             seriesId = seriesId,
             preMs = preMs,
             postMs = postMs,
+            stalkerProgramId = program.stalkerProgramId,
+            stalkerSourceIdentity = program.stalkerSourceIdentity,
         )
         val clash = RecordingRules.clashWith(s, _schedules.value)
         scope.launch {
@@ -142,6 +148,7 @@ internal object LiveTvRecordingScheduler {
         scope.launch {
             mutex.withLock {
                 val gone = _schedules.value.filter { it.channel.key == channelKey && it.startMs == startMs }
+                gone.forEach { markSeenLocked(it) }
                 gone.forEach { RecordingPlatform.cancelAlarm(it.id) }
                 _schedules.value = _schedules.value - gone.toSet()
                 save()
@@ -152,7 +159,7 @@ internal object LiveTvRecordingScheduler {
     fun cancel(id: String) {
         scope.launch {
             mutex.withLock {
-                _schedules.value.firstOrNull { it.id == id }?.let { RecordingPlatform.cancelAlarm(it.id) }
+                _schedules.value.firstOrNull { it.id == id }?.let { markSeenLocked(it); RecordingPlatform.cancelAlarm(it.id) }
                 _schedules.value = _schedules.value.filterNot { it.id == id }
                 save()
             }
@@ -217,6 +224,8 @@ internal object LiveTvRecordingScheduler {
         if (rules.isEmpty()) return
         val now = LiveTvClock.nowMs()
         for (rule in rules) {
+            // Episodes set in this pass: a repeat later in the same listing would otherwise be set as well.
+            val setNow = mutableSetOf<String>()
             val listings = runCatching { LiveTvRepository.channelSchedule(rule.channel.key, now, now + 7L * 24 * 3_600_000L) }.getOrDefault(emptyList())
             val channel = freshChannel(rule.channel)
             listings.filter { RecordingRules.normalizeTitle(it.title) == rule.norm && it.stopMs > now }.forEach { p ->
@@ -233,7 +242,7 @@ internal object LiveTvRecordingScheduler {
                             (it.seriesId == rule.id || it.channelKey == rule.channel.key) && RecordingRules.episodeKey(it.episode) == ep &&
                                 RecordingRules.normalizeTitle(it.title) == rule.norm
                         }))
-                if (!already && p.startMs > now) add(channel, p, seriesId = rule.id)
+                if (!already && p.startMs > now && (ep == null || setNow.add(ep))) add(channel, p, seriesId = rule.id)
             }
         }
     }
@@ -299,7 +308,11 @@ internal object LiveTvRecordingScheduler {
                 ?: (if (ServerZones.canLookUp(channel, playlist)) kotlinx.coroutines.withTimeoutOrNull(10_000L) { ServerZones.learn(channel) } else null)
             // As when watching catch-up: the guide's shift off, the playlist's catch-up shift on.
             val shift = LiveTvCatchup.shiftMs(settings, channel, playlist)
-            val url = catchup?.let {
+            val archiveRef = channel.stalker?.takeIf { !s.stalkerProgramId.isNullOrBlank() && s.stalkerSourceIdentity != null &&
+                s.stalkerSourceIdentity == it.sourceIdentity &&
+                CatchupUrlBuilder.isAvailable(catchup, s.startMs, now) }
+                ?.copy(kind = StalkerContentKind.ARCHIVE, command = "", programId = s.stalkerProgramId, sourceIdentity = s.stalkerSourceIdentity)
+            val url = if (archiveRef != null) StalkerGateway.locator(channel.sourceId, archiveRef) else catchup?.let {
                 // Same kind of link as watching (the catch-up setting): HLS comes as pieces, which
                 // providers send at full speed; one long TS stream is often sent at viewing speed
                 // or slower. The TS link stays as the fall-back if the HLS one sends nothing.
@@ -329,11 +342,12 @@ internal object LiveTvRecordingScheduler {
                 channel, url, s.title, s.episode, s.description, s.startMs, s.stopMs,
                 stopAtMs = now + (s.stopMs - s.startMs) * 3 + 30 * 60_000L,
                 finite = true,
-                fallbacks = CatchupUrlBuilder.alternatives(url, zone),
+                fallbacks = if (archiveRef == null) CatchupUrlBuilder.alternatives(url, zone) else emptyList(),
+                portalRef = archiveRef,
                 seriesId = s.seriesId,
                 // Cut off part way: the rest of the show, from a little before where it got to
                 // (catch-up links often go by the minute, so a few seconds may repeat).
-                resumeFrom = { doneMs ->
+                resumeFrom = if (archiveRef != null) null else { doneMs ->
                     catchup?.let {
                         val from = s.startMs - s.pre - shift + doneMs - 30_000L
                         CatchupUrlBuilder.build(channel.url, it, from, s.stopMs + s.post - shift, LiveTvClock.nowMs(), preferHls = false, serverTimezone = zone)
@@ -392,8 +406,22 @@ internal object LiveTvRecordingScheduler {
     }
 
     /** The channel as it is now (its link may have changed), or as saved. */
-    private fun freshChannel(saved: ChannelSnapshot): LiveChannel =
-        LiveTvRepository.channels.value.firstOrNull { it.key == saved.key } ?: saved.toChannel()
+    private fun freshChannel(saved: ChannelSnapshot): LiveChannel {
+        val fresh = LiveTvRepository.channels.value.firstOrNull { it.key == saved.key } ?: return saved.toChannel()
+        if (saved.stalker != null && fresh.stalker?.sourceIdentity != saved.stalker.sourceIdentity)
+            return saved.toChannel() // Resolve refuses an old recording against a replacement portal.
+        return fresh
+    }
+
+    /**
+     * A series episode you cancelled by hand: remember it, so the next guide refresh doesn't set
+     * it again. Call with the lock held.
+     */
+    private fun markSeenLocked(s: RecordingSchedule) {
+        val id = s.seriesId ?: return
+        val ep = RecordingRules.episodeKey(s.episode) ?: return
+        _series.value = _series.value.map { r -> if (r.id == id && ep !in r.seen) r.copy(seen = (r.seen + ep).takeLast(500)) else r }
+    }
 
     /** A series episode is being recorded: remember it, so its repeats are skipped from now on. */
     private suspend fun markSeen(s: RecordingSchedule) {

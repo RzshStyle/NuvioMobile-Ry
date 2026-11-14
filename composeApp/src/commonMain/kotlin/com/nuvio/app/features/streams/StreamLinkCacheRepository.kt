@@ -23,6 +23,8 @@ data class CachedStreamLink(
     val contentLanguage: String? = null,
     val addonLogo: String? = null,
     val streamDescription: String? = null,
+    val stalkerSourceId: String? = null,
+    val stalkerStreamJson: String? = null,
 )
 
 internal expect fun epochMs(): Long
@@ -64,20 +66,24 @@ object StreamLinkCacheRepository {
         contentLanguage: String? = null,
         addonLogo: String? = null,
         streamDescription: String? = null,
+        stalkerSourceId: String? = null,
+        stalkerStreamJson: String? = null,
     ) {
-        if (url.isNotBlank() && url.hasLikelyExpiringPlaybackCredentials()) {
+        val portalRef = stalkerStreamJson?.let(com.nuvio.stalker.StalkerStreamRef::decode)
+        val isPortal = !stalkerSourceId.isNullOrBlank() && portalRef != null
+        if ((stalkerStreamJson != null || stalkerSourceId != null || com.nuvio.app.features.livetv.stalker.StalkerGateway.isLocator(url)) && !isPortal) {
             remove(contentKey)
             return
         }
 
         val entry = CachedStreamLink(
-            url = url,
+            url = if (isPortal) com.nuvio.app.features.livetv.stalker.StalkerGateway.locator(stalkerSourceId!!, portalRef!!) else url,
             streamName = streamName,
             addonName = addonName,
             addonId = addonId,
             cachedAtMs = epochMs(),
-            requestHeaders = requestHeaders,
-            responseHeaders = responseHeaders,
+            requestHeaders = if (isPortal) emptyMap() else requestHeaders,
+            responseHeaders = if (isPortal) emptyMap() else responseHeaders,
             filename = filename,
             videoHash = videoHash,
             videoSize = videoSize,
@@ -89,6 +95,8 @@ object StreamLinkCacheRepository {
             contentLanguage = contentLanguage,
             addonLogo = addonLogo,
             streamDescription = streamDescription,
+            stalkerSourceId = stalkerSourceId.takeIf { isPortal },
+            stalkerStreamJson = portalRef?.encode(),
         )
         val payload = json.encodeToString(CachedStreamLink.serializer(), entry)
         StreamLinkCacheStorage.saveEntry(hashedKey(contentKey), payload)
@@ -108,11 +116,12 @@ object StreamLinkCacheRepository {
             return null
         }
         val age = epochMs() - entry.cachedAtMs
-        if (entry.cachedAtMs <= 0L || age > maxAgeMs) {
+        if (com.nuvio.app.features.livetv.stalker.StalkerGateway.isLocator(entry.url) &&
+            (entry.stalkerSourceId.isNullOrBlank() || entry.stalkerStreamJson?.let(com.nuvio.stalker.StalkerStreamRef::decode) == null)) {
             StreamLinkCacheStorage.removeEntry(hashedKey(contentKey))
             return null
         }
-        if (entry.url.isNotBlank() && entry.url.hasLikelyExpiringPlaybackCredentials()) {
+        if (entry.cachedAtMs <= 0L || age > maxAgeMs) {
             StreamLinkCacheStorage.removeEntry(hashedKey(contentKey))
             return null
         }

@@ -4,9 +4,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.livetv.model.LiveChannel
+import com.nuvio.app.features.livetv.multiview.LocalOpenMultiview
+import com.nuvio.app.features.livetv.multiview.isMultiviewSupported
 import com.nuvio.app.features.livetv.player.LiveTvPlayback
 import com.nuvio.app.features.livetv.ui.LiveTvPlayerOverlay
 import com.nuvio.app.features.livetv.ui.LiveTvViewState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 /** Whether a Live TV channel (or a catch-up replay of one) is playing. */
 internal val PlayerScreenRuntime.isLiveTv: Boolean
@@ -35,27 +39,36 @@ internal fun PlayerScreenRuntime.liveLogoOr(fallback: String?): String? {
 /** Changes channel in place (the channel panel or a swipe), keeping the player open. */
 internal fun PlayerScreenRuntime.switchLiveChannel(channel: LiveChannel, nowTitle: String?) {
     if (channel.key == activeVideoId && LiveTvPlayback.owns(activeProviderAddonId) && errorMessage == null) return
-    val req = LiveTvPlayback.switchTo(channel)
-    flushWatchProgress()
     credentialRefreshJob?.cancel()
-    errorMessage = null
-    externalSubtitles = emptyList()
-    activeSourceUrl = req.url
-    activeSourceAudioUrl = null
-    activeSourceHeaders = sanitizePlaybackHeaders(req.headers)
-    activeSourceResponseHeaders = sanitizePlaybackResponseHeaders(null)
-    activeStreamType = req.streamType
-    activeSourceIdentityKey = "url:${req.url}"
-    activeSourceFilename = null
-    activeStreamFilename = sourceFilenameFromUrl(req.url)
-    activeStreamTitle = channel.name
-    activeStreamSubtitle = nowTitle ?: channel.group
-    activePauseDescription = nowTitle
-    activeProviderName = channel.sourceName
-    activeProviderAddonId = LiveTvPlayback.PROVIDER_ID
-    activeVideoId = channel.key
-    activeInitialPositionMs = 0L
-    activeInitialProgressFraction = null
+    credentialRefreshJob = scope.launch {
+        try {
+            val req = LiveTvPlayback.switchTo(channel)
+            flushWatchProgress()
+            errorMessage = null
+            externalSubtitles = emptyList()
+            activeSourceUrl = req.url
+            activeSourceAudioUrl = null
+            activeSourceHeaders = sanitizePlaybackHeaders(req.headers)
+            activeStalkerMediaPolicy = req.mediaPolicy
+            activeSourceResponseHeaders = sanitizePlaybackResponseHeaders(null)
+            activeStreamType = req.streamType
+            activeSourceIdentityKey = "url:${req.url}"
+            activeSourceFilename = null
+            activeStreamFilename = sourceFilenameFromUrl(req.url)
+            activeStreamTitle = channel.name
+            activeStreamSubtitle = nowTitle ?: channel.group
+            activePauseDescription = nowTitle
+            activeProviderName = channel.sourceName
+            activeProviderAddonId = LiveTvPlayback.PROVIDER_ID
+            activeVideoId = channel.key
+            activeInitialPositionMs = 0L
+            activeInitialProgressFraction = null
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) {
+            errorMessage = "The provider could not open this channel. Check the source and VPN settings."
+            controlsVisible = !playerControlsLocked
+        }
+    }
 }
 
 /** The channel panel and channel swiping, over a playing Live TV channel. */
@@ -63,11 +76,21 @@ internal fun PlayerScreenRuntime.switchLiveChannel(channel: LiveChannel, nowTitl
 internal fun PlayerScreenRuntime.RenderLiveTvChannels() {
     if (!isLiveTv) return
     val isInPip = rememberIsInPictureInPicture()
+    val openMultiview = LocalOpenMultiview.current
     LiveTvPlayerOverlay(
         currentKey = activeVideoId,
         controlsVisible = controlsVisible,
         enabled = !isInPip && !playerControlsLocked,
         onPanelOpened = { controlsVisible = false },
         onSwitch = { channel, nowTitle -> switchLiveChannel(channel, nowTitle) },
+        // Works for any live channel: Multiview opens with this channel in the first pane.
+        onOpenMultiview = if (!isMultiviewSupported || openMultiview == null) null else {
+            {
+                // Release the single audible source before navigation creates any pane owners.
+                playerController?.setMuted(true)
+                playerController?.pause()
+                openMultiview(activeVideoId)
+            }
+        },
     )
 }

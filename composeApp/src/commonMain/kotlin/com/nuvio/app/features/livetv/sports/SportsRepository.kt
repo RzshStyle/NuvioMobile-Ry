@@ -13,13 +13,17 @@ import com.nuvio.app.features.livetv.player.LiveTvPlayback
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -153,7 +157,16 @@ internal object SportsRepository {
                     else sameFight.isEmpty()
                 }
             }
-            else same.none { dayOf(it.startMs) == dayOf(fx.startMs) }
+            else {
+                // A date only: anything of its league that day stands in for it, except for a fight
+                // (a Zuffa card, say), which only gives way to a listing of the same fight.
+                val sides = if (SportsCatalog.league(fx.leagueId)?.sport == Sport.FIGHTING) SportsCatalog.fightSides(fx.title) else null
+                same.none { gEv ->
+                    dayOf(gEv.startMs) == dayOf(fx.startMs) && (sides == null || SportsCatalog.norm(gEv.title + " " + (gEv.subtitle ?: "")).let { text ->
+                        sides.first.any { SportsCatalog.hasWord(text, it) } && sides.second.any { SportsCatalog.hasWord(text, it) }
+                    })
+                }
+            }
         }
         val espn = l.values.flatMap { it.events } + w.values.flatMap { it.events }
         // A match ESPN lists, found again in the guide (or a schedule file) under a guide-only
@@ -463,7 +476,14 @@ internal object SportsRepository {
         return out
     }
 
-    private fun isMine(l: League, f: SportsFollows) = l.id in followedLeagueIds(f)
+    private fun isMine(l: League, f: SportsFollows) = l.id in followedLeagueIds(f) || l.id in alertLeagueIds(f)
+
+    /** Leagues of single games with score alerts on that haven't long finished (kept as up to date as your teams'). */
+    private fun alertLeagueIds(f: SportsFollows): Set<String> {
+        if (f.alertGames.isEmpty()) return emptySet()
+        val since = LiveTvClock.nowMs() - ALERT_GAME_KEEP
+        return f.alertGames.filter { it.startMs > since }.mapTo(HashSet()) { it.leagueId }
+    }
 
     // ------------------------------------------------------------------ updates
 
@@ -471,26 +491,29 @@ internal object SportsRepository {
         var lastKick = -1
         var lastFixtures = 0L
         var lastTv = 0L
+        var extrasJob: Job? = null
         while (true) {
             val full = foreground.value && (settings.value.showInSidebar || viewers.value > 0)
             // Watching your teams' games in the background: only the scores, nothing else.
             val active = full || watching.value
             if (active) runCatching { updateOnce(LiveTvClock.nowMs()) }
-            if (full) {
+            // Week, past and non-league requests can take minutes: the live-score round keeps its
+            // own clock while they're still going.
+            if (full && extrasJob?.isActive != true) extrasJob = scope.launch {
                 val force = forceExtras.also { forceExtras = false }
                 runCatching { updateWeek(LiveTvClock.nowMs(), force) }
                 runCatching { updateAhead(LiveTvClock.nowMs(), force) }
                 runCatching { updatePast(LiveTvClock.nowMs()) }
                 runCatching { updateTsdb(LiveTvClock.nowMs(), force) }
                 runCatching { updateSchedules(LiveTvClock.nowMs(), force) }
-            }
-            if (full && LiveTvClock.nowMs() - lastTv > 4 * HOUR) {
-                lastTv = LiveTvClock.nowMs()
-                runCatching { updateTv() }
-            }
-            if (full && LiveTvClock.nowMs() - lastFixtures > 12 * HOUR) {
-                lastFixtures = LiveTvClock.nowMs()
-                runCatching { updateFixtures() }
+                if (LiveTvClock.nowMs() - lastTv > 4 * HOUR) {
+                    lastTv = LiveTvClock.nowMs()
+                    runCatching { updateTv() }
+                }
+                if (LiveTvClock.nowMs() - lastFixtures > 12 * HOUR) {
+                    lastFixtures = LiveTvClock.nowMs()
+                    runCatching { updateFixtures() }
+                }
             }
             val wait = if (viewers.value > 0) 10_000L else 30_000L
             lastKick = kick.value
@@ -516,17 +539,30 @@ internal object SportsRepository {
             val d = data[l.id]
             val age = now - (d?.fetchedAt ?: 0L)
             val live = d?.events?.any { it.state == GameState.LIVE || (it.state == GameState.PRE && it.startMs in (now - 15 * MINUTE)..(now + 10 * MINUTE)) } == true
+            // A game within a few hours of now: kept as fresh as the hub's own leagues while you're looking.
+            val nearNow = d?.events?.any { it.startMs in (now - 6 * HOUR)..(now + 6 * HOUR) } == true
             val mine = isMine(l, f)
             when {
                 force -> age > 15_000
+                viewing && (live || nearNow) -> age > (if (live) 30_000 else 5 * MINUTE)
                 viewing && fastLeague(l) -> age > (if (live) 30_000 else 5 * MINUTE)
                 l.id in playingLeagues && s.scoreOnInfoBar -> age > 60_000
-                mine && live -> age > (if (s.scoringAlerts) 45_000 else 90_000)
+                mine && live -> age > (if (s.scoringAlerts || l.id in alertLeagueIds(f)) 45_000 else 90_000)
                 mine -> age > 30 * MINUTE
                 d == null -> age > 6 * HOUR
                 else -> age > 45 * MINUTE
             }
-        }
+        }.sortedWith(compareByDescending<League> { l ->
+            // Fetched in this order: the game on screen and yours first, then live ones, then ones about to start.
+            val evs = data[l.id]?.events.orEmpty()
+            when {
+                l.id in playingLeagues || isMine(l, f) -> 4
+                evs.any { it.state == GameState.LIVE } -> 3
+                evs.any { it.startMs in (now - HOUR)..(now + HOUR) } -> 2
+                SportsCatalog.shown(l, s) -> 1
+                else -> 0
+            }
+        })
         if (due.isEmpty()) return
         _loading.value = true
         try {
@@ -537,7 +573,8 @@ internal object SportsRepository {
             val failLock = Mutex()
             coroutineScopeFetch(due) { l ->
                 gate.withPermit {
-                    val useDirect = isMine(l, f) || l.id in playingLeagues || (viewing && SportsCatalog.shown(l, s))
+                    val nearNow = data[l.id]?.events?.any { it.startMs in (now - 6 * HOUR)..(now + 6 * HOUR) } == true
+                    val useDirect = isMine(l, f) || l.id in playingLeagues || (viewing && (SportsCatalog.shown(l, s) || nearNow))
                     // Leagues nobody is looking at: nuvio-data's ready-made file when it's fresh
                     // (already read, and only downloaded when it changed); otherwise as before.
                     val compact = if (useDirect) null else runCatching {
@@ -1195,6 +1232,21 @@ internal object SportsRepository {
             val f = follows.value
             val guideLeagues = SportsCatalog.all.filter { it.guideOnly }
             val keys = channels.associateBy { it.key }
+            // Channels found from names, listed networks and your picks go on live (and about to
+            // start) game cards before the much longer guide search; its results replace them.
+            val quickEvents = events.value.filter { ev ->
+                ev.state == GameState.LIVE || (ev.state == GameState.PRE && ev.startMs in now..(now + 3 * HOUR))
+            }
+            if (quickEvents.isNotEmpty()) runCatching {
+                matcher.match(SportsMatcher.Input(events = quickEvents, channels = channels, quality = user.channelQuality,
+                    shiftMs = shift, settings = s, now = now, readGuide = false))
+            }.onSuccess { quick ->
+                val fresh = quick.matches.filterKeys { it !in _matches.value }
+                if (fresh.isNotEmpty()) {
+                    _matches.value = _matches.value + fresh
+                    rebuildLiveScores()
+                }
+            }
             val days = HashMap<Long, List<SportsEvent>>()
             for (offset in -1..1) {
                 val start = dayStart(offset)
@@ -1267,7 +1319,7 @@ internal object SportsRepository {
                 val now = list.associateBy { it.id }
                 if (scoreDelayMs.value > 0 && before.isNotEmpty()) {
                     runCatching { rebuildLiveScores() }
-                    list.filter { ev -> before[ev.id].let { it != null && it !== ev && it.sides != ev.sides } }
+                    list.filter { ev -> before[ev.id].let { it != null && it !== ev && (it.sides != ev.sides || it.state != ev.state) } }
                         .groupBy { it.leagueId }
                         .forEach { (leagueId, changed) ->
                             val league = SportsCatalog.league(leagueId) ?: return@forEach
@@ -1279,17 +1331,32 @@ internal object SportsRepository {
         }
     }
 
-    /** A team you follow scored: tell the app (Scoring Alerts). */
+    /**
+     * A team you follow (or a game you asked alerts for) scored, or its game just finished:
+     * tell the app (Scoring Alerts; full time comes with the final score).
+     */
     private fun noticeScoring(league: League, before: List<SportsEvent>, after: List<SportsEvent>) {
-        if (!settings.value.scoringAlerts) return
         val f = follows.value
+        val alerts = settings.value.scoringAlerts
+        val picked = f.alertGames.mapTo(HashSet()) { it.eventId }
+        if (!alerts && picked.isEmpty()) return
         val old = before.associateBy { it.id }
         for (ev in after) {
-            if (ev.state != GameState.LIVE || !ev.hasScore) continue
             val prev = old[ev.id] ?: continue
+            val chosen = ev.id in picked
+            fun mine(teamId: String) = alerts && (f.followsTeam(league.id, teamId) || league.id in f.leagues)
+            // Full time: once, as the game goes from live to finished.
+            if (ev.state == GameState.POST && prev.state == GameState.LIVE) {
+                if (ev.hasScore && (chosen || ev.sides.any { mine(it.team.id) })) {
+                    val side = ev.sides.firstOrNull { mine(it.team.id) } ?: ev.sides.firstOrNull() ?: continue
+                    SportsLive.alert(SportsAlert(ev, side.team, league, final = true))
+                }
+                continue
+            }
+            if (ev.state != GameState.LIVE || !ev.hasScore) continue
             if (!prev.hasScore) continue
             for (side in ev.sides) {
-                if (!f.followsTeam(league.id, side.team.id) && league.id !in f.leagues) continue
+                if (!chosen && !mine(side.team.id)) continue
                 val was = prev.sides.firstOrNull { it.team.id == side.team.id }?.score?.toDoubleOrNull() ?: continue
                 val nowScore = side.score?.toDoubleOrNull() ?: continue
                 if (nowScore > was) SportsLive.alert(SportsAlert(ev, side.team, league))
@@ -1632,6 +1699,22 @@ internal object SportsRepository {
 
     fun dropReminder(eventId: String) = updateFollows { f -> f.copy(reminders = f.reminders.filterNot { it.eventId == eventId }) }
 
+    /** Score alerts for just this game (its scores and the final result), without following its teams. */
+    fun toggleGameAlerts(ev: SportsEvent) {
+        val adding = follows.value.alertGames.none { it.eventId == ev.id }
+        updateFollows { f ->
+            val since = LiveTvClock.nowMs() - ALERT_GAME_KEEP
+            if (f.alertGames.any { it.eventId == ev.id }) f.copy(alertGames = f.alertGames.filterNot { it.eventId == ev.id })
+            else f.copy(alertGames = f.alertGames.filter { it.startMs > since } + GameAlertPick(ev.id, ev.leagueId, ev.startMs))
+        }
+        // Alerts can't show without notifications: ask for them now.
+        if (adding) GameAlerts.askForNotifications()
+    }
+
+    /** Whether this game's scores come as alerts already: a team or league you follow, with Scoring Alerts on. */
+    fun alertsFromFollows(ev: SportsEvent, f: SportsFollows = follows.value): Boolean =
+        settings.value.scoringAlerts && (ev.leagueId in f.leagues || ev.sides.any { f.followsTeam(ev.leagueId, it.team.id) })
+
     /** "This is the right channel" for [ev]. With [forNetworks], also for every game the same network has from now on. */
     fun pickChannel(ev: SportsEvent, channelKey: String, forNetworks: Boolean, forTeam: TeamInfo? = null, forLeague: Boolean = false) {
         updateSettings { s ->
@@ -1725,6 +1808,8 @@ internal object SportsRepository {
     /** The safety-net round: this long after the last one. */
     private const val SAFETY_ROUND = 4 * HOUR
     private const val DAY = 24 * HOUR
+    /** A single game's score alerts are dropped this long after it started. */
+    private const val ALERT_GAME_KEEP = 12 * HOUR
     /** The page's days run from this many days back to [DAYS_AHEAD] ahead. */
     const val DAYS_AHEAD = 7
     const val DAYS_BACK = 7
@@ -1736,14 +1821,16 @@ internal object SportsRepository {
     private const val LIKELY_SCORE = 52
 }
 
-/** A team you follow just scored (shown for a few seconds wherever you are). */
-data class SportsAlert(val event: SportsEvent, val team: TeamInfo, val league: League, val id: Long = LiveTvClock.nowMs())
+/** A team you follow just scored, or its game finished ([final]) (shown for a few seconds wherever you are). */
+data class SportsAlert(val event: SportsEvent, val team: TeamInfo, val league: League, val final: Boolean = false, val id: Long = LiveTvClock.nowMs())
 
 /** Sports data the rest of the app shows: scores on channel rows, scoring alerts. */
 object SportsLive {
     val byChannel = MutableStateFlow<Map<String, SportsEvent>>(emptyMap())
     /** Channel key -> the live game on it (with or without a score). */
     val cardByChannel = MutableStateFlow<Map<String, SportsEvent>>(emptyMap())
-    val alerts = MutableStateFlow<SportsAlert?>(null)
-    fun alert(a: SportsAlert) { alerts.value = a }
+    /** Every alert, in turn (several games can score or finish in one update; none is lost). */
+    private val _alerts = MutableSharedFlow<SportsAlert>(extraBufferCapacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val alerts: SharedFlow<SportsAlert> = _alerts
+    fun alert(a: SportsAlert) { _alerts.tryEmit(a) }
 }

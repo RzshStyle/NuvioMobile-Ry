@@ -231,7 +231,7 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions) {
                     ev.about?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary, maxLines = 4, overflow = TextOverflow.Ellipsis) }
                 }
                 if (ev.state == GameState.LIVE) NuvioProgressBar(progress = progressOf(ev, now), height = NuvioTokens.Space.s3)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
                     Text(
                         text = when (ev.state) {
                             GameState.LIVE -> cornerStatus(ev, use24h, hide)
@@ -242,11 +242,11 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (ev.state == GameState.LIVE) SportsLiveRed else tokens.colors.textSecondary,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                     // The channel of yours the game is on first (before it starts), then the TV networks.
                     val shownNetworks = (listOfNotNull(matches.firstOrNull()?.channel?.name?.takeIf { it.isNotBlank() && ev.state == GameState.PRE }) + ev.broadcasts).distinct().take(3)
-                    if (shownNetworks.isNotEmpty()) Text(shownNetworks.joinToString(", "), style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted, maxLines = 1)
+                    if (shownNetworks.isNotEmpty()) Text(shownNetworks.joinToString(", "), style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted, modifier = Modifier.fillMaxWidth())
                 }
                 ev.situation?.takeIf { !hide }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary) }
             }
@@ -256,6 +256,14 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions) {
             Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
                 if (ev.state != GameState.POST && ev.hasTime) {
                     Chip(label = stringResource(if (reminded) Res.string.livetv_sports_reminded else Res.string.livetv_sports_remind), selected = reminded, onClick = { repo.toggleReminder(ev) })
+                }
+                // Score alerts for just this game (its scores and the final result), when its teams aren't followed.
+                if ((ev.state == GameState.PRE || ev.state == GameState.LIVE) && ev.sides.size == 2 && !hide && !repo.alertsFromFollows(ev, follows)) {
+                    val alertsOn = follows.alertGames.any { it.eventId == ev.id }
+                    Chip(label = if (alertsOn) "📣 Score alerts on" else "📣 Score alerts", selected = alertsOn, onClick = {
+                        repo.toggleGameAlerts(ev)
+                        NuvioToastController.show(if (alertsOn) "Score alerts off for this game" else "You'll get this game's scores and the final result")
+                    })
                 }
                 if (ev.state != GameState.POST && ev.hasTime && hasChannels && ownChannels.isNotEmpty()) {
                     Chip(

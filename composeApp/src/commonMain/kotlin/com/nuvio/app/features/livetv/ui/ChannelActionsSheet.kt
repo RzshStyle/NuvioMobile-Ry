@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
@@ -25,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -75,6 +77,8 @@ import nuvio.composeapp.generated.resources.livetv_group_new_hint
 import nuvio.composeapp.generated.resources.livetv_rename_hint
 import nuvio.composeapp.generated.resources.livetv_watch_from_start
 import org.jetbrains.compose.resources.stringResource
+import com.nuvio.app.features.livetv.multiview.MultiviewQueue
+import com.nuvio.app.features.livetv.multiview.isMultiviewSupported
 
 /** Long-press options for a channel. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -115,6 +119,13 @@ internal fun ChannelActionsSheet(
             NuvioBottomSheetActionRow(title = stringResource(Res.string.action_play), icon = Icons.Filled.PlayArrow, onClick = { close(onPlay) })
             if (onWatchFromStart != null) {
                 NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_watch_from_start), icon = Icons.Filled.Replay, onClick = { close(onWatchFromStart) })
+            }
+            if (isMultiviewSupported) {
+                NuvioBottomSheetActionRow(
+                    title = "Add to Multiview",
+                    icon = Icons.Filled.GridView,
+                    onClick = { MultiviewQueue.addAndAnnounce(channel.key); close() },
+                )
             }
             extraRows { then -> close(then) }
             NuvioBottomSheetActionRow(
@@ -211,7 +222,10 @@ private fun AssignEpgDialog(channel: LiveChannel, onDismiss: () -> Unit) {
     val loading by LiveTvRepository.epgListsLoading.collectAsStateWithLifecycle()
     val user by LiveTvPreferences.userState.collectAsStateWithLifecycle()
     val auto by LiveTvRepository.autoMatches.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { LiveTvRepository.ensureSourceLists() }
+    DisposableEffect(Unit) {
+        LiveTvRepository.ensureSourceLists()
+        onDispose { LiveTvRepository.releaseSourceLists() }
+    }
     var query by remember { mutableStateOf("") }
     val current = user.epgOverrides[channel.key]
     val matched = auto[channel.key]

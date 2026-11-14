@@ -115,6 +115,7 @@ actual fun PlatformPlayerSurface(
     sourceAudioUrl: String?,
     sourceHeaders: Map<String, String>,
     sourceResponseHeaders: Map<String, String>,
+    stalkerMediaPolicy: com.nuvio.app.features.livetv.stalker.StalkerMediaPolicy?,
     externalSubtitles: List<com.nuvio.app.features.streams.StreamSubtitle>,
     streamType: String?,
     useYoutubeChunkedPlayback: Boolean,
@@ -146,6 +147,12 @@ actual fun PlatformPlayerSurface(
     val requestedEngine = playbackEngine ?: playerSettings.androidPlaybackEngine
     val activeEngine by remember(playerSourceKey, requestedEngine) {
         mutableStateOf(requestedEngine.initialAndroidEngine())
+    }
+
+    if (stalkerMediaPolicy != null && activeEngine != ResolvedAndroidPlaybackEngine.ExoPlayer) {
+        LaunchedEffect(sourceUrl, activeEngine) { onError(com.nuvio.app.features.livetv.stalker.StalkerPlaybackSupport.ENGINE) }
+        Box(modifier)
+        return
     }
 
     val vpnContext = LocalContext.current
@@ -194,6 +201,7 @@ actual fun PlatformPlayerSurface(
             sourceUrl = sourceUrl,
             sourceAudioUrl = sourceAudioUrl,
             sourceHeaders = sourceHeaders,
+            stalkerMediaPolicy = stalkerMediaPolicy,
             sourceResponseHeaders = sourceResponseHeaders,
             externalSubtitles = externalSubtitles,
             streamType = streamType,
@@ -254,6 +262,7 @@ private fun ExoPlayerSurface(
     sourceUrl: String,
     sourceAudioUrl: String?,
     sourceHeaders: Map<String, String>,
+    stalkerMediaPolicy: com.nuvio.app.features.livetv.stalker.StalkerMediaPolicy?,
     sourceResponseHeaders: Map<String, String>,
     externalSubtitles: List<com.nuvio.app.features.streams.StreamSubtitle>,
     streamType: String?,
@@ -356,13 +365,13 @@ private fun ExoPlayerSurface(
         resolvedMediaItem.isLocalFileSource()
     }
 
-    val extractorsFactory = remember(sourceUrl) {
+    val extractorsFactory = remember(sourceUrl, stalkerMediaPolicy) {
         DefaultExtractorsFactory()
             .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)
             .setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE)
             .let { factory -> // AutoSync hook: no observation while disabled.
                 AutoSyncPreferencesRepository.ensureLoaded()
-                if (AutoSyncPreferencesRepository.preferredSubtitleAutoSyncOnStart.value) {
+                if (stalkerMediaPolicy == null && AutoSyncPreferencesRepository.preferredSubtitleAutoSyncOnStart.value) {
                     AutoSyncExtractorsFactory(factory, sourceUrl)
                 } else factory
             }
@@ -371,6 +380,7 @@ private fun ExoPlayerSurface(
         context,
         sourceUrl,
         sanitizedSourceHeaders,
+        stalkerMediaPolicy,
         sanitizedSourceResponseHeaders,
         useYoutubeChunkedPlayback,
         externalSubtitles,
@@ -383,6 +393,7 @@ private fun ExoPlayerSurface(
         val upstream = PlatformPlaybackDataSourceFactory.create(
             context = context,
             defaultRequestHeaders = sanitizedSourceHeaders,
+            stalkerMediaPolicy = stalkerMediaPolicy,
             defaultResponseHeaders = sanitizedSourceResponseHeaders,
             useYoutubeChunkedPlayback = useYoutubeChunkedPlayback,
             useLongReadTimeout = loopbackSource,
@@ -402,14 +413,16 @@ private fun ExoPlayerSurface(
             Log.i(TAG, "Skipping VOD cache for loopback playback")
         }
         val media = if (
-            !useVodCacheForSource(
+            stalkerMediaPolicy != null || !useVodCacheForSource(
                 vodCacheEnabled = playerSettings.vodCacheEnabled,
                 youtubeChunked = useYoutubeChunkedPlayback,
                 adaptive = adaptive,
                 loopback = loopbackSource,
             )
         ) {
-            upstream
+            // upstream ends in a DefaultDataSource, which opens the data: init segment this may add.
+            // Stalker links can be single-use: no extra segment reads for them.
+            if (mimeType == MimeTypes.APPLICATION_M3U8 && stalkerMediaPolicy == null) HlsParameterSetInitDataSource.Factory(upstream) else upstream
         } else {
             VodCache.wrap(
                 context = context,
@@ -448,6 +461,7 @@ private fun ExoPlayerSurface(
 
     val exoPlayer = remember(
         sourceUrl,
+        stalkerMediaPolicy,
         sourceAudioUrl,
         sanitizedSourceHeaders,
         sanitizedSourceResponseHeaders,
@@ -662,7 +676,7 @@ private fun ExoPlayerSurface(
         Log.i(
             PLAYER_DIAGNOSTIC_TAG,
             "prepare begin attempt=${playbackDiagnostics.attempt} " +
-                "source=${diagnosticPlaybackSource(sourceUrl)} audioSource=${!sourceAudioUrl.isNullOrBlank()} " +
+                "source=${if (stalkerMediaPolicy != null) "Stalker" else diagnosticPlaybackSource(sourceUrl)} audioSource=${!sourceAudioUrl.isNullOrBlank()} " +
                 "mime=${mediaItem.localConfiguration?.mimeType ?: "auto"} " +
                 "startPositionMs=${requestedStartPositionMs ?: 0L}",
         )
@@ -698,7 +712,7 @@ private fun ExoPlayerSurface(
         ).also { sidecarControllerRef = it }
     }
 
-    val autoSyncCoordinator = rememberAutoSyncCoordinator( // AutoSync hook
+    val autoSyncCoordinator = if (stalkerMediaPolicy == null) rememberAutoSyncCoordinator( // AutoSync hook
         scope = coroutineScope,
         player = exoPlayer,
         sidecar = sidecarController,
@@ -710,7 +724,7 @@ private fun ExoPlayerSurface(
         preferredSubtitleLanguage = playerSettings.preferredSubtitleLanguage,
         onMimeTypeSelected = { selectedExternalSubtitleMimeType = it },
         onSubtitleDelayChanged = { subtitleDelayMs = it },
-    )
+    ) else null
 
     fun syncPlayerViewKeepScreenOn() {
         playerViewRef?.keepScreenOn = exoPlayer.shouldKeepPlayerScreenOn()
@@ -747,14 +761,14 @@ private fun ExoPlayerSurface(
                 Log.w(
                     TAG,
                     "Decoder failure (${error.errorCodeName}); retrying with app decoders",
-                    error,
+                    if (stalkerMediaPolicy == null) error else null,
                 )
                 fallbackStartPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
                 decoderPriorityOverride = DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
                 latestOnError.value(null)
                 return
             }
-            latestOnError.value(error.localizedMessage ?: runBlocking { getString(Res.string.player_unable_to_play_stream) })
+            latestOnError.value(if (stalkerMediaPolicy != null) "The Stalker stream could not be played." else runBlocking { error.toDisplayMessage() })
         }
 
         val listener = object : Player.Listener {
@@ -768,9 +782,9 @@ private fun ExoPlayerSurface(
                         "positionMs=${exoPlayer.currentPosition.coerceAtLeast(0L)} " +
                         "bufferedMs=${exoPlayer.bufferedPosition.coerceAtLeast(0L)} " +
                         "durationMs=${exoPlayer.duration.coerceAtLeast(0L)} " +
-                        "message=${diagnosticPlayerMessage(error.message)} " +
-                        "causeChain=${diagnosticThrowableChain(error)}",
-                    error,
+                        "message=${if (stalkerMediaPolicy != null) "Stalker playback failed" else diagnosticPlayerMessage(error.message)} " +
+                        "causeChain=${if (stalkerMediaPolicy != null) error.javaClass.simpleName else diagnosticThrowableChain(error)}",
+                    if (stalkerMediaPolicy == null) error else null,
                 )
 
                 val positionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -802,7 +816,7 @@ private fun ExoPlayerSurface(
                     stallSession.markMimeProbe()
                     coroutineScope.launch {
                         val probedMime = withContext(Dispatchers.IO) {
-                            probeMimeType(sourceUrl, sanitizedSourceHeaders)
+                            probeMimeType(sourceUrl, sanitizedSourceHeaders, stalkerMediaPolicy)
                         }
                         if (probedMime != null) {
                             Log.d(TAG, "Playback failed with source error. Probed MIME type: $probedMime. Retrying...")
@@ -1022,7 +1036,7 @@ private fun ExoPlayerSurface(
     val latestChapterSourceHeaders = rememberUpdatedState(sanitizedSourceHeaders)
     LaunchedEffect(exoPlayer) {
         onControllerReady(
-            autoSyncCoordinator.wrap(object : PlayerEngineController { // AutoSync hook
+            object : PlayerEngineController { // AutoSync only when the media transport supports it.
                 override val playbackEngine = AndroidPlaybackEngine.ExoPlayer
 
                 private val audioTrackCache = AudioTrackCache()
@@ -1032,9 +1046,18 @@ private fun ExoPlayerSurface(
                     exoPlayer.play()
                 }
 
-                // Media3's Matroska extractor skips chapters; read them from the file, if allowed.
+                // Media3's Matroska extractor skips chapters, so they are read from the file, as in
+                // NuvioTV: when the chapter UI or skip intro needs them, and only for Matroska/WebM,
+                // which spares MP4 and HLS the extra request.
                 override suspend fun getChapters(): List<PlayerChapter> {
-                    if (!PlayerSettingsRepository.uiState.value.androidExoChaptersEnabled) return emptyList()
+                    if (stalkerMediaPolicy != null) return emptyList()
+                    val settings = PlayerSettingsRepository.uiState.value
+                    val read = shouldReadExoChapters(
+                        chaptersEnabled = settings.androidExoChaptersEnabled,
+                        skipIntroEnabled = settings.skipIntroEnabled,
+                        containerMimeType = exoPlayer.videoFormat?.containerMimeType,
+                    )
+                    if (!read) return emptyList()
                     return MatroskaChapterLoader.load(latestChapterSourceUrl.value, latestChapterSourceHeaders.value)
                 }
 
@@ -1290,7 +1313,7 @@ private fun ExoPlayerSurface(
                     centerMixLevelDb.set(clamped)
                     ffmpegAudioRenderer.get()?.setCenterMixLevelDb(clamped)
                 }
-            }),
+            }.let { controller -> autoSyncCoordinator?.wrap(controller) ?: controller },
         )
     }
 
@@ -1460,6 +1483,7 @@ private fun LibmpvPlayerSurface(
                 }
             }
         }
+        val errorLog = MpvErrorLog()
         val observer = object : MPV.EventObserver {
             override fun eventProperty(property: String) {
                 if (property == "sub-text" || property == "sid") view.updateStyledSubtitle()
@@ -1504,6 +1528,7 @@ private fun LibmpvPlayerSurface(
             override fun event(eventId: Int, data: MPVNode) {
                 when (eventId) {
                     MPV.mpvEvent.MPV_EVENT_START_FILE -> {
+                        errorLog.clear()
                         Log.i(
                             PLAYER_DIAGNOSTIC_TAG,
                             "mpv_event=START_FILE attempt=${playbackDiagnostics.attempt} " +
@@ -1557,8 +1582,26 @@ private fun LibmpvPlayerSurface(
                                     "mpv_error attempt=${playbackDiagnostics.attempt} " +
                                         "fileError=${diagnosticPlayerMessage(fileError)}",
                                 )
+                                val logLine = errorLog.logLine()
+                                val httpCode = mpvHttpStatusCode(logLine)
+                                val codecContext = if (httpCode == null) {
+                                    runCatching { mpvCodecContextLine(view.mpv, logLine.orEmpty()) }.getOrNull()
+                                } else {
+                                    null
+                                }
                                 latestOnError.value(
-                                    getString(Res.string.player_unable_to_play_stream),
+                                    mpvErrorMessage(
+                                        fileError = fileError,
+                                        logLine = logLine,
+                                        codecContext = codecContext,
+                                        fallback = getString(Res.string.player_unable_to_play_stream),
+                                        httpExplanation = httpCode?.let { httpStatusExplanationText(it) }.orEmpty(),
+                                        statusExplanation = if (httpCode == null) {
+                                            mpvNonHttpExplanationText(fileError, logLine)
+                                        } else {
+                                            ""
+                                        },
+                                    ),
                                 )
                             }
                         }
@@ -1573,6 +1616,7 @@ private fun LibmpvPlayerSurface(
                     "mpv_log level=$level prefix=${diagnosticPlayerMessage(prefix)} " +
                         "message=${diagnosticPlayerMessage(text)}",
                 )
+                errorLog.onLog(prefix, level, text)
             }
         }
         view.mpv.addObserver(observer)
@@ -1760,6 +1804,8 @@ private class NuvioLibmpvView(
             mpv.setOptionString("vf", "format=yuv420p")
         }
         mpv.setOptionString("msg-level", "all=warn")
+        // Android has no youtube-dl, so mpv's fallback to it can only fail and bury the real error.
+        mpv.setOptionString("ytdl", "no").logIfMpvError("ytdl")
         mpv.setOptionString("tls-verify", "yes")
         mpv.setOptionString("tls-ca-file", "${context.filesDir.path}/cacert.pem")
         mpv.setOptionString("demuxer-max-bytes", "${libmpvCacheBytes()}").logIfMpvError("demuxer-max-bytes")
@@ -1923,7 +1969,16 @@ private class NuvioLibmpvView(
         val seeking = mpv.getPropertyBoolean("seeking") ?: false
         val cacheBufferingState = mpv.getPropertyInt("cache-buffering-state")
         val durationMs = mpv.getPropertyDouble("duration").toMillis()
-        val positionMs = mpv.getPropertyDouble("time-pos").toMillis()
+        val positionMs = mpv.getPropertyDouble("time-pos")
+            ?.let { timePos ->
+                mpvPlaybackPositionSec(
+                    timePosSec = timePos,
+                    audioPtsSec = mpv.getPropertyDouble("audio-pts"),
+                    seeking = seeking,
+                    audioDelaySec = mpv.getPropertyDouble("audio-delay") ?: 0.0,
+                )
+            }
+            .toMillis()
         val cachePositionMs = mpv.getPropertyDouble("demuxer-cache-time").toMillis()
         val isCacheBuffering = cacheBufferingState != null && cacheBufferingState in 0 until 100
         val isLoading = pausedForCache ||

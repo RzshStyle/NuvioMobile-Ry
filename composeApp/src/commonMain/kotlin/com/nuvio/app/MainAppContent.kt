@@ -69,6 +69,7 @@ import com.nuvio.app.core.sync.ProfileSettingsSync
 import com.nuvio.app.core.sync.SyncManager
 import com.nuvio.app.core.ui.DisintegrationRequestController
 import com.nuvio.app.core.ui.NativeTabBridge
+import com.nuvio.app.features.livetv.sports.SportsRepository
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
 import com.nuvio.app.core.ui.NuvioContinueWatchingActionSheet
 import com.nuvio.app.core.ui.NuvioFloatingPrompt
@@ -140,6 +141,12 @@ import com.nuvio.app.features.player.ExternalPlayerPlatform
 import com.nuvio.app.features.livetv.model.EpgProgram
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.player.LiveTvPlayback
+import com.nuvio.app.features.livetv.multiview.MultiviewScreen
+import com.nuvio.app.features.livetv.multiview.MultiviewSession
+import com.nuvio.app.features.livetv.multiview.LocalOpenMultiview
+import com.nuvio.app.features.livetv.multiview.MultiviewQueue
+import com.nuvio.app.features.livetv.sports.SportsWatchController
+import com.nuvio.app.features.livetv.multiview.isMultiviewSupported
 import com.nuvio.app.features.livetv.ui.LiveTvCloudSyncPrompts
 import com.nuvio.app.features.livetv.ui.LiveTvGuideScreen
 import com.nuvio.app.features.livetv.ui.OnDemandActions
@@ -272,6 +279,7 @@ internal fun MainAppContent(
         val focusManager = LocalFocusManager.current
         val uriHandler = LocalUriHandler.current
         val coroutineScope = rememberCoroutineScope()
+        var liveChannelOpenJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
         var selectedTab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }
         var searchFocusRequestCount by remember { mutableStateOf(0) }
         val homeScrollToTopRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
@@ -341,7 +349,9 @@ internal fun MainAppContent(
     }.collectAsStateWithLifecycle()
     var visiblePlayerEntries by remember { mutableIntStateOf(0) }
     var streamLandscapeLoadingVisible by remember(currentRoute) { mutableStateOf(false) }
-    if (currentRoute is PlayerRoute || visiblePlayerEntries > 0 || streamLandscapeLoadingVisible) {
+    if (currentRoute is PlayerRoute || visiblePlayerEntries > 0 || streamLandscapeLoadingVisible ||
+        (isMultiviewSupported && currentRoute is LiveTvMultiviewRoute)
+    ) {
         LockPlayerToLandscape()
         HidePlayerSystemBars()
     }
@@ -453,6 +463,7 @@ internal fun MainAppContent(
             }
             AppScreenTab.Library -> libraryScrollToTopRequests.tryEmit(Unit)
             AppScreenTab.LiveTv -> liveTvScrollToTopRequests.tryEmit(Unit)
+            AppScreenTab.Sports -> Unit // Keep the chosen Sports filter and position on reselect.
             AppScreenTab.Settings -> settingsRootActionRequests.tryEmit(Unit)
         }
     }
@@ -712,6 +723,9 @@ internal fun MainAppContent(
     var resumePromptItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
     var lastExternalPlayerLaunch by remember { mutableStateOf<PlayerLaunch?>(null) }
     val activePlaybackProfileId = profileState.activeProfile?.profileIndex ?: ProfileRepository.activeProfileId
+    LaunchedEffect(activePlaybackProfileId) { liveChannelOpenJob?.cancel() }
+    val multiviewSession = remember(activePlaybackProfileId) { MultiviewSession(activePlaybackProfileId) }
+    var sportsMultiviewSession by remember(activePlaybackProfileId) { mutableStateOf(MultiviewSession(activePlaybackProfileId)) }
     val launchExternalPlayer = rememberExternalPlayerLauncher { result ->
         if (result != null) {
             val fallbackSession = lastExternalPlayerLaunch?.externalPlaybackSession()
@@ -735,14 +749,17 @@ internal fun MainAppContent(
         if (!ownsAppRuntime) return@LaunchedEffect
         if (!initialHomeReady || profileSwitchLoading) return@LaunchedEffect
         if (resumePromptItem != null) return@LaunchedEffect
-        if (currentRoute is StreamRoute || currentRoute is PlayerRoute || currentRoute is PartyRoute) return@LaunchedEffect
+        if (currentRoute is StreamRoute || currentRoute is PlayerRoute || currentRoute is PartyRoute ||
+            (isMultiviewSupported && currentRoute is LiveTvMultiviewRoute)
+        ) return@LaunchedEffect
         if (continueWatchingPreferencesUiState.showResumePromptOnLaunch) {
             resumePromptItem = ResumePromptRepository.consumeResumePrompt()
         }
     }
 
     LaunchedEffect(currentRoute) {
-        val inPlaybackFlow = currentRoute is StreamRoute || currentRoute is PlayerRoute || currentRoute is PartyRoute
+        val inPlaybackFlow = currentRoute is StreamRoute || currentRoute is PlayerRoute || currentRoute is PartyRoute ||
+            (isMultiviewSupported && currentRoute is LiveTvMultiviewRoute)
         if (inPlaybackFlow) {
             resumePromptItem = null
         }
@@ -812,6 +829,10 @@ internal fun MainAppContent(
         }
 
         suspend fun openExternalPlayback(launch: PlayerLaunch): Boolean {
+            if (launch.stalkerMediaPolicy != null) {
+                NuvioToastController.show(com.nuvio.app.features.livetv.stalker.StalkerPlaybackSupport.ENGINE)
+                return false
+            }
             lastExternalPlayerLaunch = launch
 
             val bingeGroup = launch.bingeGroup
@@ -907,8 +928,16 @@ internal fun MainAppContent(
         }
 
         fun openLiveChannel(channel: LiveChannel, nowTitle: String?) {
-            val launchId = LiveTvPlayback.prepare(channel, activePlaybackProfileId, nowTitle)
-            navController.navigate(PlayerRoute(launchId = launchId, title = channel.name))
+            liveChannelOpenJob?.cancel()
+            liveChannelOpenJob = coroutineScope.launch {
+                try {
+                    val launchId = LiveTvPlayback.prepare(channel, activePlaybackProfileId, nowTitle)
+                    navController.navigate(PlayerRoute(launchId = launchId, title = channel.name))
+                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (failure: com.nuvio.app.features.livetv.stalker.StalkerRoutingException) { NuvioToastController.show(failure.message.orEmpty()) }
+                catch (failure: com.nuvio.app.features.livetv.stalker.StalkerRouteMismatchException) { NuvioToastController.show(failure.message.orEmpty()) }
+                catch (_: Exception) { NuvioToastController.show("The provider could not open this channel. Check the source and VPN settings.") }
+            }
         }
 
         fun openOnDemandLaunch(playerLaunch: PlayerLaunch) {
@@ -952,13 +981,42 @@ internal fun MainAppContent(
         }
 
         fun openLiveCatchup(channel: LiveChannel, program: EpgProgram) {
-            coroutineScope.launch {
-                val launchId = LiveTvPlayback.prepareCatchup(channel, program, activePlaybackProfileId)
-                if (launchId == null) {
-                    NuvioToastController.show(liveTvCatchupUnavailable)
-                    return@launch
-                }
-                navController.navigate(PlayerRoute(launchId = launchId, title = program.title))
+            liveChannelOpenJob?.cancel()
+            liveChannelOpenJob = coroutineScope.launch {
+                try {
+                    val launchId = LiveTvPlayback.prepareCatchup(channel, program, activePlaybackProfileId)
+                    if (launchId == null) {
+                        NuvioToastController.show(liveTvCatchupUnavailable)
+                        return@launch
+                    }
+                    navController.navigate(PlayerRoute(launchId = launchId, title = program.title))
+                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (failure: com.nuvio.app.features.livetv.stalker.StalkerRoutingException) { NuvioToastController.show(failure.message.orEmpty()) }
+                catch (failure: com.nuvio.app.features.livetv.stalker.StalkerRouteMismatchException) { NuvioToastController.show(failure.message.orEmpty()) }
+                catch (_: Exception) { NuvioToastController.show("The provider could not open this archive. Check the source and VPN settings.") }
+            }
+        }
+
+        fun openSportsMultiview(channelKey: String? = null) {
+            if (!isMultiviewSupported) return
+            val watching = SportsWatchController(activePlaybackProfileId)
+            val seed = try { watching.seedChannel(channelKey) } finally { watching.close() }
+            sportsMultiviewSession = MultiviewSession(activePlaybackProfileId).also { session ->
+                if (seed != null) { session.assign(0, seed); session.focus(0) }
+            }
+            navController.navigate(LiveTvMultiviewRoute(sportsMode = true)) {
+                if (navController.currentRoute is PlayerRoute) popUpTo<PlayerRoute> { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+
+        /** The player's Multiview button: the one Multiview, with this channel in the first pane. */
+        fun openMultiviewWith(channelKey: String? = null) {
+            if (!isMultiviewSupported) return
+            channelKey?.let(MultiviewQueue::addFirst)
+            navController.navigate(LiveTvMultiviewRoute()) {
+                if (navController.currentRoute is PlayerRoute) popUpTo<PlayerRoute> { inclusive = true }
+                launchSingleTop = true
             }
         }
 
@@ -967,6 +1025,14 @@ internal fun MainAppContent(
             onPlayCatchup = ::openLiveCatchup,
             onOpenGame = { ev -> navController.navigate(LiveTvSportsGameRoute(eventId = ev.id, title = ev.title)) },
             onOpenLeague = { l -> navController.navigate(LiveTvSportsLeagueRoute(leagueId = l.id, title = l.name)) },
+            onOpenMultiview = { openSportsMultiview() },
+        )
+
+        fun openSportsRoot() = navController.openSportsRoot(
+            showSportsTab = SportsRepository.settings.value.showInSidebar,
+            useNativeNavigation = useNativeNavigation,
+            title = liveTvSportsTitle,
+            activateTab = ::activateTab,
         )
 
         // Live TV hook: a reminder or game notification was tapped.
@@ -983,13 +1049,17 @@ internal fun MainAppContent(
                         LiveTvDeepLinks.consume(link)
                     }
                     is LiveTvLink.SportsGame -> {
-                        activateTab(AppScreenTab.LiveTv)
-                        navController.navigate(LiveTvSportsGameRoute(eventId = link.eventId, title = liveTvSportsTitle)) { launchSingleTop = true }
+                        navController.openSportsGameNotification(
+                            eventId = link.eventId,
+                            title = liveTvSportsTitle,
+                            showSportsTab = SportsRepository.settings.value.showInSidebar,
+                            useNativeNavigation = useNativeNavigation,
+                            activateTab = ::activateTab,
+                        )
                         LiveTvDeepLinks.consume(link)
                     }
                     LiveTvLink.Sports -> {
-                        activateTab(AppScreenTab.LiveTv)
-                        navController.navigate(LiveTvSportsRoute(liveTvSportsTitle)) { launchSingleTop = true }
+                        openSportsRoot()
                         LiveTvDeepLinks.consume(link)
                     }
                     null -> Unit
@@ -1434,6 +1504,7 @@ internal fun MainAppContent(
             val drawsUnderVerticalBar = currentRoute.drawsUnderVerticalBar(selectedTab)
             SharedTransitionLayout {
                 CompositionLocalProvider(
+                    LocalOpenMultiview provides ::openMultiviewWith,
                     LocalPosterClickAnchor provides if (posterNavigationEnabled) posterNavigation::prepare else null,
                     LocalUseNativeNavigation provides useNativeNavigation,
                     LocalNativeNavigationBarHidden provides (currentRoute?.hidesNavigationBar == true),
@@ -1608,7 +1679,10 @@ internal fun MainAppContent(
                                 onLiveTvOnDemandClick = { navController.navigate(LiveTvOnDemandRoute(liveTvOnDemandTitle)) },
                                 onLiveTvRecordingsClick = { navController.navigate(LiveTvRecordingsRoute(liveTvRecordingsTitle)) },
                                 onLiveTvGuideClick = { navController.navigate(LiveTvGuideRoute(liveTvGuideTitle)) },
-                                onLiveTvSportsClick = { navController.navigate(LiveTvSportsRoute(liveTvSportsTitle)) },
+                                onLiveTvSportsClick = ::openSportsRoot,
+                                onSportsBack = { activateTab(AppScreenTab.Home) },
+                                sportsActions = sportsActions,
+                                onLiveTvMultiviewClick = { navController.navigate(LiveTvMultiviewRoute()) { launchSingleTop = true } },
                                 onLiveTvManageClick = { navController.navigate(LiveTvManageRoute(liveTvManageTitle)) },
                                 onLiveTvCalendarClick = { navController.navigate(LiveTvCalendarRoute(liveTvCalendarTitle)) },
                                 onLiveTvSettingsClick = {
@@ -1793,6 +1867,16 @@ internal fun MainAppContent(
                 entry<LiveTvSportsRoute> { route ->
                     val onBack = rememberGuardedPopBackStack(navController, route)
                     SportsScreen(onBack = onBack, actions = sportsActions, modifier = Modifier.fillMaxSize())
+                }
+                entry<LiveTvMultiviewRoute> { route ->
+                    val onBack = rememberGuardedPopBackStack(navController, route)
+                    MultiviewScreen(
+                        onBack = onBack,
+                        session = if (route.sportsMode) sportsMultiviewSession else multiviewSession,
+                        startOnSports = route.sportsMode,
+                        active = currentRoute == route && visiblePlayerEntries == 0,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
                 entry<LiveTvSportsGameRoute> { route ->
                     val onBack = rememberGuardedPopBackStack(navController, route)

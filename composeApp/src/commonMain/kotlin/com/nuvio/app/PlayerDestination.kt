@@ -47,6 +47,7 @@ internal fun PlayerDestination(
         sourceUrl = launch.sourceUrl,
         sourceAudioUrl = launch.sourceAudioUrl,
         sourceHeaders = launch.sourceHeaders,
+        stalkerMediaPolicy = launch.stalkerMediaPolicy,
         sourceResponseHeaders = launch.sourceResponseHeaders,
         externalSubtitles = launch.externalSubtitles,
         streamType = launch.streamType,
@@ -78,8 +79,13 @@ internal fun PlayerDestination(
         launchId = route.launchId,
         sourceFilename = launch.sourceFilename,
         stream = launch.stream,
+        sourceFromLinkCache = launch.sourceFromLinkCache,
         onBack = onBack,
         onOpenInExternalPlayer = { request ->
+            if (launch.stalkerMediaPolicy != null) {
+                NuvioToastController.show(com.nuvio.app.features.livetv.stalker.StalkerPlaybackSupport.ENGINE)
+                return@PlayerScreen
+            }
             val playerLaunch = PlayerLaunch(
                 profileId = launch.profileId,
                 title = launch.title,

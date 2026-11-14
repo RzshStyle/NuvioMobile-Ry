@@ -13,10 +13,14 @@ internal actual object LiveTvFiles {
         dir: String,
         name: String,
         userAgent: String,
+        checkPlaylist: Boolean,
         onProgress: ((bytes: Long) -> Unit)?,
     ): Boolean = error("Live TV isn't available on this platform yet")
 
     actual fun writeText(dir: String, name: String, text: String): Boolean = false
+    actual suspend fun writeTextStream(dir: String, name: String,
+        publish: (() -> Unit) -> Unit, producer: suspend ((String) -> Unit) -> Unit): Boolean =
+        error("Live TV isn't available on this platform yet")
     actual fun <T> readChunks(dir: String, name: String, block: (Sequence<String>) -> T): T? = null
     actual fun readSmall(dir: String, name: String): String? = null
     actual fun writeSmall(dir: String, name: String, text: String) {}

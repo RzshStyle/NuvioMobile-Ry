@@ -33,6 +33,13 @@ data class StreamItem(
     val externalSubtitles: List<StreamSubtitle> = emptyList(),
     val badges: List<StreamBadge> = emptyList(),
     val serverTarget: ServerPlaybackTarget? = null,
+    /** Local provider reference. Resolves only when played; never contains a portal session. */
+    val stalkerSourceId: String? = null,
+    val stalkerStream: com.nuvio.stalker.StalkerStreamRef? = null,
+    /** Ephemeral, internal-player-only context; excluded from every cache and external player. */
+    val stalkerMediaPolicy: com.nuvio.app.features.livetv.stalker.StalkerMediaPolicy? = null,
+    /** True when [url] was produced by Nuvio's own debrid resolver, not returned by the add-on. */
+    val debridResolved: Boolean = false,
 ) {
     val streamLabel: String
         get() = name?.takeIf { it.isNotBlank() } ?: "Stream"
