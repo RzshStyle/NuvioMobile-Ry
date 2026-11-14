@@ -65,8 +65,10 @@ import com.nuvio.app.features.livetv.ui.formatClock
 
 /** A team's color that reads on a dark screen: the alternate color when the main one is near white. */
 internal fun teamColor(t: TeamInfo?): Color {
-    val main = t?.color?.let { Color(it) }
-    val alt = t?.altColor?.let { Color(it) }
+    // The same colours for the same team wherever it's shown (see TeamColors).
+    val known = t?.let { com.nuvio.app.features.livetv.sports.TeamColors.paint(it) }
+    val main = known?.color?.let { Color(it) }
+    val alt = known?.altColor?.let { Color(it) }
     val pick = when {
         main == null -> alt
         main.luminance() > 0.62f && alt != null && alt.luminance() < 0.62f -> alt

@@ -187,8 +187,11 @@ internal object SportsRepository {
     }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     /** The newest data, before Score Delay: only [events] reads it. */
-    private val withChannels: StateFlow<List<SportsEvent>> = combine(plainEvents, tvData, tvCountries) { ev, tv, countries ->
-        runCatching { SportsTvListings.addChannels(ev, tv, countries, tvCache) }.getOrDefault(ev)
+    private val withChannels: StateFlow<List<SportsEvent>> = combine(plainEvents, tvData, tvCountries, TeamColors.version) { ev, tv, countries, _ ->
+        val listed = runCatching { SportsTvListings.addChannels(ev, tv, countries, tvCache) }.getOrDefault(ev)
+        // Each team in the same colours everywhere (see TeamColors).
+        TeamColors.learnAll(listed)
+        TeamColors.paintAll(listed)
     }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     /** Score Delay (Sports settings), see [SportsScoreDelay]. */
@@ -227,13 +230,21 @@ internal object SportsRepository {
      * Everything we know, for My Sports: the page's days plus your teams' whole seasons and the
      * non-league seasons. A game in both counts once (the fresher copy, from the page's days).
      */
-    val known: StateFlow<List<SportsEvent>> = combine(events, scheduleData, tsdbData, aheadData, lookedUp) { ev, s, t, a, lu ->
-        val seen = HashSet<String>(ev.size * 2)
-        ev.forEach { seen += dedupeKey(it) }
-        val extra = (a.values.flatMap { it.events } + s.values.flatMap { it.events } + t.values.flatMap { it.events } + lu.values.flatMap { it.events })
-            .filter { seen.add(dedupeKey(it)) }
-        ev + extra
-    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+    val known: StateFlow<List<SportsEvent>> = combine(
+        combine(events, scheduleData, tsdbData, aheadData, lookedUp) { ev, s, t, a, lu ->
+            val seen = HashSet<String>(ev.size * 2)
+            ev.forEach { seen += dedupeKey(it) }
+            val extra = (a.values.flatMap { it.events } + s.values.flatMap { it.events } + t.values.flatMap { it.events } + lu.values.flatMap { it.events })
+                .filter { seen.add(dedupeKey(it)) }
+            ev + extra
+        },
+        TeamColors.version
+    ) { all, _ ->
+        // Games further ahead come from team schedules and season files, which often have no
+        // colours: the same ones as the page's own days and the rest of the app.
+        TeamColors.learnAll(all)
+        TeamColors.paintAll(all)
+    }.flowOn(Dispatchers.Default).stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     private fun sameShowShifted(guide: SportsEvent, fx: SportsEvent): Boolean {
         if (SportsCatalog.league(fx.leagueId)?.sport != Sport.WRESTLING) return false
@@ -491,6 +502,7 @@ internal object SportsRepository {
         var lastKick = -1
         var lastFixtures = 0L
         var lastTv = 0L
+        var lastColors = 0L
         var extrasJob: Job? = null
         while (true) {
             val full = foreground.value && (settings.value.showInSidebar || viewers.value > 0)
@@ -509,6 +521,10 @@ internal object SportsRepository {
                 if (LiveTvClock.nowMs() - lastTv > 4 * HOUR) {
                     lastTv = LiveTvClock.nowMs()
                     runCatching { updateTv() }
+                }
+                if (LiveTvClock.nowMs() - lastColors > 12 * HOUR) {
+                    lastColors = LiveTvClock.nowMs()
+                    runCatching { updateTeamColors() }
                 }
                 if (LiveTvClock.nowMs() - lastFixtures > 12 * HOUR) {
                     lastFixtures = LiveTvClock.nowMs()
@@ -787,7 +803,9 @@ internal object SportsRepository {
         // A team's schedule from ESPN leaves out the teams' colours: filled in from the league's team list and games we know.
         val known = HashMap<String, TeamInfo>()
         fun learn(t: TeamInfo) {
-            if (t.color == null && t.altColor == null) return
+            // Only real colours: the feed's stand-in for a team it gave none for doesn't count.
+            if (!TeamColors.isReal(t)) return
+            TeamColors.learn(t)
             val k = SportsCatalog.teamFamily(t.leagueId) + "|" + t.id
             if (k !in known) known[k] = t
         }
@@ -795,11 +813,13 @@ internal object SportsRepository {
         (leagueData.value.values + weekData.value.values).forEach { d -> d.events.forEach { ev -> ev.sides.forEach { learn(it.team) } } }
         teamCache.values().forEach { list -> list.forEach(::learn) }
         fun fill(side: Side?): Side? {
-            if (side == null || side.team.color != null) return side
+            // The schedule has no colours, so each team got a stand-in from its name: replaced
+            // with the real ones whenever the league's list or today's games have them.
+            if (side == null || TeamColors.isReal(side.team)) return side
             val k = known[SportsCatalog.teamFamily(side.team.leagueId) + "|" + side.team.id] ?: return side
             return side.copy(team = side.team.copy(color = k.color, altColor = k.altColor, logo = side.team.logo ?: k.logo))
         }
-        return byId.values.map { ev -> if (ev.sides.all { it.team.color != null }) ev else ev.copy(away = fill(ev.away), home = fill(ev.home)) }
+        return byId.values.map { ev -> if (ev.sides.all { TeamColors.isReal(it.team) }) ev else ev.copy(away = fill(ev.away), home = fill(ev.home)) }
             .sortedBy { it.startMs }
     }
 
@@ -961,6 +981,12 @@ internal object SportsRepository {
         coroutineScope { list.map { l -> async { block(l) } }.awaitAll() }
     }
 
+    /** TheSportsDB's team colours (nuvio-data's sportsdb/colors.json); the saved copy when it can't be reached. */
+    private suspend fun updateTeamColors() {
+        val raw = runCatching { feeds.teamColorsRaw() }.getOrNull() ?: return
+        if (TeamColors.loadFile(raw)) runCatching { LiveTvFiles.writeSmall(DIR, "team_colors.json", raw) }
+    }
+
     /** TheSportsDB's TV listings (a few hundred games' channels in many countries); the last saved copy when the file can't be reached. */
     private suspend fun updateTv() {
         val raw = runCatching { feeds.tvListingsRaw() }.onSuccess { runCatching { LiveTvFiles.writeSmall(DIR, "tv.json", it) } }.getOrNull() ?: return
@@ -1074,6 +1100,7 @@ internal object SportsRepository {
                 if (list.isNotEmpty()) tvData.value = list
             }
         }
+        runCatching { LiveTvFiles.readSmall(DIR, "team_colors.json")?.let { TeamColors.loadFile(it) } }
     }
 
     // ------------------------------------------------------------------ matching channels
