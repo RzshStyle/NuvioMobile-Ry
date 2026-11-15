@@ -16,6 +16,11 @@ class MultiviewSessionTest {
         assertEquals(listOf(listOf(0, 1), listOf(2)), MultiviewLayout.TRIPLE.rows)
         assertEquals(listOf(listOf(0, 1), listOf(2, 3)), MultiviewLayout.QUAD.rows)
         MultiviewLayout.entries.forEach { assertEquals((0 until it.paneCount).toList(), it.rows.flatten()) }
+        assertEquals(listOf(listOf(0), listOf(1)), MultiviewLayout.DUAL.rowsFor(tall = true))
+        assertEquals(listOf(listOf(0), listOf(1), listOf(2)), MultiviewLayout.TRIPLE.rowsFor(tall = true))
+        assertEquals(MultiviewLayout.QUAD.rows, MultiviewLayout.QUAD.rowsFor(tall = true))
+        assertEquals(MultiviewLayout.DUAL.rows, MultiviewLayout.DUAL.rowsFor(tall = false))
+        MultiviewLayout.entries.forEach { assertEquals((0 until it.paneCount).toList(), it.rowsFor(tall = true).flatten()) }
     }
 
     @Test

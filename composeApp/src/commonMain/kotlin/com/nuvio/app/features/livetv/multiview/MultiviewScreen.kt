@@ -307,7 +307,7 @@ fun MultiviewScreen(
         )
         Box(Modifier.weight(1f).fillMaxWidth()) {
             BoxWithConstraints(Modifier.fillMaxSize().padding(NuvioTokens.Space.s4)) {
-                val layoutRows = permittedSelection.layout.rows
+                val layoutRows = permittedSelection.layout.rowsFor(tall = maxHeight > maxWidth)
                 for (pane in 0 until permittedSelection.layout.paneCount) {
                     val rowIndex = layoutRows.indexOfFirst { pane in it }
                     val row = layoutRows[rowIndex]
