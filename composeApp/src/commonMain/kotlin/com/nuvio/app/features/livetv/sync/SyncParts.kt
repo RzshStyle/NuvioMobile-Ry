@@ -56,7 +56,7 @@ internal object SyncParts {
     )
 
     /** Always synced, whatever is switched off: the parental lock and the profile set-up marker. */
-    private val ALWAYS_KEYS = setOf(LiveTvKeys.parentalPin, LiveTvKeys.lockAdultContent, "profile_seeded")
+    private val ALWAYS_KEYS = setOf(LiveTvKeys.parentalPin, LiveTvKeys.lockAdultContent, "profile_seeded", LiveTvKeys.profileMatch)
 
     init {
         // Behavior and options became their own part: the first time, take the saved copy's values for it.

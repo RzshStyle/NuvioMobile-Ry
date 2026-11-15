@@ -254,6 +254,9 @@ internal object LiveTvKeys {
     }
 
     fun seededKey(id: Int) = "profile_seeded_p$id"
+
+    /** Profiles kept matched ("1,3" per group, set up on the TV): each group shares one copy of its Live TV choices. */
+    const val profileMatch = "profile_match_groups"
     val SEEDED = Regex("""^profile_seeded_p(\d+)$""")
 }
 
@@ -632,7 +635,48 @@ internal open class LiveTvPreferencesStore {
         LiveTvKeys.hiddenChannels, LiveTvKeys.hiddenGroups, LiveTvKeys.vodHiddenCategories
     )
 
-    private fun my(key: String, id: Int = currentProfile): String = if (id <= 1) key else "${key}_p$id"
+    /**
+     * Where profile [id] keeps [key]. Profiles matched on the TV keep their matched choices in
+     * their group's one shared copy (under the group's lowest profile), the same as the TV app;
+     * history and reminders stay each profile's own.
+     */
+    private fun my(key: String, id: Int = currentProfile, g: MatchGroups = groupsOf(_data.value)): String =
+        own(key, if (key in matchedKeys) g.owner(id) else id)
+
+    /** Profile [id]'s own copy of [key]. */
+    private fun own(key: String, id: Int): String = if (id <= 1) key else "${key}_p$id"
+
+    /** The choices matched profiles share (the same list as the TV app). */
+    private val matchedKeys: Set<String> = setOf(
+        LiveTvKeys.favorites, LiveTvKeys.groupOrder, LiveTvKeys.customGroups, LiveTvKeys.channelOrder,
+        LiveTvKeys.channelCopies, LiveTvKeys.vodGroupOrder, LiveTvKeys.vodSorts, LiveTvKeys.sportsMine,
+        LiveTvKeys.hiddenChannels, LiveTvKeys.hiddenGroups, LiveTvKeys.vodHiddenCategories,
+        LiveTvKeys.calendarFollows, LiveTvKeys.calendarHiddenShows, LiveTvKeys.sideMenuHidden
+    )
+
+    /** Groups of matched profiles. A profile in no group is its own owner. */
+    private class MatchGroups(val groups: List<Set<Int>>) {
+        fun groupOf(id: Int): Set<Int>? = groups.firstOrNull { id in it }
+        fun owner(id: Int): Int = groupOf(id)?.minOrNull() ?: id
+    }
+
+    private val noMatches = MatchGroups(emptyList())
+    private var matchMemoRaw: Set<String>? = null
+    private var matchMemo: MatchGroups = noMatches
+    private val matchLock = SynchronizedObject()
+
+    private fun groupsOf(p: Map<String, PrefValue>): MatchGroups {
+        val raw = p.strSet(LiveTvKeys.profileMatch)
+        synchronized(matchLock) {
+            if (raw == matchMemoRaw) return matchMemo
+            val g = if (raw.isNullOrEmpty()) noMatches else MatchGroups(
+                raw.mapNotNull { e -> e.split(',').mapNotNull { it.trim().toIntOrNull() }.toSet().takeIf { it.size >= 2 } }
+            )
+            matchMemoRaw = raw
+            matchMemo = g
+            return g
+        }
+    }
 
     /**
      * The stored data as profile [id] sees it: its own copies of the personal keys put in place
@@ -640,10 +684,11 @@ internal open class LiveTvPreferencesStore {
      */
     private fun profileView(p: Map<String, PrefValue>, id: Int): Map<String, PrefValue> {
         if (id <= 1) return p
-        val seeded = p.bool(LiveTvKeys.seededKey(id)) == true
+        val g = groupsOf(p)
+        val seeded = p.bool(LiveTvKeys.seededKey(id)) == true || g.groupOf(id) != null
         val m = p.toMutableMap()
         (personalStringKeys + personalSetKeys).forEach { k ->
-            val own = p[my(k, id)]
+            val own = p[my(k, id, g)]
             if (own != null) m[k] = own else if (seeded) m.remove(k)
         }
         return m
@@ -657,6 +702,7 @@ internal open class LiveTvPreferencesStore {
         if (id <= 1) return
         edit { p ->
             if (p.bool(LiveTvKeys.seededKey(id)) == true) return@edit
+            if (groupsOf(p).groupOf(id) != null) return@edit
             (personalStringKeys + personalSetKeys).forEach { k -> if (p[my(k, id)] == null) p[k]?.let { p[my(k, id)] = it } }
             p[LiveTvKeys.seededKey(id)] = true
         }
@@ -978,7 +1024,7 @@ internal open class LiveTvPreferencesStore {
     // Each Nuvio profile has its own followed and hidden shows, the same as on the TV: the first profile
     // keeps the original keys; another profile starts with an empty list of its own.
     private fun mineOrShared(p: Map<String, PrefValue>, key: String, id: Int): String =
-        (if (id <= 1) p.str(key) else p.str(my(key, id))) ?: ""
+        p.str(my(key, id, groupsOf(p))) ?: ""
 
     val calendarFollows: Flow<String> = combine(_data, _profile) { p, id -> mineOrShared(p, LiveTvKeys.calendarFollows, id) }.distinctUntilChanged()
     fun calendarFollowsNow(): String = mineOrShared(_data.value, LiveTvKeys.calendarFollows, currentProfile)
@@ -1104,6 +1150,13 @@ internal open class LiveTvPreferencesStore {
         p[LiveTvKeys.recordSeriesKeep] = s.recordSeriesKeep
         p[LiveTvKeys.homeRowEnabled] = s.homeRowEnabled
         p[LiveTvKeys.homeRowHiddenProfiles] = s.homeRowHiddenProfiles.map { it.toString() }.toSet()
+        // Matched profiles show or hide the Live TV home row together, as on the TV.
+        groupsOf(p).groupOf(currentProfile)?.let { group ->
+            val others = (group - currentProfile).map { it.toString() }.toSet()
+            val rowHidden = p.strSet(LiveTvKeys.homeRowHiddenProfiles).orEmpty()
+            p[LiveTvKeys.homeRowHiddenProfiles] =
+                if (currentProfile.toString() in rowHidden) rowHidden + others else rowHidden - others
+        }
         p[LiveTvKeys.homeRowAboveContinueWatching] = s.homeRowAboveContinueWatching
         p[LiveTvKeys.homeRowSource] = s.homeRowSource
         p[LiveTvKeys.homeRowTitle] = s.homeRowTitle
