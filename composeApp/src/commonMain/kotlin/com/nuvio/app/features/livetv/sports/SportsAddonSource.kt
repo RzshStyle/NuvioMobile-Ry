@@ -37,6 +37,8 @@ internal object SportsAddonSource {
         val vod: List<ChannelMatch>,
         /** Names of your installed addons that offer replays or highlights at all (empty: none do). */
         val vodAddons: List<String> = emptyList(),
+        /** Nuvio Live Sports (replays of most games) isn't installed at all, not even switched off. */
+        val suggestNuvioSports: Boolean = false,
     )
 
     /** One game as an addon lists it. */
@@ -63,7 +65,8 @@ internal object SportsAddonSource {
         val parts = installed.map { a -> async { runCatching { forAddon(a, ev) }.getOrDefault(NO_RESULT) } }.map { it.await() }
         val vodAddons = installed.filter { a -> a.manifest?.catalogs.orEmpty().any { isVodCatalog(it) && usableForVod(it) } }
             .map { it.displayTitle }.distinct()
-        Found(parts.flatMap { it.live }, parts.flatMap { it.vod }, vodAddons)
+        val suggest = AddonRepository.uiState.value.addons.none { isNuvioSports(it.manifest?.id.orEmpty(), it.manifestUrl) }
+        Found(parts.flatMap { it.live }, parts.flatMap { it.vod }, vodAddons, suggestNuvioSports = suggest)
     }
 
     private suspend fun forAddon(a: ManagedAddon, ev: SportsEvent): Found {
@@ -398,6 +401,12 @@ internal object SportsAddonSource {
     )
 
     const val SOURCE_ID = "addon:sports"
+
+    /** Recommended when a finished game has no replays and you don't have it. */
+    const val NUVIO_SPORTS_NAME = "Nuvio Live Sports"
+    const val NUVIO_SPORTS_SITE = "nuviosports.xyz"
+    internal fun isNuvioSports(id: String, url: String): Boolean =
+        id.equals("community.nuvio.live-sports", true) || url.contains(NUVIO_SPORTS_SITE, true)
     private val NO_RESULT = Found(emptyList(), emptyList())
     /** Above a guess, below a channel you picked yourself. */
     const val ADDON_SCORE = 100
