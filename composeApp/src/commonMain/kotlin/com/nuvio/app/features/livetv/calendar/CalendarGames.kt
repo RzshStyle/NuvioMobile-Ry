@@ -24,6 +24,17 @@ internal object CalendarGames {
         return known.flatMap { ev ->
             val mine = ev.sides.firstOrNull { follows.followsTeam(ev.leagueId, it.team.id) }
             if (mine == null && ev.leagueId !in eventLeagues) return@flatMap emptyList()
+            // A race weekend: each session (practice, qualifying, sprint, race) on its own day, at its own time.
+            if (ev.sessions.size > 1) return@flatMap ev.sessions.withIndex().mapNotNull { (i, s) ->
+                val d = SportsDates.dayOf(s.startMs)
+                if (d < from || d > to) return@mapNotNull null
+                CalendarEntry(
+                    key = if (i == 0) "game|${ev.id}" else "game|${ev.id}|s$i", kind = CalendarKind.GAME, contentId = "game|${ev.id}", type = "game",
+                    title = ev.title, poster = SportsFeeds.leagueLogos[ev.leagueId], background = null,
+                    airMs = s.startMs, dayMs = d, note = s.label,
+                    network = ev.broadcasts.firstOrNull(), eventId = ev.id,
+                )
+            }
             val day = SportsDates.dayOf(ev.startMs)
             // A tournament that runs for days (golf, tennis): on every day it's on, so it's still
             // there on its last day, not only on the day it started. (No time: Sports gives none.)
