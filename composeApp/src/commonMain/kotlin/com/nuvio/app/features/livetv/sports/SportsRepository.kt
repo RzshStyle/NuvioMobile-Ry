@@ -325,25 +325,49 @@ internal object SportsRepository {
      */
     fun openGame(ev: SportsEvent) {
         addonJobs.remove(ev.id)?.cancel()
+        // Replays found for this game a few minutes ago at most: no need to ask again.
+        if (ev.state == GameState.POST && _addonVod.value[ev.id]?.isNotEmpty() == true &&
+            LiveTvClock.nowMs() - (vodAt.value[ev.id] ?: 0L) < VOD_FRESH_MS
+        ) return
         addonJobs[ev.id] = scope.launch {
             var round = 0
             while (kotlinx.coroutines.currentCoroutineContext().isActive) {
-                val found = runCatching { SportsAddonSource.find(ev) }.getOrNull()
-                if (found != null) {
-                    _addonLive.update { it + (ev.id to found.live) }
-                    _addonVod.update { it + (ev.id to found.vod) }
-                    _vodAddons.update { it + (ev.id to found.vodAddons) }
-                    _suggestNuvioSports.value = found.suggestNuvioSports
-                } else if (ev.state == GameState.POST) {
-                    // Couldn't ask: show the "nothing found" text rather than "looking" forever.
-                    _addonVod.update { it + (ev.id to emptyList()) }
-                }
-                val got = found != null && (found.live.isNotEmpty() || found.vod.isNotEmpty())
+                val got = lookInAddons(ev)
                 if (ev.state == GameState.POST || got || ++round >= 20) break
                 delay(90_000L)
             }
         }
     }
+
+    private val vodAt = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    /** One look through your sports addons for [ev], shown add-on by add-on as each answers; true when something was found. */
+    private suspend fun lookInAddons(ev: SportsEvent): Boolean {
+        fun show(found: SportsAddonSource.Found, done: Boolean) {
+            if (done || found.live.isNotEmpty()) _addonLive.update { it + (ev.id to found.live) }
+            if (done || found.vod.isNotEmpty()) _addonVod.update { it + (ev.id to found.vod) }
+            _vodAddons.update { it + (ev.id to found.vodAddons) }
+            _suggestNuvioSports.value = found.suggestNuvioSports
+        }
+        val found = try {
+            SportsAddonSource.find(ev) { show(it, false) }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            null
+        }
+        if (found != null) {
+            show(found, true)
+            if (ev.state == GameState.POST) vodAt.update { it + (ev.id to LiveTvClock.nowMs()) }
+        } else if (ev.state == GameState.POST) {
+            // Couldn't ask: show the "nothing found" text rather than "looking" forever.
+            _addonVod.update { it + (ev.id to emptyList()) }
+        }
+        return found != null && (found.live.isNotEmpty() || found.vod.isNotEmpty())
+    }
+
+    /** Replays found this recently aren't asked for again when the game is opened. */
+    private const val VOD_FRESH_MS = 10 * 60_000L
 
     /** The game page was closed: stop looking. */
     fun closeGame(eventId: String) {
