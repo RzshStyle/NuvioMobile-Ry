@@ -6,6 +6,7 @@ import com.nuvio.app.features.livetv.stalker.StalkerCatalogCache
 import com.nuvio.stalker.StalkerConfig
 import com.nuvio.stalker.StalkerError
 import com.nuvio.stalker.StalkerException
+import io.ktor.http.decodeURLQueryComponent
 import io.ktor.http.encodeURLParameter
 import com.nuvio.app.features.livetv.model.ChannelNameEditor
 import com.nuvio.app.features.livetv.model.EpgAssignment
@@ -380,7 +381,14 @@ internal object LiveTvRepository {
             val file = playlistFile(pl.id)
             val exists = LiveTvFiles.exists(LiveTvDirs.PLAYLISTS, file)
             val stale = !exists || now - LiveTvFiles.lastModified(LiveTvDirs.PLAYLISTS, file) > settings.playlistRefreshHours.coerceAtLeast(1) * HOUR
-            if (!(forcePlaylists || stale || pl.id in forceIds)) continue
+            if (!(forcePlaylists || stale || pl.id in forceIds)) {
+                if (pl.isM3u && pl.m3uLogin == null && !pl.vodInPlaylist && exists && linkLoginChecked.add(pl.id)) {
+                    // Playlists saved before movies, series and logins were read from their links:
+                    // looked at once per start, so On Demand doesn't wait for the next playlist update.
+                    runCatching { refreshM3uAccount(pl) }
+                }
+                continue
+            }
             setStatus(loading = true, message = "Updating playlist \"${pl.name}\"…")
             val result = runCatching {
                 if (pl.isStalker) downloadStalker(pl, file)
@@ -494,7 +502,7 @@ internal object LiveTvRepository {
             }
         }
         sweep(LiveTvDirs.EPG, { it.substringBefore(".xml").substringBefore(".tmp") }, guideIds)
-        sweep(LiveTvDirs.PLAYLISTS, { it.substringBefore(".m3u").substringBefore(".groups").substringBefore(".tmp") }, playlistIds)
+        sweep(LiveTvDirs.PLAYLISTS, { it.substringBefore(".m3u").substringBefore(".groups").substringBefore(".episodes").substringBefore(".tmp") }, playlistIds)
     }
 
     // ---------------------------------------------------------------- downloads
@@ -603,12 +611,90 @@ internal object LiveTvRepository {
         else -> "Adding channels from ${names.size} new playlists…"
     }
 
-    /** M3U links from Xtream providers (get.php with a login): the account's expiry and status. */
+    /** M3U playlists already looked at for movies, series and a login since the app started. */
+    private val linkLoginChecked: MutableSet<String> = HashSet()
+
+    /**
+     * What an M3U playlist offers besides its channels. Its own movie and episode entries (read
+     * into On Demand straight from the playlist), and, for playlists from an Xtream provider, the
+     * account: the same server's player_api.php has the expiry date and connections, and fuller
+     * movie and series details. The login comes from the link itself (…/get.php?username=…) or,
+     * for short links that hide it, from the playlist's channel links (…/live/user/pass/123.ts);
+     * one found in the channel links is only kept once the provider accepts it.
+     */
     private suspend fun refreshM3uAccount(pl: PlaylistSource) {
-        val api = xtream.m3uAccountUrl(pl.resolvedUrl()) ?: return
-        val info = runCatching { xtream.accountInfo(api, pl.effectiveUserAgent) }.getOrNull() ?: return
-        info.account?.let { prefs.setPlaylistAccount(pl.id, it) }
+        val file = playlistFile(pl.id)
+        val scan = if (LiveTvFiles.exists(LiveTvDirs.PLAYLISTS, file)) scanPlaylistLinks(file) else null
+        val hasVodEntries = scan?.second ?: pl.vodInPlaylist
+        val login = pl.loginInLink() ?: scan?.first
+        // The login kept for the channel links: the accepted one, the last accepted one when the
+        // provider can't be asked right now, or none when the links no longer carry one.
+        var kept: Triple<String, String, String>? =
+            if (scan != null && scan.first == null) null
+            else pl.linkServer.takeIf { it.isNotBlank() }?.let { Triple(it, pl.linkUsername, pl.linkPassword) }
+        if (login != null) {
+            val (server, user, pass) = login
+            val api = "$server/player_api.php?username=${user.encodeURLParameter()}&password=${pass.encodeURLParameter()}"
+            val checked = runCatching {
+                val info = xtream.accountInfo(api, pl.effectiveUserAgent)
+                if (info.authFailed) error("the provider didn't accept the login")
+                info
+            }
+            checked.onSuccess { info ->
+                kept = login
+                info.account?.let { prefs.setPlaylistAccount(pl.id, it) }
+            }
+            if (checked.isFailure && checked.exceptionOrNull() is kotlinx.coroutines.CancellationException) throw checked.exceptionOrNull()!!
+        }
+        val keptNow = kept
+        val loginChanged = (keptNow?.first ?: "") != pl.linkServer || (keptNow?.second ?: "") != pl.linkUsername || (keptNow?.third ?: "") != pl.linkPassword
+        if (!loginChanged && hasVodEntries == pl.vodInPlaylist) return
+        prefs.updatePlaylists { list ->
+            list.map {
+                if (it.id != pl.id) it
+                else {
+                    // Movies and series found for the first time: switched on, like a new Xtream
+                    // login (playlists saved before they were read had them off).
+                    val hadVod = it.vodInPlaylist || it.linkServer.isNotBlank() || it.loginInLink() != null
+                    val hasVod = hasVodEntries || keptNow != null || it.loginInLink() != null
+                    it.copy(
+                        linkServer = keptNow?.first ?: "", linkUsername = keptNow?.second ?: "", linkPassword = keptNow?.third ?: "",
+                        vodInPlaylist = hasVodEntries,
+                        importVod = if (!hadVod && hasVod) true else it.importVod
+                    )
+                }
+            }
+        }
+        // On Demand imports this playlist again with what was found.
+        com.nuvio.app.features.livetv.ondemand.OnDemandRepository.sourceChanged(pl.id)
     }
+
+    /**
+     * Reads a playlist's links for two things: the Xtream login in its channel links (the first
+     * ".../live/user/pass/123.ts", /movie/, /series/ or short ".../user/pass/123" link) and
+     * whether it lists movies or episodes. Stops as soon as it has both.
+     */
+    private fun scanPlaylistLinks(file: String): Pair<Triple<String, String, String>?, Boolean>? = runCatching {
+        var login: Triple<String, String, String>? = null
+        var vod = false
+        LiveTvFiles.readChunks(LiveTvDirs.PLAYLISTS, file) { chunks ->
+            for (raw in linesOf(chunks)) {
+                val line = raw.trim()
+                if (line.isEmpty() || line[0] == '#') continue
+                val link = line.substringBefore('|')
+                if (!vod && isVodEntry(link)) vod = true
+                if (login == null) XTREAM_CHANNEL_LINK.matchEntire(link)?.let { m ->
+                    fun dec(v: String) = runCatching { v.replace("+", "%2B").decodeURLQueryComponent() }.getOrDefault(v)
+                    val server = PlaylistSource.cleanXtreamServer(m.groupValues[1])
+                    val user = dec(m.groupValues[2])
+                    val pass = dec(m.groupValues[3])
+                    if (server.isNotBlank() && user.isNotBlank() && pass.isNotBlank()) login = Triple(server, user, pass)
+                }
+                if (vod && login != null) break
+            }
+        } ?: return@runCatching null
+        login to vod
+    }.getOrNull()
 
     private fun sizeLabel(bytes: Long): String = when {
         bytes >= 1024L * 1024 * 1024 -> "${bytes / (1024L * 1024 * 1024)} GB"
@@ -1323,6 +1409,11 @@ internal object LiveTvRepository {
     )
     private val VOD_PATH = Regex("""/(movie|movies|series|vod)/""", RegexOption.IGNORE_CASE)
     private val VOD_EXT = Regex("""\.(mp4|mkv|avi|mov|wmv|m4v|webm|flv)(\?|$)""", RegexOption.IGNORE_CASE)
+    /** An Xtream channel, movie or episode link, with the login in it. */
+    private val XTREAM_CHANNEL_LINK = Regex(
+        """^(https?://[^/\s?#]+)/(?:live/|movie/|series/)?([^/\s?#]+)/([^/\s?#]+)/\d+(?:\.[A-Za-z0-9]+)?(?:\?.*)?$""",
+        RegexOption.IGNORE_CASE
+    )
     private val qualityTokens = Regex("""\b(fhd|uhd|hd|sd|4k|8k|hevc|h265|h264|1080p|720p|backup|raw)\b""")
     private val prefixToken = Regex("""^[a-z]{2,3}\s*[:|]\s*""")
     private val bracketed = Regex("""\[.*?]|\(.*?\)""")

@@ -169,8 +169,14 @@ internal object OnDemandRepository {
                 runCatching { importXtream(pl, VodKind.SERIES) }
                     .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; problem = "Couldn't import series from ${pl.name}: ${it.message ?: "unknown error"}" }
             } else {
-                runCatching { if (!pl.isM3u) throw StalkerException(StalkerError.UNSUPPORTED); importM3u(pl) }
-                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; problem = "Couldn't read movies and series from ${pl.name}: ${it.message ?: "unknown error"}" }
+                if (!pl.isM3u) problem = "Couldn't read movies and series from ${pl.name}: unsupported source"
+                else {
+                    // Movies and series import separately, so a problem with one keeps the other.
+                    runCatching { importM3uSource(pl, VodKind.MOVIE) }
+                        .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; problem = "Couldn't read movies from ${pl.name}: ${it.message ?: "unknown error"}" }
+                    runCatching { importM3uSource(pl, VodKind.SERIES) }
+                        .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; problem = "Couldn't read series from ${pl.name}: ${it.message ?: "unknown error"}" }
+                }
             }
             val p = problem
             if (p != null) problemByPlaylist[pl.id] = p else problemByPlaylist.remove(pl.id)
@@ -232,7 +238,7 @@ internal object OnDemandRepository {
         infoCache.keys.removeAll { it.substringAfter(':').substringBefore(':') == pl.id }
     }
 
-    private suspend fun importXtream(pl: PlaylistSource, kind: VodKind) {
+    private suspend fun importXtream(pl: PlaylistSource, kind: VodKind): Int {
         val series = kind == VodKind.SERIES
         val what = if (series) "series" else "movies"
         val categories = xtream.vodCategories(pl, series)
@@ -257,49 +263,148 @@ internal object OnDemandRepository {
                 genre = x.genre,
             )
         }
-        withContext(Dispatchers.Default) { OnDemandStore.replace(pl.id, kind, categories, items) }
+        return withContext(Dispatchers.Default) { OnDemandStore.replace(pl.id, kind, categories, items) }
     }
 
     /**
-     * An M3U playlist's movie and episode entries (the ones the channel list leaves out), each
-     * group as a category. They're all listed as movies: an M3U has no series structure.
+     * An M3U playlist's movies or series. With a login the provider accepts, they come from the
+     * provider like an Xtream login's (fuller details); otherwise, or when that doesn't work,
+     * from the playlist's own movie and episode entries.
      */
-    private suspend fun importM3u(pl: PlaylistSource) = withContext(Dispatchers.Default) {
+    private suspend fun importM3uSource(pl: PlaylistSource, kind: VodKind) {
+        val what = if (kind == VodKind.MOVIE) "movies" else "series"
+        if (pl.m3uLogin != null) {
+            val fromProvider = runCatching { importXtream(pl.withVodLogin(), kind) }
+            fromProvider.exceptionOrNull()?.let { if (it is kotlinx.coroutines.CancellationException) throw it }
+            if (fromProvider.isSuccess && (fromProvider.getOrNull() ?: 0) > 0) {
+                if (kind == VodKind.SERIES) runCatching { LiveTvFiles.delete(LiveTvDirs.PLAYLISTS, episodesFile(pl.id)) }
+                return
+            }
+            // Nothing from the provider and nothing in the playlist itself: report why.
+            if (!pl.vodInPlaylist) fromProvider.getOrThrow()
+            infoCache.keys.removeAll { it.substringAfter(':').substringBefore(':') == pl.id }
+        }
+        importFromPlaylist(pl, kind, what)
+    }
+
+    private fun episodesFile(id: String) = "$id.episodes"
+
+    /** "S01E02", "S1 E2", "S01.E02". */
+    private val EPISODE_TAG = Regex("""\bS(\d{1,3})\s*[._-]?\s*E(\d{1,4})\b""", RegexOption.IGNORE_CASE)
+    /** "1x02". */
+    private val EPISODE_X_TAG = Regex("""\b(\d{1,2})x(\d{1,3})\b""", RegexOption.IGNORE_CASE)
+    private val SERIES_LINK = Regex("""/series/""", RegexOption.IGNORE_CASE)
+    private val MOVIE_LINK = Regex("""/movies?/""", RegexOption.IGNORE_CASE)
+    private val STREAM_ID = Regex("""/(\d+)\.[A-Za-z0-9]+(?:\?.*)?$""")
+
+    /** An episode entry: its show, season and episode ("Show S01E02", "Show 1x02", or a /series/ link). */
+    private class EpisodeName(val show: String, val season: Int, val episode: Int?)
+
+    private fun episodeName(name: String, url: String): EpisodeName? {
+        // Xtream-style links say which it is: /movie/ is always a movie (even with "S01E01" in
+        // its name); "1x02" only counts on a /series/ link ("10x10" is a film's name).
+        if (MOVIE_LINK.containsMatchIn(url)) return null
+        val seriesLink = SERIES_LINK.containsMatchIn(url)
+        val m = EPISODE_TAG.find(name) ?: if (seriesLink) EPISODE_X_TAG.find(name) else null
+        if (m != null) {
+            val show = name.substring(0, m.range.first).trim().trimEnd('-', '|', ':', '.', '_', '(', '[').trim()
+            return EpisodeName(show.ifEmpty { name }, m.groupValues[1].toIntOrNull() ?: 1, m.groupValues[2].toIntOrNull())
+        }
+        if (seriesLink) return EpisodeName(name, 1, null)
+        return null
+    }
+
+    /**
+     * Movies or series from the playlist's own entries: categories from their groups, posters
+     * from their logos, and episodes grouped into series and seasons by their names.
+     */
+    private suspend fun importFromPlaylist(pl: PlaylistSource, kind: VodKind, what: String) = withContext(Dispatchers.Default) {
         val file = "${pl.id}.m3u"
-        if (!LiveTvFiles.exists(LiveTvDirs.PLAYLISTS, file)) {
-            OnDemandStore.replace(pl.id, VodKind.MOVIE, emptyList(), emptySequence())
+        if (!LiveTvFiles.exists(LiveTvDirs.PLAYLISTS, file)) error("the playlist hasn't been downloaded yet")
+        // Only movie and episode entries are read (the channels are left out while parsing).
+        val parsed = LiveTvFiles.readChunks(LiveTvDirs.PLAYLISTS, file) { chunks ->
+            M3uParser.parse(LiveTvRepository.linesOf(chunks)) { url -> !LiveTvRepository.isVodEntry(url) }
+        } ?: error("the playlist couldn't be read")
+        val latest = VodTitles.latestYear()
+        _status.value = OnDemandStatus(true, "Importing $what from ${pl.name}…", silent = quietImport)
+        fun extOf(url: String) = url.substringBefore('?').substringAfterLast('.', "").takeIf { it.length in 2..5 && it.all { c -> c.isLetterOrDigit() } }?.lowercase()
+        fun groupOf(e: com.nuvio.app.features.livetv.data.M3uEntry) = e.group?.trim()?.ifBlank { null } ?: "Uncategorized"
+        val categories = LinkedHashMap<String, String>()
+        if (kind == VodKind.MOVIE) {
+            val items = ArrayList<VodItem>()
+            var count = 0
+            for (e in parsed.entries) {
+                if (!LiveTvRepository.isVodEntry(e.url) || episodeName(e.name, e.url) != null) continue
+                val group = groupOf(e)
+                val catId = stableHash(group)
+                categories.putIfAbsent(catId, group)
+                items += VodItem(
+                    playlistId = pl.id, kind = VodKind.MOVIE, id = stableHash(e.url), name = e.name,
+                    icon = e.logo?.takeIf { it.startsWith("http") }, categoryId = catId, ext = extOf(e.url), tmdbId = null,
+                    year = VodTitles.releaseYearInName(e.name, latest), rating = null,
+                    // Playlist order stands in for "added".
+                    addedSec = (count++).toLong(), url = e.url,
+                )
+            }
+            _status.value = OnDemandStatus(true, "Storing ${items.size} movies from ${pl.name}…", silent = quietImport)
+            OnDemandStore.replace(pl.id, VodKind.MOVIE, categories.entries.map { it.key to it.value }, items.asSequence())
             return@withContext
         }
-        val parsed = LiveTvFiles.readChunks(LiveTvDirs.PLAYLISTS, file) { chunks -> M3uParser.parse(LiveTvRepository.linesOf(chunks)) } ?: return@withContext
-        val latest = VodTitles.latestYear()
-        val categories = LinkedHashMap<String, String>()
-        val items = ArrayList<VodItem>()
-        var count = 0
+        // Series: each show is kept once (its first poster); the episodes go in a file of their own.
+        val shows = LinkedHashMap<String, VodItem>()
+        val nextEpisode = HashMap<String, Int>()
+        val lines = ArrayList<String>()
+        fun clean(v: String) = v.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ')
+        var order = 0L
         for (e in parsed.entries) {
             if (!LiveTvRepository.isVodEntry(e.url)) continue
-            val group = e.group?.ifBlank { null } ?: "Uncategorized"
+            val ep = episodeName(e.name, e.url) ?: continue
+            val group = groupOf(e)
             val catId = stableHash(group)
-            categories.putIfAbsent(catId, group)
-            val ext = e.url.substringBefore('?').substringAfterLast('.', "").takeIf { it.length in 2..5 && it.all { c -> c.isLetterOrDigit() } }
-            items += VodItem(
-                playlistId = pl.id,
-                kind = VodKind.MOVIE,
-                id = stableHash(e.url),
-                name = e.name,
-                icon = e.logo?.takeIf { it.startsWith("http") },
-                categoryId = catId,
-                ext = ext,
-                tmdbId = null,
-                year = VodTitles.releaseYearInName(e.name, latest),
-                rating = null,
-                // Playlist order stands in for "added".
-                addedSec = (count++).toLong(),
-                url = e.url,
-            )
+            val id = M3U_ID + stableHash(VodTitles.normalize(ep.show).ifEmpty { ep.show.lowercase() } + "|" + group)
+            if (id !in shows) {
+                categories.putIfAbsent(catId, group)
+                shows[id] = VodItem(
+                    playlistId = pl.id, kind = VodKind.SERIES, id = id, name = ep.show,
+                    icon = e.logo?.takeIf { it.startsWith("http") }, categoryId = catId, ext = null, tmdbId = null,
+                    year = VodTitles.releaseYearInName(ep.show, latest), rating = null, addedSec = order++,
+                )
+            }
+            val seasonKey = "$id#${ep.season}"
+            val number = ep.episode ?: ((nextEpisode[seasonKey] ?: 0) + 1)
+            nextEpisode[seasonKey] = maxOf(nextEpisode[seasonKey] ?: 0, number)
+            lines += listOf(id, ep.season, number, clean(e.name), clean(e.url), clean(e.logo?.takeIf { it.startsWith("http") }.orEmpty())).joinToString("\t")
         }
-        _status.value = OnDemandStatus(true, "Storing ${items.size} titles from ${pl.name}…", silent = quietImport)
-        OnDemandStore.replace(pl.id, VodKind.MOVIE, categories.entries.map { it.key to it.value }, items.asSequence())
-        OnDemandStore.replace(pl.id, VodKind.SERIES, emptyList(), emptySequence())
+        LiveTvFiles.writeText(LiveTvDirs.PLAYLISTS, episodesFile(pl.id), lines.joinToString("\n"))
+        _status.value = OnDemandStatus(true, "Storing ${shows.size} series from ${pl.name}…", silent = quietImport)
+        OnDemandStore.replace(pl.id, VodKind.SERIES, categories.entries.map { it.key to it.value }, shows.values.asSequence())
+        infoCache.keys.removeAll { it.substringAfter(':').substringBefore(':') == pl.id }
+    }
+
+    /** A series read from an M3U playlist's own entries: its episodes come from the saved episode file. */
+    private fun m3uInfo(item: VodItem, pl: PlaylistSource): VodInfo {
+        val rows = ArrayList<VodEpisode>()
+        val prefix = item.id + "\t"
+        runCatching {
+            LiveTvFiles.readChunks(LiveTvDirs.PLAYLISTS, episodesFile(pl.id)) { chunks ->
+                for (line in LiveTvRepository.linesOf(chunks)) {
+                    if (!line.startsWith(prefix)) continue
+                    val f = line.split('\t')
+                    if (f.size < 5) continue
+                    val url = f[4]
+                    rows += VodEpisode(
+                        season = f[1].toIntOrNull() ?: 1, episode = f[2].toIntOrNull() ?: (rows.size + 1),
+                        id = STREAM_ID.find(url)?.groupValues?.get(1) ?: stableHash(url),
+                        ext = url.substringBefore('?').substringAfterLast('.', "").takeIf { it.length in 2..5 && it.all { c -> c.isLetterOrDigit() } }?.lowercase() ?: "mp4",
+                        title = f[3], plot = null, image = f.getOrNull(5)?.takeIf { it.startsWith("http") }, url = url,
+                    )
+                }
+            }
+        }
+        return VodInfo(
+            plot = null, cover = item.icon, backdrop = null, genre = null, releaseDate = item.year?.toString(), durationText = null,
+            episodes = rows.sortedWith(compareBy({ it.season }, { it.episode })),
+        )
     }
 
     private fun stableHash(s: String): String {
@@ -483,7 +588,7 @@ internal object OnDemandRepository {
         runCatching { OnDemandStore.item(parts[1], VodKind.of(parts[0]), parts[2]) }.getOrNull()
     }
 
-    fun playlist(id: String): PlaylistSource? = prefs.currentPlaylists().firstOrNull { it.id == id }
+    fun playlist(id: String): PlaylistSource? = prefs.currentPlaylists().firstOrNull { it.id == id }?.withVodLogin()
 
     /** The headers to play a title with (the playlist's user agent, when it has one). */
     fun headersFor(item: VodItem): Map<String, String> {
@@ -508,6 +613,7 @@ internal object OnDemandRepository {
         infoCache[item.uid]?.let { return@withContext it }
         val pl = playlist(item.playlistId) ?: return@withContext null
         if (pl.isStalker) return@withContext stalkerInfo(pl, item).also { infoCache[item.uid] = it }
+        if (item.id.startsWith(M3U_ID)) return@withContext m3uInfo(item, pl).also { infoCache[item.uid] = it }
         if (item.url != null || !pl.isXtream) return@withContext null
         val json = runCatching { xtream.vodInfo(pl, item.kind == VodKind.SERIES, item.id) }.getOrNull() ?: return@withContext null
         val info = json.optJSONObject("info") ?: JsonObject(emptyMap())
@@ -641,6 +747,8 @@ internal object OnDemandRepository {
 
     private fun JsonArray?.orEmpty(): List<kotlinx.serialization.json.JsonElement> = this?.toList() ?: emptyList()
 
+    /** Series read from an M3U playlist's own entries: their id starts with this, then a key of the show. */
+    private const val M3U_ID = "m3u:"
     private const val START_DELAY_MS = 20_000L
     /** Re-import each provider once a day. */
     private const val REFRESH_MS = 24L * 60 * 60 * 1000
