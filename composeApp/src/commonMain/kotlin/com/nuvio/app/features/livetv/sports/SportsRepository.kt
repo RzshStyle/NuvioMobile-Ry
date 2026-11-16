@@ -447,7 +447,7 @@ internal object SportsRepository {
             liveRepo.ensureLoaded(updateCheckDelayMs = 20_000)
             kick.value++
             // Nothing matched yet, one was put off (app away, video playing), or the last is hours old.
-            if (_matches.value.isEmpty() || matchMissed || LiveTvClock.nowMs() - lastMatchAt > SAFETY_ROUND) matchKick.value++
+            if (_matches.value.isEmpty() || matchMissed || LiveTvClock.nowMs() - lastMatchAt > SAFETY_ROUND) kickMatch("Sports page opened")
         }
     }
 
@@ -478,7 +478,7 @@ internal object SportsRepository {
         if (on) {
             kick.value++
             // Something changed while the app was away: find channels for it now.
-            if (matchMissed) matchKick.value++
+            if (matchMissed) kickMatch("app back in front")
         }
     }
 
@@ -1142,16 +1142,21 @@ internal object SportsRepository {
      */
     private suspend fun matchLoop() {
         val trigger = combine(
-            // The games: only what changes the search (not scores or clocks), as one number.
+            // The games: only what changes the search (not scores or clocks), as numbers: which
+            // games there are, and their details (start times, how many networks listed). The
+            // details move often while games are on (a network added, a time nudged), so on
+            // their own they only get a quick match.
             events.map { list ->
-                var h = 17L
+                var games = 17L
+                var details = 17L
                 var n = 0
                 for (e in list) {
                     if (e.source == EventSource.GUIDE) continue
-                    h = h * 31 + e.id.hashCode(); h = h * 31 + e.startMs; h = h * 31 + e.broadcasts.size
+                    games = games * 31 + e.id.hashCode()
+                    details = details * 31 + e.startMs; details = details * 31 + e.broadcasts.size
                     n++
                 }
-                n to h
+                GamesKey(n, games, details)
             }.distinctUntilChanged(),
             // Your channels (any added, removed or renamed in a playlist update).
             liveRepo.displayChannels.map { list ->
@@ -1168,20 +1173,20 @@ internal object SportsRepository {
             // Safety net: a round every few hours, in case something changed that we didn't hear about.
             while (true) {
                 delay(15 * MINUTE)
-                if (LiveTvClock.nowMs() - lastRun > SAFETY_ROUND) matchKick.value++
+                if (LiveTvClock.nowMs() - lastRun > SAFETY_ROUND) kickMatch("a few hours since the last search")
             }
         }
         scope.launch {
             // A new day: "yesterday to tomorrow" moves on, so other games come into range.
             while (true) {
                 delay((dayStart(1) + MINUTE - LiveTvClock.nowMs()).coerceAtLeast(MINUTE))
-                matchKick.value++
+                kickMatch("a new day")
             }
         }
         scope.launch {
             // A round put off because Live TV was busy updating: run it once the update is done.
             liveRepo.status.map { it.loading }.distinctUntilChanged().collect { loading ->
-                if (!loading && matchMissed) matchKick.value++
+                if (!loading && matchMissed) kickMatch("Live TV update done")
             }
         }
         // Last time's matches straight away, so the page isn't empty while the new round runs.
@@ -1194,7 +1199,12 @@ internal object SportsRepository {
         }
         // Not before the saved games are read: a search with no games found nothing, then ran again.
         cacheReady.first { it }
-        combine(trigger, matchKick) { t, k -> t to k }.debounce { if (_matches.value.isEmpty()) 0L else 1_500L }.collect {
+        // What the last full search was run for, to tell a real change from games' details moving.
+        var lastFullKey: List<Any?>? = null
+        var lastFullKick = -1
+        var lastFullAt = 0L
+        var lastQuickAt = 0L
+        combine(trigger, matchKick) { t, k -> t to k }.debounce { if (_matches.value.isEmpty()) 0L else 1_500L }.collect { (key, kick) ->
             // Put off (not lost): it runs when the app is back in front / the update is done.
             if (!foreground.value && viewers.value == 0) { matchMissed = true; return@collect }
             if (!settings.value.showInSidebar && viewers.value == 0) { matchMissed = true; return@collect }
@@ -1202,7 +1212,9 @@ internal object SportsRepository {
             // Never the very first match against a guide that's still being built.
             if (!status.loadedOnce) { matchMissed = true; return@collect }
             if (status.loading && _matches.value.isNotEmpty() && !pickPending) { matchMissed = true; return@collect }
-            pickPending = false
+            // Cleared when the full search starts (below), so a pick made while it waits still counts.
+            val picked = pickPending
+            val firstSearch = _matches.value.isEmpty()
             if (_matches.value.isEmpty() && status.loading) {
                 _matching.value = true
                 withTimeoutOrNull(10 * MINUTE) { liveRepo.status.first { !it.loading } }
@@ -1211,6 +1223,39 @@ internal object SportsRepository {
             // Not while the player is open (unless you're on the Sports page).
             awaitNotWatching()
             matchMissed = false
+            // Only the details of games already listed moved (a score update brought a network or
+            // a nudged start time): the quick match (no guide read), at most every 2 minutes. The
+            // next full search picks the details up. A full search for every such wiggle ran one
+            // after another all afternoon on busy sports days.
+            val games = key.firstOrNull() as? GamesKey
+            val lastGames = lastFullKey?.firstOrNull() as? GamesKey
+            val sameAsLastFull = lastFullKey != null && kick == lastFullKick &&
+                key.drop(1) == lastFullKey?.drop(1) && games?.count == lastGames?.count && games?.games == lastGames?.games
+            if (!firstSearch && !picked && sameAsLastFull) {
+                if (LiveTvClock.nowMs() - lastQuickAt >= QUICK_MATCH_GAP) {
+                    lastQuickAt = LiveTvClock.nowMs()
+                    runCatching { runMatch(quickOnly = true) }
+                }
+                return@collect
+            }
+            // A real change soon after the last full search: quick channels now, the full search
+            // once 10 minutes have passed since the last one (a channel pick doesn't wait).
+            val wait = MIN_FULL_MATCH_GAP - (LiveTvClock.nowMs() - lastFullAt)
+            if (!firstSearch && !picked && lastFullAt > 0L && wait > 0L) {
+                if (LiveTvClock.nowMs() - lastQuickAt >= QUICK_MATCH_GAP) {
+                    lastQuickAt = LiveTvClock.nowMs()
+                    runCatching { runMatch(quickOnly = true) }
+                }
+                val until = LiveTvClock.nowMs() + wait
+                while (LiveTvClock.nowMs() < until && !pickPending) delay(1_000)
+                if (!foreground.value && viewers.value == 0) { matchMissed = true; return@collect }
+                awaitNotWatching()
+            }
+            lastFullKey = key
+            lastFullKick = kick
+            lastFullAt = LiveTvClock.nowMs()
+            lastQuickAt = lastFullAt
+            pickPending = false
             lastRun = LiveTvClock.nowMs()
             runCatching { runMatch() }
             lastMatchAt = LiveTvClock.nowMs()
@@ -1218,7 +1263,12 @@ internal object SportsRepository {
         }
     }
 
+    /** The games, for telling a new or removed game from details moving (see [matchLoop]). */
+    private data class GamesKey(val count: Int, val games: Long, val details: Long)
     private val matchKick = MutableStateFlow(0)
+    /** What asked for the next search. */
+    @Volatile private var kickReason: String? = null
+    private fun kickMatch(reason: String) { kickReason = reason; matchKick.value++ }
     @Volatile private var lastMatchAt = 0L
     /** A round was put off (app in the background, Live TV updating): run it at the next chance. */
     @Volatile private var matchMissed = false
@@ -1264,16 +1314,15 @@ internal object SportsRepository {
 
     @Volatile private var pickPending = false
 
-    private suspend fun runMatch() = withContext(Dispatchers.Default) {
+    private suspend fun runMatch(quickOnly: Boolean = false) = withContext(Dispatchers.Default) {
         val live = prefs.currentSettings()
         val user = prefs.currentUserState()
         val sp = settings.value
-        // Channels you picked yourself (Fix channel) count even in a hidden group.
-        val picked = HashSet<String>().apply {
-            sp.eventChannels.values.forEach { add(it.substringBeforeLast('|')) }
-            addAll(sp.networkChannels.values); addAll(sp.teamChannels.values); addAll(sp.leagueChannels.values)
-        }
-        val channels: List<LiveChannel> = liveRepo.displayChannels.value.filter { ch ->
+        // Channels you picked yourself (Fix channel) count even in a hidden group (also after
+        // the provider renamed them).
+        val all = liveRepo.displayChannels.value
+        val picked = SportsPickedChannels.keys(SportsPickedChannels.resolve(sp, all))
+        val channels: List<LiveChannel> = all.filter { ch ->
             (ch.key in picked || (ch.key !in user.hiddenChannels && ch.groupId !in user.hiddenGroups)) &&
                 !ParentalControls.isLocked(ch.groupId, ch.group, live, user.lockedGroups) &&
                 !(ParentalControls.enabled(live) && live.lockAdultContent && ParentalControls.isAdult(ch.name))
@@ -1283,7 +1332,9 @@ internal object SportsRepository {
         try {
             val now = LiveTvClock.nowMs()
             val shift = live.epgOffsetMinutes * MINUTE
-            val s = settings.value
+            val saved = settings.value
+            // Your picks on channels the provider has since renamed: on the renamed channel.
+            val s = SportsPickedChannels.resolve(saved, liveRepo.displayChannels.value)
             val f = follows.value
             val guideLeagues = SportsCatalog.all.filter { it.guideOnly }
             val keys = channels.associateBy { it.key }
@@ -1302,6 +1353,7 @@ internal object SportsRepository {
                     rebuildLiveScores()
                 }
             }
+            if (quickOnly) return@withContext
             val days = HashMap<Long, List<SportsEvent>>()
             for (offset in -1..1) {
                 val start = dayStart(offset)
@@ -1322,11 +1374,38 @@ internal object SportsRepository {
                     gentle = viewers.value == 0
                 )
             )
-            _matches.value = result.matches
+            _matches.value = keepPicksMadeMeanwhile(result.matches, saved)
             rebuildLiveScores()
         } finally {
             _matching.value = false
         }
+    }
+
+    /**
+     * A channel you fixed (or said isn't showing a game) while a search was already running:
+     * that search started before your fix, so its results put the old channels back and your
+     * fix looked wiped until the next search. Your fixes made since [before] go back on top of
+     * the results straight away.
+     */
+    private fun keepPicksMadeMeanwhile(found: Map<String, List<ChannelMatch>>, before: SportsSettings): Map<String, List<ChannelMatch>> {
+        val latest = settings.value
+        if (latest.eventChannels == before.eventChannels && latest.blocked == before.blocked) return found
+        val channels = liveRepo.displayChannels.value
+        val now = SportsPickedChannels.resolve(latest, channels)
+        val byKey = channels.associateBy { it.key }
+        val out = HashMap(found)
+        for ((id, v) in now.eventChannels) {
+            if (before.eventChannels[id] == latest.eventChannels[id]) continue
+            val ch = byKey[v.substringBeforeLast('|')] ?: continue
+            val mine = ChannelMatch(ch, 200, "Your pick", null, SportsMatcher.nameQuality(ch.name), false)
+            out[id] = listOf(mine) + out[id].orEmpty().filter { it.channel.key != ch.key }
+        }
+        for (b in latest.blocked - before.blocked) {
+            val id = out.keys.firstOrNull { b.startsWith("$it|") } ?: continue
+            val key = b.removePrefix("$id|")
+            out[id] = out[id].orEmpty().filter { it.channel.key != key }
+        }
+        return out
     }
 
     // ------------------------------------------------------------------ scores elsewhere in the app
@@ -1788,7 +1867,7 @@ internal object SportsRepository {
             _matches.value = _matches.value + (ev.id to (listOf(mine) + _matches.value[ev.id].orEmpty().filter { it.channel.key != channelKey }))
         }
         pickPending = true
-        matchKick.value++
+        kickMatch("a channel pick")
     }
 
     /** "Not this channel" for [ev] (and it stops being used for its network). */
@@ -1804,7 +1883,7 @@ internal object SportsRepository {
         }
         _matches.value[ev.id]?.let { l -> _matches.value = _matches.value + (ev.id to l.filter { it.channel.key != channelKey }) }
         pickPending = true
-        matchKick.value++
+        kickMatch("a channel pick")
     }
 
     fun clearFixes() = updateSettings { it.copy(networkChannels = emptyMap(), eventChannels = emptyMap(), blocked = emptySet(), teamChannels = emptyMap(), leagueChannels = emptyMap()) }
@@ -1862,6 +1941,10 @@ internal object SportsRepository {
     private const val HOUR = 60 * MINUTE
     /** The safety-net round: this long after the last one. */
     private const val SAFETY_ROUND = 4 * HOUR
+    /** Full channel searches (they read the whole guide) at most this often, except a channel pick. */
+    private const val MIN_FULL_MATCH_GAP = 10 * MINUTE
+    /** Quick matches (names and networks only) for games' details moving, at most this often. */
+    private const val QUICK_MATCH_GAP = 2 * MINUTE
     private const val DAY = 24 * HOUR
     /** A single game's score alerts are dropped this long after it started. */
     private const val ALERT_GAME_KEEP = 12 * HOUR
