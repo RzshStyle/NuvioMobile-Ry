@@ -73,6 +73,12 @@ data class PlaylistSource(
     /** Configured identity only; portal sessions and temporary playback links are never saved. */
     val stalker: StalkerConfig? = null,
     /**
+     * Guides switched off for this playlist in its Guides settings: an added guide's id, or
+     * [builtInGuideKey] for another playlist's built-in guide. Everything not listed is on, so
+     * new guides (and playlists saved before this existed) use every guide, like before.
+     */
+    val guidesOff: Set<String> = emptySet(),
+    /**
      * M3U links: the Xtream login found in the playlist's own channel links
      * (".../live/user/pass/123.ts"), checked with the provider. For short links that don't show
      * the login themselves. Blank when none was found.
@@ -158,6 +164,9 @@ data class PlaylistSource(
     private fun enc(s: String) = s.trim().encodeURLParameter()
 
     companion object {
+        /** How another playlist's built-in guide is named in [guidesOff]. */
+        fun builtInGuideKey(playlistId: String) = "playlist:$playlistId"
+
         /**
          * A typed or pasted link made safe: dashes that only look like "-" (the longer dashes a
          * phone keyboard or a chat app swaps in, the non-breaking hyphen) become a real hyphen,
@@ -649,7 +658,9 @@ data class EpgSourceChannels(
     val label: String,
     val channels: List<EpgChannelEntry>,
     /** Guide channel ids already feeding a playlist channel (matched or assigned). */
-    val usedIds: Set<String> = emptySet()
+    val usedIds: Set<String> = emptySet(),
+    /** The playlists this guide is switched on for (null = every playlist). */
+    val playlistIds: Set<String>? = null
 )
 
 data class EpgChannelEntry(

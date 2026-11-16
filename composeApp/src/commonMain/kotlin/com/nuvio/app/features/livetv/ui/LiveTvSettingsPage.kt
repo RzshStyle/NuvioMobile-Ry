@@ -390,6 +390,7 @@ private sealed interface LiveDialog {
     data class CatchupZone(val source: PlaylistSource) : LiveDialog
     data class PlaylistGuideShift(val source: PlaylistSource) : LiveDialog
     data class PlaylistCatchupShift(val source: PlaylistSource) : LiveDialog
+    data class PlaylistGuides(val source: PlaylistSource) : LiveDialog
     data class EpgSourceShift(val source: EpgSource) : LiveDialog
     data object VodDefaultSort : LiveDialog
     data object VodTabPosition : LiveDialog
@@ -1140,6 +1141,17 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     stringResource(Res.string.livetv_catchup_shift) + ": " + offsetLabel(d.source.catchupShiftMinutes, stringResource(Res.string.livetv_catchup_shift_none)) to {
                         dialog = LiveDialog.PlaylistCatchupShift(d.source)
                     },
+                // Which guides this playlist's channels may use (only when there is a choice).
+                guideChoices(d.source, playlists, epgs).let { choices ->
+                    if (choices.isEmpty()) null
+                    else {
+                        val on = choices.count { it.first !in d.source.guidesOff }
+                        stringResource(Res.string.livetv_guides) + ": " +
+                            (if (on == choices.size) stringResource(Res.string.livetv_guides_all) else stringResource(Res.string.livetv_guides_some, on, choices.size)) to {
+                                dialog = LiveDialog.PlaylistGuides(d.source)
+                            }
+                    }
+                },
             ) else emptyList()) + listOf(
                 stringResource(if (d.source.enabled) Res.string.livetv_disable else Res.string.livetv_enable) to {
                     LiveTvRepository.setPlaylistEnabled(d.source.id, !d.source.enabled); close()
@@ -1158,6 +1170,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                 onDismiss = close,
             ) { v -> LiveTvRepository.setPlaylistCatchupZone(d.source.id, v) }
         }
+        is LiveDialog.PlaylistGuides -> PlaylistGuidesDialog(d.source.id, onDismiss = close)
         is LiveDialog.PlaylistGuideShift -> {
             val none = stringResource(Res.string.livetv_catchup_shift_none)
             ChoiceDialog(
@@ -1469,16 +1482,54 @@ private fun <T> ChoiceDialog(title: String, options: List<Pair<T, String>>, sele
     }
 }
 
+/**
+ * The guides a playlist can switch on or off: every guide added on its own, and the built-in
+ * guides of other playlists (key, name). Empty when there's nothing to choose from.
+ */
+private fun guideChoices(pl: PlaylistSource, playlists: List<PlaylistSource>, epgs: List<EpgSource>): List<Pair<String, String>> {
+    val own = LiveTvRepository.playlistsWithOwnGuide(playlists)
+    return epgs.filter { it.url.isNotBlank() }.map { it.id to it.name } +
+        playlists.filter { it.id != pl.id && it.liveEnabled && it.useEmbeddedEpg && it.id in own }
+            .map { PlaylistSource.builtInGuideKey(it.id) to it.name + " (built-in)" }
+}
+
+@Composable
+private fun PlaylistGuidesDialog(playlistId: String, onDismiss: () -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    val playlists by LiveTvPreferences.playlists.collectAsStateWithLifecycle()
+    val epgs by LiveTvPreferences.epgSources.collectAsStateWithLifecycle()
+    val pl = playlists.firstOrNull { it.id == playlistId } ?: return
+    val choices = guideChoices(pl, playlists, epgs)
+    DialogSurface(onDismissRequest = onDismiss, title = stringResource(Res.string.livetv_guides) + ": " + pl.name) {
+        if (choices.isEmpty()) {
+            Text(stringResource(Res.string.livetv_guides_none), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary)
+        } else {
+            Text(stringResource(Res.string.livetv_guides_description, pl.name), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary)
+            Column(modifier = Modifier.weight(1f, fill = false).heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                choices.forEach { (key, label) ->
+                    SettingsSwitchRow(
+                        title = label, checked = key !in pl.guidesOff, isTablet = false, horizontalPadding = 0.dp,
+                        onCheckedChange = { on -> LiveTvRepository.setPlaylistGuide(pl.id, key, on) },
+                    )
+                }
+            }
+        }
+        DialogButtons { DialogButton(text = stringResource(Res.string.action_close), onClick = onDismiss) }
+    }
+}
+
 @Composable
 private fun M3uForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf(existing?.name.orEmpty()) }
     var url by remember { mutableStateOf(existing?.url.orEmpty()) }
     var ua by remember { mutableStateOf(existing?.userAgent.orEmpty()) }
     var embedded by remember { mutableStateOf(existing?.useEmbeddedEpg ?: true) }
+    var guideLink by remember { mutableStateOf("") }
     DialogSurface(onDismissRequest = onDismiss, title = stringResource(if (existing == null) Res.string.livetv_add_m3u else Res.string.action_edit)) {
         NuvioInputField(value = name, onValueChange = { name = it }, placeholder = stringResource(Res.string.livetv_field_name))
         NuvioInputField(value = url, onValueChange = { url = it }, placeholder = stringResource(Res.string.livetv_field_url))
         NuvioInputField(value = ua, onValueChange = { ua = it }, placeholder = stringResource(Res.string.livetv_field_user_agent))
+        if (existing == null) NuvioInputField(value = guideLink, onValueChange = { guideLink = it }, placeholder = stringResource(Res.string.livetv_field_guide_link))
         SettingsSwitchRow(title = stringResource(Res.string.livetv_load_embedded_epg), checked = embedded, isTablet = false, horizontalPadding = 0.dp, onCheckedChange = { embedded = it })
         DialogButtons {
             DialogButton(text = stringResource(Res.string.action_cancel), onClick = onDismiss)
@@ -1487,7 +1538,7 @@ private fun M3uForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
                 style = DialogButtonStyle.Primary,
                 enabled = url.isNotBlank(),
                 onClick = {
-                    if (existing == null) LiveTvRepository.addPlaylist(name, url, ua)
+                    if (existing == null) LiveTvRepository.addPlaylist(name, url, ua, guideLink)
                     else LiveTvRepository.updatePlaylist(existing.copy(name = name.ifBlank { "Playlist" }, url = url.trim(), userAgent = ua.trim(), useEmbeddedEpg = embedded))
                     onDismiss()
                 },
@@ -1506,12 +1557,14 @@ private fun XtreamForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
     var embedded by remember { mutableStateOf(existing?.useEmbeddedEpg ?: true) }
     var includeLive by remember { mutableStateOf(existing?.importLive ?: true) }
     var includeVod by remember { mutableStateOf(existing?.importVod ?: true) }
+    var guideLink by remember { mutableStateOf("") }
     DialogSurface(onDismissRequest = onDismiss, title = stringResource(if (existing == null) Res.string.livetv_add_xtream else Res.string.action_edit)) {
         NuvioInputField(value = name, onValueChange = { name = it }, placeholder = stringResource(Res.string.livetv_field_name))
         NuvioInputField(value = server, onValueChange = { server = it }, placeholder = stringResource(Res.string.livetv_field_server))
         NuvioInputField(value = user, onValueChange = { user = it }, placeholder = stringResource(Res.string.livetv_field_username))
         NuvioInputField(value = pass, onValueChange = { pass = it }, placeholder = stringResource(Res.string.livetv_field_password))
         NuvioInputField(value = ua, onValueChange = { ua = it }, placeholder = stringResource(Res.string.livetv_field_user_agent))
+        if (existing == null) NuvioInputField(value = guideLink, onValueChange = { guideLink = it }, placeholder = stringResource(Res.string.livetv_field_guide_link))
         SettingsSwitchRow(title = stringResource(Res.string.livetv_load_embedded_epg), checked = embedded, isTablet = false, horizontalPadding = 0.dp, onCheckedChange = { embedded = it })
         SettingsSwitchRow(title = stringResource(Res.string.livetv_xtream_include_channels), checked = includeLive, isTablet = false, horizontalPadding = 0.dp, onCheckedChange = { includeLive = it })
         SettingsSwitchRow(title = stringResource(Res.string.livetv_xtream_include_vod), checked = includeVod, isTablet = false, horizontalPadding = 0.dp, onCheckedChange = { includeVod = it })
@@ -1522,7 +1575,7 @@ private fun XtreamForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
                 style = DialogButtonStyle.Primary,
                 enabled = server.isNotBlank() && (PlaylistSource.credentialsFromLink(server) != null || (user.isNotBlank() && pass.isNotBlank())),
                 onClick = {
-                    if (existing == null) LiveTvRepository.addXtream(name, server, user, pass, importVod = includeVod, importLive = includeLive)
+                    if (existing == null) LiveTvRepository.addXtream(name, server, user, pass, importVod = includeVod, importLive = includeLive, epgUrl = guideLink)
                     else LiveTvRepository.updatePlaylist(
                         existing.copy(name = name.ifBlank { "Xtream" }, xtreamServer = server, xtreamUsername = user, xtreamPassword = pass, userAgent = ua.trim(), useEmbeddedEpg = embedded, importVod = includeVod, importLive = includeLive)
                     )
@@ -1553,6 +1606,7 @@ private fun StalkerForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
     var includeLive by remember { mutableStateOf(existing?.importLive ?: true) }
     var includeVod by remember { mutableStateOf(existing?.importVod ?: true) }
     var advanced by remember { mutableStateOf(false) }
+    var guideLink by remember { mutableStateOf("") }
     val normalizedMac = mac.trim().replace('-', ':').uppercase()
     val validPortal = runCatching { Url(portal.trim()).let { it.protocol.name in setOf("http", "https") && it.host.isNotBlank() && it.user.isNullOrEmpty() && it.password.isNullOrEmpty() } }.getOrDefault(false)
     val validMac = Regex("(?:[0-9A-F]{2}:){5}[0-9A-F]{2}").matches(normalizedMac)
@@ -1564,6 +1618,7 @@ private fun StalkerForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
             NuvioInputField(mac, { mac = it }, stringResource(Res.string.livetv_stalker_mac))
             Text(stringResource(Res.string.livetv_stalker_device_binding), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary)
             Text(stringResource(Res.string.livetv_stalker_playback_limits), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary)
+            if (existing == null) NuvioInputField(guideLink, { guideLink = it }, stringResource(Res.string.livetv_field_guide_link))
             SettingsSwitchRow(title = stringResource(Res.string.livetv_stalker_load_guide), checked = embedded, isTablet = false, horizontalPadding = 0.dp, onCheckedChange = { embedded = it })
             SettingsSwitchRow(title = stringResource(Res.string.livetv_xtream_include_channels), checked = includeLive, isTablet = false, horizontalPadding = 0.dp, onCheckedChange = { includeLive = it })
             SettingsSwitchRow(title = stringResource(Res.string.livetv_xtream_include_vod), checked = includeVod, isTablet = false, horizontalPadding = 0.dp, onCheckedChange = { includeVod = it })
@@ -1590,7 +1645,7 @@ private fun StalkerForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
                         username = user.trim(), password = password, serialNumber = serial.trim(), deviceId = device.trim(),
                         deviceId2 = device2.trim(), signature = signature.trim(), timezone = timezone.trim().ifBlank { "UTC" },
                         language = language.trim().ifBlank { "en" })
-                    if (existing == null) LiveTvRepository.addStalker(name, config, ua, includeVod, includeLive, embedded)
+                    if (existing == null) LiveTvRepository.addStalker(name, config, ua, includeVod, includeLive, embedded, guideLink)
                     else LiveTvRepository.updatePlaylist(existing.copy(name = name.ifBlank { "Stalker" }, providerKind = "stalker",
                         stalker = config, url = "", userAgent = ua.trim(), importVod = includeVod, importLive = includeLive,
                         useEmbeddedEpg = embedded))

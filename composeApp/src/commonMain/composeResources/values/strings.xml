@@ -2722,6 +2722,12 @@
     <string name="livetv_field_name">Name</string>
     <string name="livetv_field_url">Playlist URL</string>
     <string name="livetv_field_user_agent">User agent (optional)</string>
+    <string name="livetv_field_guide_link">Guide link (optional)</string>
+    <string name="livetv_guides">Guides</string>
+    <string name="livetv_guides_all">All</string>
+    <string name="livetv_guides_some">%1$d of %2$d</string>
+    <string name="livetv_guides_description">Choose which guides the channels of %1$s can use. A guide switched off here is only used by the playlists that have it on.</string>
+    <string name="livetv_guides_none">There are no other guides to choose from yet. Add a guide link, or another playlist, first.</string>
     <string name="livetv_field_server">Server (http://host:port)</string>
     <string name="livetv_field_username">Username</string>
     <string name="livetv_field_password">Password</string>

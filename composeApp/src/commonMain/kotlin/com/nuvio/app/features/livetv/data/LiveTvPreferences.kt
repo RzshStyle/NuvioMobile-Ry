@@ -366,6 +366,7 @@ internal object LiveTvCodec {
                         if ((o["stalkerConfig"] != null && o["stalkerConfig"] !is JsonNull) || (o["stalker"] != null && o["stalker"] !is JsonNull)) "stalker" else ""
                     },
                     stalker = ((o["stalkerConfig"] ?: o["stalker"]) as? JsonObject)?.let(StalkerConfig::fromJson),
+                    guidesOff = o.optJSONArray("guidesOff")?.strings()?.toSet().orEmpty(),
                     linkServer = o.optString("linkServer"),
                     linkUsername = o.optString("linkUsername"),
                     linkPassword = o.optString("linkPassword"),
@@ -384,6 +385,7 @@ internal object LiveTvCodec {
                 put("useEmbeddedEpg", s.useEmbeddedEpg)
                 put("xtreamServer", s.xtreamServer); put("xtreamUsername", s.xtreamUsername)
                 put("xtreamPassword", s.xtreamPassword)
+                if (s.guidesOff.isNotEmpty()) put("guidesOff", buildJsonArray { s.guidesOff.sorted().forEach { add(it) } })
                 put("linkServer", s.linkServer); put("linkUsername", s.linkUsername)
                 put("linkPassword", s.linkPassword); put("vodInPlaylist", s.vodInPlaylist)
                 put("lastUpdatedMs", s.lastUpdatedMs); put("lastError", s.lastError ?: "")

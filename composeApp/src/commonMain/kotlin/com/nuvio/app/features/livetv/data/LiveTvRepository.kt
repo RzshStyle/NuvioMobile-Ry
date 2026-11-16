@@ -175,14 +175,54 @@ internal object LiveTvRepository {
     @OptIn(ExperimentalUuidApi::class)
     private fun newId(): String = Uuid.random().toString()
 
-    fun addPlaylist(name: String, url: String, userAgent: String = ""): String {
+    fun addPlaylist(name: String, url: String, userAgent: String = "", epgUrl: String = ""): String {
         val id = newId()
         prefs.updatePlaylists { it + PlaylistSource(id = id, name = name.ifBlank { "Playlist" }, url = url.trim(), userAgent = userAgent.trim()) }
-        scope.launch { runCatching { refreshInternal(forcePlaylists = false, forceEpg = false, forceIds = setOf(id)) } }
+        val guideId = addGuideForNewPlaylist(id, name.ifBlank { "Playlist" }, epgUrl)
+        scope.launch { runCatching { refreshInternal(forcePlaylists = false, forceEpg = false, forceIds = setOfNotNull(id, guideId)) } }
         return id
     }
 
-    fun addXtream(name: String, server: String, username: String, password: String, importVod: Boolean = false, importLive: Boolean = true): String {
+    /**
+     * The guide link typed in while adding a playlist: added as a guide that's switched on for
+     * that playlist only (switched off in every other playlist's Guides settings). Null when no
+     * link was given. The same link as a guide already added: that guide is switched on for the
+     * new playlist (it is already, unless every other playlist has it off) and no copy is made.
+     */
+    private fun addGuideForNewPlaylist(playlistId: String, playlistName: String, epgUrl: String): String? {
+        val url = PlaylistSource.tidyLink(epgUrl)
+        if (url.isBlank()) return null
+        prefs.currentEpgSources().firstOrNull { it.url.trim() == url }?.let { existing ->
+            prefs.updatePlaylists { list -> list.map { if (it.id == playlistId) it.copy(guidesOff = it.guidesOff - existing.id) else it } }
+            if (!existing.enabled) prefs.updateEpgSources { l -> l.map { if (it.id == existing.id) it.copy(enabled = true) else it } }
+            return existing.id
+        }
+        val guideId = newId()
+        prefs.updateEpgSources { it + EpgSource(id = guideId, name = "$playlistName guide", url = url) }
+        prefs.updatePlaylists { list -> list.map { if (it.id == playlistId) it else it.copy(guidesOff = it.guidesOff + guideId) } }
+        return guideId
+    }
+
+    /**
+     * A playlist's Guides switch: [guideKey] (an added guide's id, or another playlist's
+     * [PlaylistSource.builtInGuideKey]) on or off for playlist [playlistId]. The guide is matched
+     * again; a guide that wasn't used by any playlist before is downloaded now.
+     */
+    fun setPlaylistGuide(playlistId: String, guideKey: String, on: Boolean) {
+        prefs.updatePlaylists { list ->
+            list.map { if (it.id == playlistId) it.copy(guidesOff = if (on) it.guidesOff - guideKey else it.guidesOff + guideKey) else it }
+        }
+        scope.launch {
+            runCatching { mutex.withLock { rebuildLocked() } }
+            runCatching { refreshInternal(forcePlaylists = false, forceEpg = false) }
+        }
+    }
+
+    /** Playlists that bring a guide of their own (Xtream and Stalker logins, M3U links whose header names one). */
+    fun playlistsWithOwnGuide(playlists: List<PlaylistSource>): Set<String> =
+        playlists.filter { it.isXtream || it.isStalker || !embeddedEpgUrls[it.id].isNullOrEmpty() }.mapTo(HashSet()) { it.id }
+
+    fun addXtream(name: String, server: String, username: String, password: String, importVod: Boolean = false, importLive: Boolean = true, epgUrl: String = ""): String {
         val id = newId()
         val fromLink = PlaylistSource.credentialsFromLink(server)
         val user = username.trim().ifBlank { fromLink?.first.orEmpty() }
@@ -195,17 +235,19 @@ internal object LiveTvRepository {
                 importVod = importVod, importLive = importLive
             )
         }
-        scope.launch { runCatching { refreshInternal(forcePlaylists = false, forceEpg = false, forceIds = setOf(id)) } }
+        val guideId = addGuideForNewPlaylist(id, name.ifBlank { "Xtream" }, epgUrl)
+        scope.launch { runCatching { refreshInternal(forcePlaylists = false, forceEpg = false, forceIds = setOfNotNull(id, guideId)) } }
         return id
     }
 
     fun addStalker(name: String, config: StalkerConfig, userAgent: String = "", importVod: Boolean = true,
-        importLive: Boolean = true, useEmbeddedEpg: Boolean = true): String {
+        importLive: Boolean = true, useEmbeddedEpg: Boolean = true, epgUrl: String = ""): String {
         val id = newId()
         prefs.updatePlaylists { it + PlaylistSource(id = id, name = name.ifBlank { "Stalker" }, url = "",
             providerKind = "stalker", stalker = config, userAgent = userAgent.trim(), importVod = importVod,
             importLive = importLive, useEmbeddedEpg = useEmbeddedEpg) }
-        scope.launch { runCatching { refreshInternal(false, false, setOf(id)) } }
+        val guideId = addGuideForNewPlaylist(id, name.ifBlank { "Stalker" }, epgUrl)
+        scope.launch { runCatching { refreshInternal(false, false, setOfNotNull(id, guideId)) } }
         return id
     }
 
@@ -251,6 +293,7 @@ internal object LiveTvRepository {
         prefs.setPlaylistAccount(id, null)
         LiveTvFiles.delete(LiveTvDirs.PLAYLISTS, "$id.m3u")
         LiveTvFiles.delete(LiveTvDirs.PLAYLISTS, groupOrderFile(id))
+        LiveTvFiles.delete(LiveTvDirs.PLAYLISTS, "$id.episodes")
         embeddedEpgUrls.remove(id)
         discardStalkerSnapshots(id)
         scope.launch { StalkerGateway.invalidateSource(id) }
@@ -934,6 +977,8 @@ internal object LiveTvRepository {
     private fun collectEpgTargets(): List<EpgTarget> {
         val targets = mutableListOf<EpgTarget>()
         val allPlaylists = prefs.currentPlaylists()
+        // Guide link -> the playlists that bring it as their own (built-in) guide.
+        val ownersByUrl = HashMap<String, MutableSet<String>>()
         prefs.currentEpgSources().filter { it.enabled && it.url.isNotBlank() }.forEach { src ->
             val host = hostOf(src.url)
             val ua = allPlaylists.firstOrNull { pl ->
@@ -952,6 +997,8 @@ internal object LiveTvRepository {
             pl.xtreamEpgUrl()?.let { urls += it }
             urls += embeddedEpgUrls[pl.id].orEmpty()
             urls.distinct().forEach { url ->
+                // The same link as a guide already in the list: that one is this playlist's built-in guide too.
+                ownersByUrl.getOrPut(url) { HashSet() } += pl.id
                 if (targets.none { it.url == url }) {
                     targets += EpgTarget(
                         "auto_" + stableHash(url), null, "${pl.name} (built-in)", url, pl.effectiveUserAgent,
@@ -960,8 +1007,38 @@ internal object LiveTvRepository {
                 }
             }
         }
+        // Which playlists each guide is for (each playlist's Guides switches). A playlist's own
+        // built-in guide is always on for it (its "Load built-in guide" switch decides that).
+        val live = allPlaylists.filter { it.liveEnabled }
+        val users = HashMap<String, Set<String>>()
+        for (t in targets) {
+            val owners = if (t.stalkerSource != null) setOfNotNull(t.playlistId) else ownersByUrl[t.url].orEmpty()
+            val key = t.sourceId ?: t.playlistId?.let { PlaylistSource.builtInGuideKey(it) }
+            users[t.fileId] = live.filter { it.id in owners || key == null || key !in it.guidesOff }.mapTo(HashSet()) { it.id }
+        }
+        // A guide no playlist uses isn't downloaded or read (only when there are playlists to use one).
+        if (live.isNotEmpty()) targets.removeAll { users[it.fileId].isNullOrEmpty() }
+        val everyone = live.mapTo(HashSet()) { it.id }
+        guideUsers = users.filter { (id, set) -> set != everyone && targets.any { it.fileId == id } }
         targetShifts = targets.associate { it.fileId to it.shiftMs }
         return targets
+    }
+
+    /**
+     * Guide file id -> the playlists it's switched on for, for guides that aren't on for every
+     * playlist (as last collected). A guide not listed here is used by every playlist.
+     */
+    @kotlin.concurrent.Volatile private var guideUsers: Map<String, Set<String>> = emptyMap()
+
+    /** Whether channels of playlist [playlistId] may get their listings from guide file [fileId]. */
+    private fun guideFor(fileId: String, playlistId: String): Boolean =
+        guideUsers[fileId]?.let { playlistId in it } ?: true
+
+    /** The guides' per-playlist switches as the fingerprint sees them (null when every guide is on for every playlist: older stamps stay valid). */
+    private fun guideUsersStamp(): String? {
+        val g = guideUsers
+        if (g.isEmpty()) return null
+        return g.toSortedMap().entries.joinToString(";") { (id, set) -> id + "=" + set.sorted().joinToString(",") }.hashCode().toString()
     }
 
     private fun targetStamp(t: EpgTarget): String =
@@ -973,7 +1050,8 @@ internal object LiveTvRepository {
         var h = channels.size.toLong()
         for (c in channels) h = h * 31 + c.key.hashCode() * 7L + (c.tvgId?.hashCode() ?: 0) * 3L + (c.tvgName?.hashCode() ?: 0) + c.name.hashCode() + c.tvgShiftMinutes
         val overrides = prefs.currentUserState().epgOverrides
-        return "v$GUIDE_VERSION|$h|${overrides.hashCode()}|${settings.epgPastHours}|${settings.epgFutureDays}|" + targets.joinToString(",") { targetStamp(it) }
+        return "v$GUIDE_VERSION|$h|${overrides.hashCode()}|${settings.epgPastHours}|${settings.epgFutureDays}|" + targets.joinToString(",") { targetStamp(it) } +
+            (guideUsersStamp()?.let { "|gu=$it" } ?: "")
     }
 
     private fun defaultWindow(now: Long = LiveTvClock.nowMs()) = (now - 3 * HOUR) to (now + 12 * HOUR)
@@ -1023,9 +1101,10 @@ internal object LiveTvRepository {
             val idHits = HashMap<String, MutableSet<LiveChannel>>()
             val nameHits = HashMap<String, MutableSet<LiveChannel>>()
             fun matchOne(id: String, names: List<String>) {
-                byTvgId[id.lowercase()]?.let { idHits.getOrPut(id) { LinkedHashSet() }.addAll(it) }
+                // Only channels of playlists this guide is switched on for.
+                byTvgId[id.lowercase()]?.filter { guideFor(src, it.sourceId) }?.takeIf { it.isNotEmpty() }?.let { idHits.getOrPut(id) { LinkedHashSet() }.addAll(it) }
                 (names.map { normalize(it) } + normalize(id) + idName(id)).distinct().forEach { k ->
-                    if (k.isNotEmpty()) byName[k]?.let { nameHits.getOrPut(id) { LinkedHashSet() }.addAll(it) }
+                    if (k.isNotEmpty()) byName[k]?.filter { guideFor(src, it.sourceId) }?.takeIf { it.isNotEmpty() }?.let { nameHits.getOrPut(id) { LinkedHashSet() }.addAll(it) }
                 }
             }
             if (target.stalkerSource != null) {
@@ -1059,7 +1138,7 @@ internal object LiveTvRepository {
                     }
                 }
                 sourceLists += EpgSourceChannels(src, target.name, target.name,
-                    raw.map { EpgChannelEntry(it.id, listOf(it.name), it.logo) }, used)
+                    raw.map { EpgChannelEntry(it.id, listOf(it.name), it.logo) }, used, guideUsers[src])
                 continue
             }
             val collected = HashMap<String, MutableList<EpgProgram>>()
@@ -1105,7 +1184,7 @@ internal object LiveTvRepository {
             pinnedHere.forEach { (xid, keys) -> offer(xid, keys.mapNotNull { k -> channels.firstOrNull { it.key == k } }, idMatch = true, pinned = true) }
             idHits.forEach { (xid, chans) -> offer(xid, chans, idMatch = true, pinned = false) }
             nameHits.forEach { (xid, chans) -> offer(xid, chans, idMatch = false, pinned = false) }
-            sourceLists += EpgSourceChannels(src, target.name, hostOf(target.url) ?: target.name, entries, used)
+            sourceLists += EpgSourceChannels(src, target.name, hostOf(target.url) ?: target.name, entries, used, guideUsers[src])
         }
 
         val programs = HashMap<String, List<EpgProgram>>(best.size)
@@ -1196,7 +1275,7 @@ internal object LiveTvRepository {
                         }
                     }.orEmpty()
                     val used = _autoMatches.value.values.filter { it.sourceId == t.fileId }.mapTo(HashSet()) { it.xmltvId }
-                    lists += EpgSourceChannels(t.fileId, t.name, hostOf(t.url) ?: t.name, listed.values.map { EpgChannelEntry(it.id, it.displayNames, it.icon) }, used)
+                    lists += EpgSourceChannels(t.fileId, t.name, hostOf(t.url) ?: t.name, listed.values.map { EpgChannelEntry(it.id, it.displayNames, it.icon) }, used, guideUsers[t.fileId])
                 }
                 // Only if a picker is still open (and an update didn't put fresher lists there meanwhile).
                 if (listsWanted > 0 && _epgSources.value.isEmpty()) _epgSources.value = lists
