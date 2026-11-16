@@ -6,6 +6,7 @@ import com.nuvio.app.features.livetv.data.LiveTvDirs
 import com.nuvio.app.features.livetv.data.LiveTvFiles
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.LiveTvRepository
+import com.nuvio.app.features.livetv.data.asString
 import com.nuvio.app.features.livetv.data.exportForSync
 import com.nuvio.app.features.livetv.data.liveTvJson
 import com.nuvio.app.features.livetv.data.optJSONArray
@@ -429,7 +430,13 @@ internal object LiveTvDriveSync {
                     }.getOrNull()
                 } else null
                 val shell = local.optJSONObject(k) ?: remote.optJSONObject(k)
+                // Favorites, hidden channels and groups, your own groups: combined item by item, so
+                // a favorite added on the phone and another added on a TV are both kept.
+                val itemsMerged = if (listMerged == null) runCatching {
+                    mergeItems(k, base.optJSONObject(k), local.optJSONObject(k), remote.optJSONObject(k))
+                }.getOrNull() else null
                 when {
+                    itemsMerged != null -> out[k] = itemsMerged
                     listMerged != null && shell != null -> out[k] = withValue(shell, listMerged)
                     local.containsKey(k) -> out[k] = local.getValue(k)
                     else -> out.remove(k)
@@ -468,7 +475,88 @@ internal object LiveTvDriveSync {
         for ((id, l) in local) {
             if (id !in remote && id !in base) result += l
         }
+        // Moved on this device since the last sync: that order is kept (it used to be dropped, so
+        // a reorder came back undone and was never saved). Sources only the other device has follow after.
+        val baseOrder = base.keys.filter { it in local }
+        val localOrder = local.keys.filter { it in base }
+        if (baseOrder != localOrder) {
+            val byId = LinkedHashMap<String, JsonElement>()
+            result.forEach { e -> byId[(e as JsonObject).optString("id")] = e }
+            val ordered = ArrayList<JsonElement>()
+            local.keys.forEach { id -> byId.remove(id)?.let { ordered += it } }
+            ordered += byId.values
+            return JsonArray(ordered).toString()
+        }
         return JsonArray(result).toString()
+    }
+
+    /**
+     * Three-way merge of one of the item lists in [ITEM_KEYS] (per profile too, "favorites_p2"):
+     * items added or removed on this device since the last sync are added or removed, everything
+     * else comes from the other device. Null (whole-value rules apply) for any other key, or when
+     * the other device has no value for it.
+     */
+    private fun mergeItems(k: String, b: JsonObject?, l: JsonObject?, r: JsonObject?): JsonObject? {
+        val name = k.replace(PROFILE_SUFFIX, "")
+        if (name !in ITEM_KEYS || r == null) return null
+        val shell = (l ?: r).toMutableMap()
+        fun strArray(list: List<String>) = JsonArray(list.map { JsonPrimitive(it) })
+        fun arr(e: JsonElement?): List<String> = (e as? JsonArray)?.map { it.asString() }.orEmpty()
+        fun parsed(e: JsonObject?): JsonElement? = e?.optString("v")?.takeIf { it.isNotBlank() }?.let { liveTvJson.parseToJsonElement(it) }
+        when (name) {
+            in SET_ITEM_KEYS -> {
+                shell["t"] = JsonPrimitive("s")
+                shell["v"] = strArray(mergeList(arr(b?.get("v")), arr(l?.get("v")), arr(r["v"])))
+            }
+            "favorites" -> shell["v"] = JsonPrimitive(strArray(mergeList(arr(parsed(b)), arr(parsed(l)), arr(parsed(r)))).toString())
+            "channel_copies" -> {
+                fun map(e: JsonObject?): Map<String, List<String>> =
+                    (parsed(e) as? JsonObject)?.mapValues { (_, v) -> arr(v) }.orEmpty()
+                val bm = map(b); val lm = map(l); val rm = map(r)
+                val out = LinkedHashMap<String, JsonElement>()
+                mergeList(bm.keys.toList(), lm.keys.toList(), rm.keys.toList()).forEach { g ->
+                    val v = mergeList(bm[g].orEmpty(), lm[g].orEmpty(), rm[g].orEmpty())
+                    if (v.isNotEmpty()) out[g] = strArray(v)
+                }
+                shell["v"] = JsonPrimitive(JsonObject(out).toString())
+            }
+            "custom_groups" -> {
+                fun groups(e: JsonObject?) = readSources(e?.optString("v"))
+                fun keys(o: JsonObject?) = arr(o?.get("keys"))
+                val bg = groups(b); val lg = groups(l); val rg = groups(r)
+                val out = ArrayList<JsonElement>()
+                mergeList(bg.keys.toList(), lg.keys.toList(), rg.keys.toList()).forEach { id ->
+                    val lo = lg[id]; val bo = bg[id]; val ro = rg[id]
+                    val g = (ro ?: lo)!!.toMutableMap()
+                    if (lo != null && bo != null && ro != null) {
+                        if (lo.optString("name") != bo.optString("name")) g["name"] = JsonPrimitive(lo.optString("name"))
+                        g["keys"] = strArray(mergeList(keys(bo), keys(lo), keys(ro)))
+                    }
+                    out += JsonObject(g)
+                }
+                shell["v"] = JsonPrimitive(JsonArray(out).toString())
+            }
+            else -> return null
+        }
+        return JsonObject(shell)
+    }
+
+    /**
+     * [remote] without what this device removed since [base], plus what it added. If this device
+     * also reordered the items, its order is kept (the other device's additions go after).
+     */
+    internal fun mergeList(base: List<String>, local: List<String>, remote: List<String>): List<String> {
+        val baseSet = base.toHashSet(); val localSet = local.toHashSet()
+        val removedHere = base.filterTo(HashSet()) { it !in localSet }
+        val kept = LinkedHashSet<String>()
+        remote.forEach { if (it !in removedHere) kept += it }
+        local.forEach { if (it !in baseSet) kept += it }
+        val movedHere = base.filter { it in localSet } != local.filter { it in baseSet }
+        if (!movedHere) return kept.toList()
+        val out = LinkedHashSet<String>()
+        local.forEach { if (it in kept) out += it }
+        out += kept
+        return out.toList()
     }
 
     private fun readSources(raw: String?): LinkedHashMap<String, JsonObject> {
@@ -573,6 +661,9 @@ internal object LiveTvDriveSync {
     private const val MODE_APPDATA = "appdata"
     private const val MODE_FILE = "file"
     private val SOURCE_LISTS = setOf("playlists", "epg_sources")
+    private val SET_ITEM_KEYS = setOf("hidden_channels", "hidden_groups", "vod_hidden_categories")
+    private val ITEM_KEYS = SET_ITEM_KEYS + setOf("favorites", "custom_groups", "channel_copies")
+    private val PROFILE_SUFFIX = Regex("""_p\d+$""")
     private val SCOPE_ATTEMPTS = listOf(
         "openid email https://www.googleapis.com/auth/drive.appdata" to MODE_APPDATA,
         "https://www.googleapis.com/auth/drive.appdata" to MODE_APPDATA,
