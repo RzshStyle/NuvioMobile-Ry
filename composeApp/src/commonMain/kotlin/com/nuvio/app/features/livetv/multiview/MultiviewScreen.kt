@@ -738,7 +738,7 @@ private fun MultiviewPickerControls(
     val layouts: @Composable () -> Unit = {
         Text("Layout", style = MaterialTheme.typography.labelMedium, color = tokens.colors.textMuted)
         MultiviewLayout.entries.filter { it.paneCount > 1 }.forEach { layout ->
-            Chip(layout.title, selected = selection.layout == layout, onClick = { onLayout(layout) })
+            LayoutChip(layout, selected = selection.layout == layout, onClick = { onLayout(layout) })
         }
     }
     val panes: @Composable () -> Unit = {
@@ -778,6 +778,32 @@ private fun MultiviewPickerControls(
             horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
             verticalAlignment = Alignment.CenterVertically,
         ) { sources() }
+    }
+}
+
+/** A layout choice with a little picture of how the panes sit (like the TV app's layout picker). */
+@Composable
+private fun LayoutChip(layout: MultiviewLayout, selected: Boolean, onClick: () -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    val shape = RoundedCornerShape(NuvioTokens.Radius.md)
+    val color = if (selected) tokens.colors.textPrimary else tokens.colors.textMuted
+    Row(
+        Modifier.clip(shape)
+            .background(if (selected) tokens.colors.overlaySelected else androidx.compose.ui.graphics.Color.Transparent)
+            .border(tokens.borders.thin, if (selected) tokens.colors.borderSelected else tokens.colors.borderStrong, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = NuvioTokens.Space.s12, vertical = NuvioTokens.Space.s6),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
+    ) {
+        Column(Modifier.size(width = 26.dp, height = 18.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            layout.rows.forEach { row ->
+                Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    row.forEach { _ -> Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(2.dp)).background(color)) }
+                }
+            }
+        }
+        Text(layout.title, style = MaterialTheme.typography.labelLarge, color = color)
     }
 }
 

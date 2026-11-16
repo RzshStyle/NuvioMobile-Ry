@@ -49,6 +49,8 @@ internal fun multiviewMediaSource(
     val item = playbackMediaItemFromUrl(request.url, streamType = request.streamType).buildUpon()
         .setMediaId(channel.key)
         .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build())
+    // Read as plain TS (a link that looks like HLS but sends TS).
+    if (request.streamType.equals("ts", ignoreCase = true)) item.setMimeType(MimeTypes.VIDEO_MP2T)
     val protection = channel.drm
     if (protection?.manifestType == "mpd") item.setMimeType(MimeTypes.APPLICATION_MPD)
     if (protection?.manifestType == "hls") item.setMimeType(MimeTypes.APPLICATION_M3U8)
