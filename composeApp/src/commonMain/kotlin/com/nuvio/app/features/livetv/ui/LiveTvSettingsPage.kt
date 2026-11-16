@@ -135,6 +135,12 @@ import nuvio.composeapp.generated.resources.livetv_catchup_zone_found
 import nuvio.composeapp.generated.resources.livetv_catchup_zone_not_found
 import nuvio.composeapp.generated.resources.livetv_epg_shift
 import nuvio.composeapp.generated.resources.livetv_epg_shift_description
+import nuvio.composeapp.generated.resources.livetv_field_guide_link
+import nuvio.composeapp.generated.resources.livetv_guides
+import nuvio.composeapp.generated.resources.livetv_guides_all
+import nuvio.composeapp.generated.resources.livetv_guides_description
+import nuvio.composeapp.generated.resources.livetv_guides_none
+import nuvio.composeapp.generated.resources.livetv_guides_some
 import nuvio.composeapp.generated.resources.livetv_guide_shift
 import nuvio.composeapp.generated.resources.livetv_guide_shift_description
 import nuvio.composeapp.generated.resources.livetv_time_shifts_note
