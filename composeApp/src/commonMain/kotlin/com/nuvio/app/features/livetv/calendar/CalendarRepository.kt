@@ -294,13 +294,14 @@ internal object CalendarRepository {
             val followed = _follows.value.flatMap { listOfNotNull(it.id, it.imdbId) }.toSet()
             val skipTypes = if (s.calendarSkipNewsTalk) setOf("News", "Talk Show", "Sports", "Panel Show") else emptySet()
             val hiddenIds = _hidden.value.map { it.id }.toSet()
-            val entries = list.filter { (show, _) -> show.type !in skipTypes && (show.imdb == null || show.imdb !in hiddenIds) }
+            // Shows TVmaze has no IMDb id for (many news shows) are kept, under their TVmaze id.
+            val entries = list.filter { (show, _) -> show.type !in skipTypes && (show.imdb ?: "tvmaze:${show.id}") !in hiddenIds }
                 .groupBy { it.first.id }
                 .mapNotNull { (_, eps) ->
                     val (show, e) = eps.first()
                     val lastNumber = eps.maxOf { it.second.number }
                     val local = CalendarAirTimes.local(e.airMs, show.zone, show.streaming)
-                    val id = show.imdb ?: return@mapNotNull null
+                    val id = show.imdb ?: "tvmaze:${show.id}"
                     CalendarEntry(
                         key = "today|$id|${e.season}|${e.number}",
                         kind = CalendarKind.EPISODE,
@@ -362,6 +363,9 @@ internal object CalendarRepository {
 
     private fun isSeries(type: String) = type.equals("series", true) || type.equals("tv", true) ||
         type.equals("show", true) || type.equals("anime", true)
+
+    /** A show known only by its TVmaze id ("tvmaze:123", no IMDb id): it has no show page. */
+    private fun tvmazeOf(id: String): Int? = if (id.startsWith("tvmaze:")) id.removePrefix("tvmaze:").toIntOrNull() else null
 
     private fun tmdbOf(id: String): Int? =
         if (id.startsWith("tmdb:")) id.removePrefix("tmdb:").substringBefore(':').toIntOrNull() else null
@@ -489,7 +493,7 @@ internal object CalendarRepository {
         // The same show can come in twice under different ids: each show is only taken once.
         val usedShows = HashSet<Int>()
         for (c in shows) {
-            val tvmId = if (fetch) CalendarSources.tvmazeId(c.imdb, c.tmdb, c.name) else CalendarSources.knownTvmazeId(c.imdb, c.tmdb)
+            val tvmId = tvmazeOf(c.id) ?: if (fetch) CalendarSources.tvmazeId(c.imdb, c.tmdb, c.name) else CalendarSources.knownTvmazeId(c.imdb, c.tmdb)
             if (tvmId != null && !usedShows.add(tvmId)) { done++; continue }
             var data = tvmId?.let { CalendarSources.cachedShow(it) }
             if (fetch && tvmId != null && (force || data == null || stale(data))) {
