@@ -231,7 +231,8 @@ private fun AssignEpgDialog(channel: LiveChannel, onDismiss: () -> Unit) {
     val matched = auto[channel.key]
     val entries = remember(sources, query) {
         val q = query.trim().lowercase()
-        sources.flatMap { src ->
+        // Only the guides switched on for this channel's playlist (its Guides settings).
+        sources.filter { it.playlistIds == null || channel.sourceId in it.playlistIds }.flatMap { src ->
             src.channels.asSequence()
                 .filter { q.isEmpty() || it.displayName.lowercase().contains(q) || it.id.lowercase().contains(q) }
                 .take(if (q.isEmpty()) 40 else 200)

@@ -100,7 +100,11 @@ internal object LiveTvBackup {
                                 r.copy(
                                     lastUpdatedMs = l.lastUpdatedMs, lastError = l.lastError, channelCount = l.channelCount,
                                     serverTimezone = l.serverTimezone, catchupNoHlsSince = l.catchupNoHlsSince,
-                                    fallbackUserAgent = l.fallbackUserAgent.ifBlank { r.fallbackUserAgent }
+                                    fallbackUserAgent = l.fallbackUserAgent.ifBlank { r.fallbackUserAgent },
+                                    linkServer = l.linkServer.ifBlank { r.linkServer },
+                                    linkUsername = l.linkUsername.ifBlank { r.linkUsername },
+                                    linkPassword = l.linkPassword.ifBlank { r.linkPassword },
+                                    vodInPlaylist = l.vodInPlaylist || r.vodInPlaylist
                                 )
                             } ?: r
                         })

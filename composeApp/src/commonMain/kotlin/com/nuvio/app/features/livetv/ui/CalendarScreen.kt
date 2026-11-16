@@ -79,6 +79,7 @@ import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.LiveTvRepository
 import com.nuvio.app.features.livetv.data.LiveTvTimeZones
 import com.nuvio.app.features.livetv.model.LiveTvClock
+import com.nuvio.app.features.livetv.sports.GameState
 import com.nuvio.app.features.livetv.sports.SportsDates
 import com.nuvio.app.features.livetv.sports.SportsRepository
 import com.nuvio.app.features.livetv.ui.sports.GameCard
@@ -685,12 +686,28 @@ private fun CalendarRow(e: CalendarEntry, onClick: (CalendarEntry) -> Unit, onHo
 
 @Composable
 private fun GameRow(e: CalendarEntry, onClick: (CalendarEntry) -> Unit) {
-    val ev = e.eventId?.let { SportsRepository.eventById(it) } ?: return
+    val event = e.eventId?.let { SportsRepository.eventById(it) } ?: return
+    val now = LiveTvClock.nowMs()
+    // One session of a race weekend: the card shows that session (its name, time and state), not the weekend's next one.
+    val session = event.sessions.takeIf { it.size > 1 }?.firstOrNull { it.startMs == e.airMs && it.label == e.note }
+    val ev = if (session == null) event else {
+        val end = session.startMs + session.minutes * 60_000L
+        val state = when {
+            now >= end || (session.race && event.state == GameState.POST) -> GameState.POST
+            now >= session.startMs -> GameState.LIVE
+            else -> GameState.PRE
+        }
+        event.copy(
+            startMs = session.startMs, endMs = end, hasTime = true, state = state, subtitle = session.label,
+            status = if (state == GameState.POST) "Final" else null, note = null, progress = null,
+            standings = if (session.race) event.standings else emptyList(),
+        )
+    }
     val follows by SportsRepository.follows.collectAsStateWithLifecycle()
     val settings by SportsRepository.settings.collectAsStateWithLifecycle()
     val matches by SportsRepository.matches.collectAsStateWithLifecycle()
     GameCard(
-        ev = ev, follows = follows, now = LiveTvClock.nowMs(), use24h = use24h(), hideScores = settings.hideScores,
+        ev = ev, follows = follows, now = now, use24h = use24h(), hideScores = settings.hideScores,
         channels = matches[ev.id]?.size, onClick = { onClick(e) },
     )
 }

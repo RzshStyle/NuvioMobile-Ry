@@ -71,7 +71,23 @@ data class PlaylistSource(
     /** Explicit source type for new providers. Blank keeps legacy M3U/Xtream inference. */
     val providerKind: String = "",
     /** Configured identity only; portal sessions and temporary playback links are never saved. */
-    val stalker: StalkerConfig? = null
+    val stalker: StalkerConfig? = null,
+    /**
+     * Guides switched off for this playlist in its Guides settings: an added guide's id, or
+     * [builtInGuideKey] for another playlist's built-in guide. Everything not listed is on, so
+     * new guides (and playlists saved before this existed) use every guide, like before.
+     */
+    val guidesOff: Set<String> = emptySet(),
+    /**
+     * M3U links: the Xtream login found in the playlist's own channel links
+     * (".../live/user/pass/123.ts"), checked with the provider. For short links that don't show
+     * the login themselves. Blank when none was found.
+     */
+    val linkServer: String = "",
+    val linkUsername: String = "",
+    val linkPassword: String = "",
+    /** M3U links: the playlist also lists movies or episodes (found when it's read). */
+    val vodInPlaylist: Boolean = false
 ) {
     /** The user agent requests for this playlist go out with ("" = the app default). */
     val effectiveUserAgent: String get() = userAgent.ifBlank { fallbackUserAgent }
@@ -79,6 +95,42 @@ data class PlaylistSource(
     val isStalker: Boolean get() = providerKind == "stalker" || stalker != null
     val isXtream: Boolean get() = !isStalker && (providerKind == "xtream" || (providerKind.isBlank() && xtreamServer.isNotBlank()))
     val isM3u: Boolean get() = !isStalker && (providerKind == "m3u" || (providerKind.isBlank() && xtreamServer.isBlank()))
+
+    /**
+     * An M3U playlist that is really an Xtream login: the server, username and password, from
+     * the link itself (".../get.php?username=a&password=b") or else from its channel links
+     * ([linkServer]). Null for anything else.
+     */
+    val m3uLogin: Triple<String, String, String>? get() {
+        if (!isM3u) return null
+        return loginInLink() ?: linkServer.takeIf { it.isNotBlank() && linkUsername.isNotBlank() }
+            ?.let { Triple(it, linkUsername, linkPassword) }
+    }
+
+    /** The login in the playlist link itself (".../get.php?username=a&password=b"), if any. */
+    fun loginInLink(): Triple<String, String, String>? {
+        if (!isM3u) return null
+        val link = tidyLink(url)
+        val path = link.substringBefore('?').trimEnd('/')
+        if (!path.endsWith("get.php", ignoreCase = true)) return null
+        val login = credentialsFromLink(link) ?: return null
+        val server = cleanXtreamServer(link)
+        return if (server.isNotBlank()) Triple(server, login.first, login.second) else null
+    }
+
+    /**
+     * This source set up so the Xtream helpers (movies and series, their links) work: an M3U
+     * link with a login in it gets that login filled in. Live channels still come from the
+     * M3U link; this copy is never saved.
+     */
+    fun withVodLogin(): PlaylistSource {
+        val login = m3uLogin ?: return this
+        return copy(
+            providerKind = "xtream",
+            xtreamServer = login.first, xtreamUsername = login.second, xtreamPassword = login.third,
+            userAgent = effectiveUserAgent
+        )
+    }
 
     /** Anything that changes downloaded channels, catalogs or the provider identity. */
     fun sameConnection(other: PlaylistSource): Boolean =
@@ -112,6 +164,9 @@ data class PlaylistSource(
     private fun enc(s: String) = s.trim().encodeURLParameter()
 
     companion object {
+        /** How another playlist's built-in guide is named in [guidesOff]. */
+        fun builtInGuideKey(playlistId: String) = "playlist:$playlistId"
+
         /**
          * A typed or pasted link made safe: dashes that only look like "-" (the longer dashes a
          * phone keyboard or a chat app swaps in, the non-breaking hyphen) become a real hyphen,
@@ -603,7 +658,9 @@ data class EpgSourceChannels(
     val label: String,
     val channels: List<EpgChannelEntry>,
     /** Guide channel ids already feeding a playlist channel (matched or assigned). */
-    val usedIds: Set<String> = emptySet()
+    val usedIds: Set<String> = emptySet(),
+    /** The playlists this guide is switched on for (null = every playlist). */
+    val playlistIds: Set<String>? = null
 )
 
 data class EpgChannelEntry(

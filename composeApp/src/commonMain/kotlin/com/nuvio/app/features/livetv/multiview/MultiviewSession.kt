@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.update
 enum class MultiviewLayout(val paneCount: Int, val title: String) {
     SINGLE(1, "Single"), DUAL(2, "Dual"), TRIPLE(3, "Triple"), QUAD(4, "Quad");
 
-    /** Rows are shared by rendering and tests; Dual always remains side by side. */
+    /** Rows on a screen wider than it is tall: Dual side by side. */
     val rows: List<List<Int>>
         get() = when (this) {
             SINGLE -> listOf(listOf(0))
@@ -17,6 +17,12 @@ enum class MultiviewLayout(val paneCount: Int, val title: String) {
             TRIPLE -> listOf(listOf(0, 1), listOf(2))
             QUAD -> listOf(listOf(0, 1), listOf(2, 3))
         }
+
+    /** A screen taller than it is wide (phone held upright) stacks Dual and Triple one above the other. */
+    fun rowsFor(tall: Boolean): List<List<Int>> = when {
+        tall && (this == DUAL || this == TRIPLE) -> (0 until paneCount).map { listOf(it) }
+        else -> rows
+    }
 }
 
 data class MultiviewSelection(

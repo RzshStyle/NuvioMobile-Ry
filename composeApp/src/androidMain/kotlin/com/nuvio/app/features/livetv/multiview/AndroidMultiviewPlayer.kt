@@ -7,6 +7,7 @@ import android.os.Looper
 import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.media3.common.C
+import androidx.media3.common.ParserException
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
@@ -18,6 +19,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioCapabilities
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.source.UnrecognizedInputFormatException
 import com.nuvio.app.core.vpn.awaitVpnForPlayback
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.model.LiveChannel
@@ -53,6 +55,9 @@ internal class AndroidMultiviewPlayer(
     private var channel: LiveChannel? = null
     private var requestOverride: LivePlayRequest? = null
     private var triedTs = false
+    private var triedPlainTs = false
+    /** How many of [FORMAT_GUESSES] a link that doesn't say what it is has been tried as. */
+    private var formatGuess = 0
     private var muted = true
     private var paused = false
     private var lifecycleStarted = false
@@ -85,6 +90,8 @@ internal class AndroidMultiviewPlayer(
         this.channel = channel
         requestOverride = null
         triedTs = false
+        triedPlainTs = false
+        formatGuess = 0
         focusSuspended = false
         reconnectJob?.cancel()
         reconnectJob = null
@@ -256,6 +263,15 @@ internal class AndroidMultiviewPlayer(
 
                     override fun onPlayerError(error: PlaybackException) {
                         if (engine !== player) return
+                        // The same stream fallbacks as the full-screen player: a link that doesn't say what
+                        // it is tried as HLS then DASH, an unreadable HLS playlist as TS.
+                        val other = if (selected.drm == null && selected.stalker == null) otherFormat(error, request) else null
+                        if (other != null) {
+                            requestOverride = other
+                            stopEngine()
+                            startIfVisible()
+                            return
+                        }
                         // Retry only this channel as TS; do not alter shared fallback bookkeeping.
                         val ts = if (!triedTs && selected.drm == null && error.errorCode in 2000..3999 &&
                             multiviewHttpStatus(error) !in listOf(401, 403, 429, 456, 458, 509)) {
@@ -291,6 +307,29 @@ internal class AndroidMultiviewPlayer(
                 )
             }
         }
+    }
+
+    /** Another way to play a stream that failed to read, or null when everything has been tried. */
+    private fun otherFormat(error: PlaybackException, request: LivePlayRequest): LivePlayRequest? {
+        // A link that doesn't say what it is ("container unsupported"): HLS, then DASH.
+        if (multiviewIsUnrecognizedFormat(error) && formatGuess < FORMAT_GUESSES.size) {
+            return request.copy(streamType = FORMAT_GUESSES[formatGuess++])
+        }
+        // An HLS playlist that can't be read: the provider's TS link, then the link read as plain TS.
+        if (multiviewIsMalformedManifest(error)) {
+            if (!triedTs) {
+                val ts = LiveTvPlayback.tsLinkFor(request.url)
+                if (ts != null && ts != request.url) {
+                    triedTs = true
+                    return request.copy(url = ts, streamType = null)
+                }
+            }
+            if (!triedPlainTs && request.streamType != "ts") {
+                triedPlainTs = true
+                return request.copy(streamType = "ts")
+            }
+        }
+        return null
     }
 
     private fun applyAudioState() {
@@ -340,7 +379,9 @@ internal class AndroidMultiviewPlayer(
                     .setAudioCapabilities(AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
                     .setEnableFloatOutput(enableFloatOutput)
                     .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                    .build().apply { setOffloadMode(AudioSink.OFFLOAD_MODE_DISABLED) }
+                    // Offload is already off unless asked for. Don't switch it off here: that call only
+                    // exists on Android 10 and up, and on older phones it stopped every tile from starting.
+                    .build()
         }.setEnableDecoderFallback(true)
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(2_000, 8_000, 500, 1_000)
@@ -382,6 +423,33 @@ internal fun multiviewHttpStatus(failure: Throwable): Int? {
         current = cause.cause?.takeUnless { it === cause }
     }
     return null
+}
+
+/** Formats tried, in order, for a link that doesn't say what it is. */
+private val FORMAT_GUESSES = listOf("hls", "dash")
+
+/** The player couldn't tell what kind of stream the link is. */
+internal fun multiviewIsUnrecognizedFormat(error: PlaybackException): Boolean {
+    var cause: Throwable? = error
+    repeat(8) {
+        val c = cause ?: return@repeat
+        if (c is UnrecognizedInputFormatException) return true
+        if (c is ParserException && c.message?.contains("ontainer", true) == true) return true
+        cause = c.cause?.takeUnless { it === c }
+    }
+    return error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED
+}
+
+/** An HLS playlist the player couldn't read (often a link that sends plain TS under a .m3u8 name). */
+internal fun multiviewIsMalformedManifest(error: PlaybackException): Boolean {
+    if (error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED) return true
+    var cause: Throwable? = error
+    repeat(8) {
+        val c = cause ?: return@repeat
+        if (c is ParserException && c.message?.contains("malformed", true) == true) return true
+        cause = c.cause?.takeUnless { it === c }
+    }
+    return false
 }
 
 private const val MAX_RECONNECTS = 6

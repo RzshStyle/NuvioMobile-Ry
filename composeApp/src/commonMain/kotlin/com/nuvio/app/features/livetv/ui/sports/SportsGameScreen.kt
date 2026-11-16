@@ -182,6 +182,9 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions) {
     val vodLooked = repo.vodMatches.collectAsStateWithLifecycle().value[ev.id]
     val replays = vodLooked.orEmpty()
     val vodAddons = repo.vodAddons.collectAsStateWithLifecycle().value[ev.id]
+    val suggestNuvioSports by repo.suggestNuvioSports.collectAsStateWithLifecycle()
+    val nuvioSportsTip = if (suggestNuvioSports)
+        " Tip: ${SportsAddonSource.NUVIO_SPORTS_NAME} (${SportsAddonSource.NUVIO_SPORTS_SITE}) has replays of most games: add it in Add-ons." else ""
     val reminded = follows.reminders.any { it.eventId == ev.id }
     val recording = remember(schedules, ev.id) { SportsRecordings.forEvent(ev, schedules) }
     var askRecord by remember(ev.id) { mutableStateOf(false) }
@@ -300,10 +303,10 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions) {
                             vodLooked == null -> "Looking in your sports add-ons…"
                             vodAddons != null && vodAddons.isEmpty() ->
                                 "Replays and highlights come from sports add-ons that offer them (HighFly Premium, StremVerse…). " +
-                                    "None of your add-ons do yet: install one in Add-ons and they'll show here."
+                                    "None of your add-ons do yet: install one in Add-ons and they'll show here." + nuvioSportsTip
                             else -> (vodAddons?.takeIf { it.isNotEmpty() }?.let { "No replay of this game in ${it.joinToString(", ")} yet. " }
                                 ?: "No replay of this game in your sports add-ons yet. ") +
-                                "They're often added a few hours after the game ends."
+                                "They're often added a few hours after the game ends." + nuvioSportsTip
                         },
                         style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textMuted,
                     )
