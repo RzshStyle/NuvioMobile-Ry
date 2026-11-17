@@ -93,11 +93,13 @@ import com.nuvio.app.features.livetv.sports.SportsEvent
 import com.nuvio.app.features.livetv.sports.SportsMatcher
 import com.nuvio.app.features.livetv.sports.SportsRecordings
 import com.nuvio.app.features.livetv.sports.SportsRepository
+import com.nuvio.app.features.livetv.sports.SportsVideos
 import com.nuvio.app.features.livetv.sports.Standings
 import com.nuvio.app.features.livetv.sports.TeamInfo
 import com.nuvio.app.features.livetv.ui.ChannelLogo
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.livetv_sports_fix_channel
@@ -180,7 +182,10 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions) {
         onDispose { repo.closeGame(ev.id) }
     }
     val vodLooked = repo.vodMatches.collectAsStateWithLifecycle().value[ev.id]
-    val replays = vodLooked.orEmpty()
+    // Official highlights and condensed games (ESPN, NHL, MLB, YouTube) go in the same list.
+    val official = repo.videoMatches.collectAsStateWithLifecycle().value[ev.id]
+    val replays = remember(vodLooked, official) { SportsVideos.merge(vodLooked.orEmpty(), official.orEmpty()) }
+    val videoScope = androidx.compose.runtime.rememberCoroutineScope()
     val vodAddons = repo.vodAddons.collectAsStateWithLifecycle().value[ev.id]
     val suggestNuvioSports by repo.suggestNuvioSports.collectAsStateWithLifecycle()
     val nuvioSportsTip = if (suggestNuvioSports)
@@ -282,8 +287,8 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions) {
                 }
             }
         }
-        // ---- replays and highlights (finished games): they come only from sports addons, so this
-        // list goes first and says where they come from when there are none.
+        // ---- replays and highlights (finished games): from your sports addons and the leagues' own
+        // videos, so this list goes first and says where they come from when there are none.
         if (ev.state == GameState.POST) {
             item(key = "replays-h") {
                 Text("Replays & highlights", style = MaterialTheme.typography.titleSmall, color = tokens.colors.textPrimary, fontWeight = FontWeight.Bold)
@@ -292,7 +297,16 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions) {
                 items(replays, key = { "r:" + it.channel.key }) { m ->
                     SportsChannelRow(
                         m = m, copies = 1, ev = ev, use24h = use24h,
-                        onPlay = { c -> actions.onPlay(c.channel, ev.title) },
+                        onPlay = { c ->
+                            if (!SportsVideos.needsResolving(c.channel)) actions.onPlay(c.channel, ev.title)
+                            else videoScope.launch {
+                                // NHL's and YouTube's videos are worked out when picked (a moment).
+                                NuvioToastController.show("Opening the video…")
+                                val ch = runCatching { repo.playableVideo(c.channel) }.getOrNull()
+                                if (ch != null) actions.onPlay(ch, ev.title)
+                                else NuvioToastController.show("That video can't be played right now. Try another one.")
+                            }
+                        },
                         onLongPress = {},
                     )
                 }
@@ -300,7 +314,7 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions) {
                 item(key = "replays-none") {
                     Text(
                         when {
-                            vodLooked == null -> "Looking in your sports add-ons…"
+                            vodLooked == null || official == null -> "Looking for replays and highlights…"
                             vodAddons != null && vodAddons.isEmpty() ->
                                 "Replays and highlights come from sports add-ons that offer them (HighFly Premium, StremVerse…). " +
                                     "None of your add-ons do yet: install one in Add-ons and they'll show here." + nuvioSportsTip

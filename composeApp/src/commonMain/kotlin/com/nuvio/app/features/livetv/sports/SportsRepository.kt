@@ -62,6 +62,8 @@ internal object SportsRepository {
     private val prefs = LiveTvPreferences
     private val liveRepo = LiveTvRepository
     private val feeds = SportsFeeds()
+    // Official highlights and condensed games (ESPN, NHL, MLB, YouTube via TheSportsDB).
+    private val videos = SportsVideos { feeds.dataRaw(it) }
     private val matcher = SportsMatcher()
     private const val DIR = LiveTvDirs.SPORTS
 
@@ -325,6 +327,7 @@ internal object SportsRepository {
      */
     fun openGame(ev: SportsEvent) {
         addonJobs.remove(ev.id)?.cancel()
+        lookForVideos(ev)
         // Replays found for this game a few minutes ago at most: no need to ask again.
         if (ev.state == GameState.POST && _addonVod.value[ev.id]?.isNotEmpty() == true &&
             LiveTvClock.nowMs() - (vodAt.value[ev.id] ?: 0L) < VOD_FRESH_MS
@@ -340,6 +343,46 @@ internal object SportsRepository {
     }
 
     private val vodAt = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    // ---- official videos (see SportsVideos)
+
+    private val _videos = MutableStateFlow<Map<String, List<ChannelMatch>>>(emptyMap())
+    /** Finished games: event id -> their official highlights, recaps and condensed games. */
+    val videoMatches: StateFlow<Map<String, List<ChannelMatch>>> = _videos.asStateFlow()
+    private val videoAt = SyncMap<String, Long>()
+    private val videoJobs = SyncMap<String, kotlinx.coroutines.Job>()
+
+    /** A finished game's official videos, looked for once (again after a while: they keep coming for a few hours). */
+    private fun lookForVideos(ev: SportsEvent) {
+        if (ev.state != GameState.POST) return
+        val at = videoAt[ev.id]
+        val fresh = if (_videos.value[ev.id].isNullOrEmpty()) VIDEO_EMPTY_FRESH_MS else VIDEO_FRESH_MS
+        if (at != null && LiveTvClock.nowMs() - at < fresh) return
+        if (videoJobs[ev.id]?.isActive == true) return
+        videoJobs[ev.id] = scope.launch {
+            try {
+                val espn = runCatching { summaryFor(ev)?.videos }.getOrNull().orEmpty()
+                val found = videos.find(ev, espn).map { SportsVideos.match(it) }
+                _videos.update { it + (ev.id to found) }
+                videoAt[ev.id] = LiveTvClock.nowMs()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                _videos.update { if (it.containsKey(ev.id)) it else it + (ev.id to emptyList()) }
+            } finally {
+                videoJobs.remove(ev.id)
+            }
+        }
+    }
+
+    /** A picked video ready to play (NHL's and YouTube's links are worked out now); null: it can't be. */
+    suspend fun playableVideo(ch: LiveChannel): LiveChannel? =
+        if (SportsVideos.needsResolving(ch)) videos.playable(ch) else ch
+
+    /** Official videos found: asked again after half an hour (more get added for a few hours). */
+    private const val VIDEO_FRESH_MS = 30 * 60_000L
+    /** None found yet: asked again after five minutes. */
+    private const val VIDEO_EMPTY_FRESH_MS = 5 * 60_000L
 
     /** One look through your sports addons for [ev], shown add-on by add-on as each answers; true when something was found. */
     private suspend fun lookInAddons(ev: SportsEvent): Boolean {
@@ -1682,7 +1725,11 @@ internal object SportsRepository {
     }
 
     /** A game's summary as last asked: when, the score then, its scoring plays and the rest. */
-    private class GameSummary(val at: Long, val sig: String, val plays: List<ScoringPlay>, val extras: GameExtras)
+    private class GameSummary(
+        val at: Long, val sig: String, val plays: List<ScoringPlay>, val extras: GameExtras,
+        /** The game's videos in ESPN's summary (highlights, big plays). */
+        val videos: List<SportsVideos.Video> = emptyList()
+    )
     private val summaryCache = SyncMap<String, GameSummary>()
 
     private suspend fun summaryFor(ev: SportsEvent): GameSummary? = withContext(Dispatchers.Default) {
@@ -1700,7 +1747,8 @@ internal object SportsRepository {
         }.getOrNull() ?: return@withContext cached
         val plays = if (ev.state == GameState.PRE) emptyList() else runCatching { SportsFeeds.parseSummary(root) }.getOrDefault(emptyList())
         val extras = runCatching { SportsExtras.parse(root, ev, league.sport) }.getOrDefault(GameExtras())
-        GameSummary(LiveTvClock.nowMs(), sig, plays, extras).also { summaryCache[ev.id] = it }
+        val clips = if (tsdbId != null || ev.state == GameState.PRE) emptyList() else runCatching { SportsVideos.espn(root) }.getOrDefault(emptyList())
+        GameSummary(LiveTvClock.nowMs(), sig, plays, extras, clips).also { summaryCache[ev.id] = it }
     }
 
     /** The game's scoring plays (touchdowns, goals…), when ESPN has them. */
