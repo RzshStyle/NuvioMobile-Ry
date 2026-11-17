@@ -11,6 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlin.concurrent.Volatile
 
 /**
@@ -223,7 +225,12 @@ internal class SportsVideos(
         val real = try {
             when {
                 url.startsWith(BRIGHTCOVE_SCHEME) -> brightcove(url.removePrefix(BRIGHTCOVE_SCHEME))
-                youTubeId(url) != null -> if (inAppYouTube) TrailerPlaybackResolver.resolveSingleUrlFromYouTubeUrl(url) else null
+                // The picture and the sound as two whole files, like trailers: skipping around
+                // works in them. YouTube's streamed (HLS) version got stuck loading after a skip.
+                youTubeId(url) != null -> if (!inAppYouTube) null else TrailerPlaybackResolver.resolveFromYouTubeUrl(url)?.let { s ->
+                    s.audioUrl?.takeIf { it.isNotBlank() }?.let { rememberSound(s.videoUrl, it) }
+                    s.videoUrl
+                }
                 else -> url
             }
         } catch (e: CancellationException) {
@@ -277,6 +284,19 @@ internal class SportsVideos(
         private const val MAX_PLAYS = 30
         private val FROM_ORDER = listOf("NHL", "MLB", "ESPN", "YouTube")
         private val STOP_WORDS = setOf("the", "and", "vs", "grand", "prix", "round", "final", "race", "fight", "night", "card", "main")
+
+        /** Sound files for picked YouTube videos, by their picture file (links expire: kept in memory only). */
+        private val sounds = LinkedHashMap<String, String>()
+        private val soundsLock = SynchronizedObject()
+
+        private fun rememberSound(videoUrl: String, audioUrl: String) = synchronized(soundsLock) {
+            sounds.remove(videoUrl)
+            sounds[videoUrl] = audioUrl
+            while (sounds.size > 20) sounds.remove(sounds.keys.first())
+        }
+
+        /** The separate sound file that goes with this picture file (a YouTube video), or null. */
+        fun soundFor(videoUrl: String): String? = synchronized(soundsLock) { sounds[videoUrl] }
 
         /** A picked video needs working out before it plays (see [playable]). */
         fun needsResolving(ch: LiveChannel): Boolean =

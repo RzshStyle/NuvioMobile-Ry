@@ -143,6 +143,9 @@ internal object LiveTvPlayback {
             profileId = profileId,
             title = channel.name,
             sourceUrl = req.url,
+            // A YouTube highlight from Sports: its sound is a file of its own.
+            sourceAudioUrl = if (channel.sourceId == com.nuvio.app.features.livetv.sports.SportsVideos.SOURCE_ID)
+                com.nuvio.app.features.livetv.sports.SportsVideos.soundFor(req.url) else null,
             sourceHeaders = req.headers,
             stalkerMediaPolicy = req.mediaPolicy,
             streamType = req.streamType,

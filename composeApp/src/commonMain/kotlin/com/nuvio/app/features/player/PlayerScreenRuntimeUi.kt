@@ -204,6 +204,9 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
                 PlatformPlayerSurface(
                     sourceUrl = playerSurfaceSourceUrl,
                     sourceAudioUrl = activeSourceAudioUrl,
+                    // YouTube files (a Sports highlight): read in pieces, as for trailers.
+                    useYoutubeChunkedPlayback = !activeSourceAudioUrl.isNullOrBlank() &&
+                        playerSurfaceSourceUrl.substringAfter("://").substringBefore('/').endsWith("googlevideo.com", ignoreCase = true),
                     sourceHeaders = activeSourceHeaders,
                     stalkerMediaPolicy = activeStalkerMediaPolicy,
                     sourceResponseHeaders = activeSourceResponseHeaders,
