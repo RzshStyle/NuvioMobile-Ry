@@ -30,6 +30,7 @@ internal object LiveTvPreferencesAndroid {
         OnDemandStore.initialize(context)
         RecordingPlatform.initialize(context)
         LiveTvDriveHttp.initialize(context)
+        VpnReportLines.start()
         val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
         val devicePreferences = context.getSharedPreferences(devicePreferencesName, Context.MODE_PRIVATE)
         LiveTvPreferences.installPersistence(

@@ -283,6 +283,8 @@ internal object LiveTvRecordingScheduler {
             if (!loadedOnce) load()
             val s = _schedules.value.firstOrNull { it.id == id } ?: run { LiveTvRecorder.stopServiceIfIdle(); return@launch }
             val now = LiveTvClock.nowMs()
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Scheduled recording \"${s.title}\" on ${s.channel.name} is due" + (if (s.useCatchup) " (saved from catch-up)" else "") +
+                (if (now > s.startMs - s.pre + 2 * 60_000L && now < s.stopMs) ", ${(now - (s.startMs - s.pre)) / 60_000} min late" else ""))
             if (!s.useCatchup) {
                 if (now >= s.stopMs) { drop(s, "\"${s.title}\" was missed"); return@launch }
                 // Too early (the alarm came early): set it again.
@@ -441,6 +443,7 @@ internal object LiveTvRecordingScheduler {
     }
 
     private suspend fun drop(s: RecordingSchedule, message: String) {
+        com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Scheduled recording: $message")
         remove(s)
         LiveTvRecorder.stopServiceIfIdle()
         RecordingNotices.show(message)

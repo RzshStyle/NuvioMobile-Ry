@@ -288,6 +288,7 @@ internal object CalendarRepository {
             val s = LiveTvPreferences.settings.value
             val list = runCatching { CalendarSources.airingOn(dayMs, s.calendarCountry.ifBlank { "US" }) }.getOrNull()
             if (list == null) {
+                com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Calendar: couldn't get the shows airing that day")
                 _airing.value = AiringToday(dayMs, emptyList(), false, "Couldn't get today's shows. Check your connection.")
                 return@launch
             }
@@ -470,6 +471,7 @@ internal object CalendarRepository {
 
     private suspend fun build(fetch: Boolean, force: Boolean) = mutex.withLock {
         runCatching { buildLocked(fetch, force) }.onFailure {
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Calendar: couldn't be made (${it.message?.take(120) ?: it::class.simpleName})")
             _state.value = _state.value.copy(loading = false, progress = null, problem = it.message)
         }
     }
@@ -531,6 +533,7 @@ internal object CalendarRepository {
             if (same.size == 1) same[0] else same[0].copy(reasons = same.flatMap { it.reasons }.toSet())
         }
         val sorted = merged.sortedWith(compareBy<CalendarEntry> { it.dayMs }.thenBy { it.airMs ?: Long.MAX_VALUE }.thenBy { it.title })
+        if (fetch) com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Calendar: ${shows.size} shows and ${movies.size} movies, ${sorted.map { it.dayMs }.distinct().size} dates")
         _state.value = CalendarState(
             entries = sorted,
             loading = false,

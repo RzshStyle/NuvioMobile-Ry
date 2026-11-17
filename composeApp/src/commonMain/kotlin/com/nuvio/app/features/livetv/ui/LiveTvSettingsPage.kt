@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Login
@@ -107,6 +108,9 @@ import nuvio.composeapp.generated.resources.livetv_stalker_language
 import nuvio.composeapp.generated.resources.livetv_stalker_optional_login
 import nuvio.composeapp.generated.resources.livetv_stalker_device_binding
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.livetv_section_help
+import nuvio.composeapp.generated.resources.livetv_report_title
+import nuvio.composeapp.generated.resources.livetv_report_description
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.action_delete
 import nuvio.composeapp.generated.resources.action_edit
@@ -408,6 +412,7 @@ private sealed interface LiveDialog {
     /** A backup file was picked and read: confirm before it replaces this device's setup. */
     data class ConfirmImportFile(val text: String, val info: BackupFileInfo) : LiveDialog
     data object ConfirmSignOut : LiveDialog
+    data object StartUpReport : LiveDialog
     data object ParentalMenu : LiveDialog
     data object ParentalSetPin : LiveDialog
     /** Asks the current PIN, then [then]. */
@@ -1106,6 +1111,18 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             }
             LiveTvCloudSyncSection(isTablet = isTablet)
         }
+
+        SettingsSection(title = stringResource(Res.string.livetv_section_help), isTablet = isTablet) {
+            SettingsGroup(isTablet = isTablet) {
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_report_title),
+                    description = stringResource(Res.string.livetv_report_description),
+                    icon = Icons.Filled.Info,
+                    isTablet = isTablet,
+                    onClick = { dialog = LiveDialog.StartUpReport },
+                )
+            }
+        }
     }
 
     drive.signIn?.let { prompt -> DriveSignInDialog(prompt, onCancel = { LiveTvDriveSync.cancelSignIn() }) }
@@ -1117,6 +1134,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
         LiveDialog.AddXtream -> XtreamForm(null, onDismiss = close)
         LiveDialog.AddStalker -> StalkerForm(null, onDismiss = close)
         LiveDialog.AddEpg -> EpgForm(null, onDismiss = close)
+        LiveDialog.StartUpReport -> StartUpReportDialog(onDismiss = close)
         is LiveDialog.EditPlaylist -> when {
             d.source.isStalker -> StalkerForm(d.source, onDismiss = close)
             d.source.isXtream -> XtreamForm(d.source, onDismiss = close)

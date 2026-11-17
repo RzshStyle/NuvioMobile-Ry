@@ -374,7 +374,11 @@ internal object LiveTvDriveSync {
         appliedAtMs = LiveTvClock.nowMs()
         try {
             // The same import and reload as Import backup file (see LiveTvBackupApply).
+            val playlistsBefore = prefs.currentPlaylists()
             val applied = LiveTvBackupApply.apply(data, prefs, repository::reloadAfterSync)
+            com.nuvio.app.features.livetv.model.PlaylistServerChanges.lines(playlistsBefore, prefs.currentPlaylists())
+                .forEach { com.nuvio.app.features.livetv.model.LiveTvLoadReport.add(it) }
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add(if (applied.changedAnything) "Sync: applied a saved setup to this phone" else "Sync: the saved setup is the same as this phone's; nothing to reload")
             if (!applied.changedAnything) return
             delay(500)
         } finally {
@@ -597,11 +601,13 @@ internal object LiveTvDriveSync {
                 mapOf("client_id" to clientId, "client_secret" to clientSecret, "refresh_token" to refresh, "grant_type" to "refresh_token")
             )
         }.getOrElse { e ->
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Google Drive: couldn't renew the sign-in (${e.message?.take(100) ?: "network error"})")
             _state.value = _state.value.copy(message = "Couldn't reach Google Drive (${e.message ?: "network error"}).")
             return null
         }
         if (res.optString("error") == "invalid_grant") {
             store.putString(KEY_REFRESH, null)
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Google Drive: access was removed; signed out")
             _state.value = _state.value.copy(connected = false, message = "Google Drive access was removed. Sign in again to keep syncing.")
             return null
         }

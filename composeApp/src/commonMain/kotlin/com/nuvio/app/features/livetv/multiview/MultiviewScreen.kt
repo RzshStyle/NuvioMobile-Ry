@@ -275,6 +275,7 @@ fun MultiviewScreen(
                     .mapNotNull { watch?.resolve(eventId, it.channel.key)?.channel }
                     .firstOrNull { it.key !in tried && playerPermission?.invoke(it) != false }
                 if (next != null) {
+                    com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Multiview: ${failed.name} won't play: switched P${pane + 1} to ${next.name}, same game")
                     sportsEvents[pane] = eventId
                     session.assign(pane, next)
                     return true
@@ -283,6 +284,7 @@ fun MultiviewScreen(
         }
         val backup = LiveTvPlayback.backupChannel(failed, tried)
             ?.takeIf { c -> playerPermission?.invoke(c) ?: LiveTvViewState.list.value.visible.any { it == c } } ?: return false
+        com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Multiview: ${failed.name} won't play: switched P${pane + 1} to ${backup.name} (${backup.group})")
         session.assign(pane, backup)
         return true
     }

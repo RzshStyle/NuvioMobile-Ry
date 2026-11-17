@@ -67,9 +67,9 @@ internal object LogoLibrary {
     suspend fun entries(skip: Set<String> = emptySet()): List<Entry> = lock.withLock {
         withContext(Dispatchers.Default) {
             val a = if ("tv-logos" in skip) null else tvLogos
-                ?: runCatching { loadTvLogos() }.getOrNull()?.also { tvLogos = it }
+                ?: runCatching { loadTvLogos() }.onFailure { com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Change Logo: tv-logos list couldn't be read (${it.message ?: it::class.simpleName})") }.getOrNull()?.also { tvLogos = it }
             val b = if ("iptv-org" in skip) null else iptvOrg
-                ?: runCatching { loadIptvOrg() }.getOrNull()?.also { iptvOrg = it }
+                ?: runCatching { loadIptvOrg() }.onFailure { com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Change Logo: iptv-org list couldn't be read (${it.message ?: it::class.simpleName})") }.getOrNull()?.also { iptvOrg = it }
             a.orEmpty() + b.orEmpty()
         }
     }
@@ -80,7 +80,9 @@ internal object LogoLibrary {
             LiveTvFiles.size(LiveTvDirs.LOGOS, name) > 0 &&
             LiveTvClock.nowMs() - LiveTvFiles.lastModified(LiveTvDirs.LOGOS, name) < MAX_AGE
         if (fresh) return
+        val t0 = LiveTvClock.nowMs()
         val ok = runCatching { LiveTvFiles.download(url, LiveTvDirs.LOGOS, name, USER_AGENT) }.isSuccess
+        if (ok) com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Change Logo: $name list fetched in ${com.nuvio.app.features.livetv.model.LiveTvLoadReport.seconds(LiveTvClock.nowMs() - t0)} s (${LiveTvFiles.size(LiveTvDirs.LOGOS, name) / 1024} KB)")
         if (!ok && !LiveTvFiles.exists(LiveTvDirs.LOGOS, name)) error("The logo list couldn't be downloaded")
     }
 

@@ -192,6 +192,18 @@ internal object LiveTvPlayback {
     @kotlin.concurrent.Volatile
     var channelSwipe: ((next: Boolean) -> Unit)? = null
 
+    /** Catch-up links already reported as playing (the player reports it again on every pause and play). */
+    private val reportedPlaying = HashSet<String>()
+
+    /** What kind of catch-up or stream link this is, for the Start-Up Report (never the link itself: it holds the login). */
+    private fun linkKind(url: String): String = when {
+        LiveTvCatchup.isHlsTimeshift(url) -> "HLS timeshift"
+        LiveTvCatchup.isTsTimeshift(url) -> "TS timeshift"
+        url.contains(".m3u8", ignoreCase = true) -> "HLS"
+        url.substringBefore('?').endsWith(".ts", ignoreCase = true) -> "TS"
+        else -> "provider"
+    }
+
     /** Whether this provider id is Live TV's (the player asks before trying a fallback). */
     fun owns(providerAddonId: String?): Boolean = providerAddonId == PROVIDER_ID
 
@@ -249,6 +261,9 @@ internal object LiveTvPlayback {
         val now = LiveTvClock.nowMs()
         val plan = LiveTvCatchup.plan(channel, program, prefs.currentSettings(), playlist, now, offsetMs) ?: return null
         if (playlist?.catchupZone.isNullOrBlank()) warnZoneUnknown(playlist?.id, playlist?.name, plan.url)
+        com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Catch-up \"${program.title}\" on ${channel.name}: ${linkKind(plan.url)} link, ${plan.fallbacks.size} other link(s) to try" +
+            (if (offsetMs > 0) ", from ${offsetMs / 60_000} min in" else "") +
+            (playlist?.catchupZone?.takeIf { it.isNotBlank() }?.let { ", time zone $it" } ?: ", time zone unknown"))
         // The kind of link that worked last time on this provider goes first, so a skip or a
         // second replay doesn't wait on links the provider never answers.
         val links = CatchupUrlBuilder.preferForm(plan.url, plan.fallbacks, synchronized(lock) { catchupForms[channel.sourceId] })
@@ -302,6 +317,9 @@ internal object LiveTvPlayback {
     fun onPlaying(url: String?) {
         if (url == null) return
         val ctx = synchronized(lock) { catchups[url] } ?: return
+        if (synchronized(lock) { reportedPlaying.add(url) }) {
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Catch-up \"${ctx.program.title}\" playing (${linkKind(url)} link)")
+        }
         val sourceId = ctx.channel.sourceId
         // Remember the kind of link this provider answers (the "other clock" link can play an
         // earlier show even when it's wrong, so it is never put first).
@@ -324,7 +342,12 @@ internal object LiveTvPlayback {
 
     /** The next form of a catch-up request to try after [failedUrl], or null when none is left. */
     private fun catchupFallback(failedUrl: String, ctx: CatchupContext): LiveFallback? {
-        val next = synchronized(lock) { ctx.remaining.removeFirstOrNull() } ?: return null
+        val next = synchronized(lock) { ctx.remaining.removeFirstOrNull() }
+        if (next == null) {
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Catch-up failed on ${ctx.channel.name}; no other links left to try")
+            return null
+        }
+        com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Catch-up failed on ${ctx.channel.name} (${linkKind(failedUrl)} link); trying a ${linkKind(next)} link")
         val req = request(ctx.channel, next)
         synchronized(lock) {
             playing[req.url] = ctx.channel
@@ -342,7 +365,11 @@ internal object LiveTvPlayback {
     suspend fun fallbackFor(failedUrl: String): LiveFallback? {
         synchronized(lock) { catchups[failedUrl] }?.let { ctx ->
             if (ctx.portal == null) return catchupFallback(failedUrl, ctx)
-            if (!synchronized(lock) { portalRetried.add("archive:${ctx.channel.key}:${ctx.program.startMs}") }) return null
+            if (!synchronized(lock) { portalRetried.add("archive:${ctx.channel.key}:${ctx.program.startMs}") }) {
+                com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Catch-up failed on ${ctx.channel.name} (portal), also after asking the portal again")
+                return null
+            }
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Catch-up failed on ${ctx.channel.name} (portal); asking the portal for a new link")
             val stream = StalkerGateway.resolve(ctx.channel.sourceId, ctx.portal)
             val req = request(ctx.channel, stream.url, stream.headers, stream.mediaPolicy, stream.streamType)
             synchronized(lock) { playing[req.url] = ctx.channel; catchups[req.url] = ctx }
@@ -350,6 +377,7 @@ internal object LiveTvPlayback {
         }
         val channel = synchronized(lock) { playing[failedUrl] } ?: return null
         if (channel.stalker != null && synchronized(lock) { portalRetried.add(channel.key) }) {
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Channel ${channel.name} failed (portal); asking the portal for a new link")
             val req = requestFor(channel)
             synchronized(lock) { playing[req.url] = channel }
             return LiveFallback(channel, req)
@@ -360,12 +388,20 @@ internal object LiveTvPlayback {
             else tsLinkFor(failedUrl)?.takeIf { it != failedUrl }?.also { tsInstead += channel.key }
         }
         if (ts != null) {
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Channel ${channel.name}: its HLS stream couldn't be played; playing it as TS instead")
             val req = request(channel, ts)
             synchronized(lock) { playing[req.url] = channel }
             return LiveFallback(channel, req)
         }
         // 2. Another channel by the same name; 3. another channel showing the same game (Sports).
-        val next = backupFor(channel) ?: gameFailoverFor(channel) ?: return null
+        val sameName = backupFor(channel)
+        val next = sameName ?: gameFailoverFor(channel)
+        if (next == null) {
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Channel ${channel.name} won't play; " +
+                if (LiveTvPreferences.currentSettings().autoBackupChannel) "no backup channel left to try" else "Backup channel is off")
+            return null
+        }
+        com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Channel ${channel.name} won't play: switched to ${next.name} (${next.group})" + if (sameName == null) ", same game" else "")
         val req = requestFor(next)
         synchronized(lock) { playing[req.url] = next; backupTried += next.key }
         currentKey = next.key
@@ -430,6 +466,15 @@ internal object LiveTvPlayback {
         val m = message.orEmpty()
         val code = Regex("""\b(4\d\d|5\d\d|884)\b""").find(m)?.value?.toIntOrNull()
         val catchup = url != null && synchronized(lock) { catchups.containsKey(url) }
+        val name = url?.let { synchronized(lock) { playing[it] } }?.name
+        return describe(m, code, catchup).also { shown ->
+            // The player's own text, without links (they hold the login).
+            val raw = m.replace(Regex("""\w+://\S+"""), "<link>").take(160)
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Player error on ${name ?: "a Live TV stream"}: $shown" + if (raw.isNotBlank()) " ($raw)" else "")
+        }
+    }
+
+    private fun describe(m: String, code: Int?, catchup: Boolean): String {
         return when {
             catchup -> "This show couldn't be replayed. The provider may not have it in its catch-up" + (code?.let { " (HTTP $it)" } ?: "")
             code == 401 || code == 403 -> "Provider refused the stream (HTTP $code): account limit, expired, or blocked"

@@ -17,6 +17,10 @@ internal object LiveTvStartup {
     fun start() {
         if (started) return
         started = true
+        val playlists = LiveTvPreferences.currentPlaylists()
+        com.nuvio.app.features.livetv.model.LiveTvLoadReport.add(
+            "Live TV started: ${playlists.count { it.liveEnabled }} of ${playlists.size} playlists on, ${LiveTvPreferences.currentEpgSources().size} guides"
+        )
         // Nothing to do until a playlist exists; the first one added starts the repository.
         if (LiveTvPreferences.currentPlaylists().isNotEmpty() || LiveTvPreferences.currentEpgSources().isNotEmpty()) {
             LiveTvRepository.ensureLoaded(updateCheckDelayMs = 8_000L)

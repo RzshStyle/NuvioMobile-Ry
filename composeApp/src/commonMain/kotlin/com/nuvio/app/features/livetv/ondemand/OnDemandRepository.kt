@@ -157,6 +157,7 @@ internal object OnDemandRepository {
             quietImport = !force && last > 0L
             _status.value = OnDemandStatus(true, "Importing movies and series from ${pl.name}…", silent = quietImport)
             var problem: String? = null
+            val t0 = LiveTvClock.nowMs()
             if (pl.isStalker) {
                 runCatching { importStalker(pl, VodKind.MOVIE) }
                     .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; problem = "Couldn't import movies from ${pl.name}: ${it.message ?: "portal unavailable"}" }
@@ -179,6 +180,9 @@ internal object OnDemandRepository {
                 }
             }
             val p = problem
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add(
+                "On Demand \"${pl.name}\": imported in ${(LiveTvClock.nowMs() - t0) / 1000} s" + (p?.let { "; $it" } ?: "")
+            )
             if (p != null) problemByPlaylist[pl.id] = p else problemByPlaylist.remove(pl.id)
             // Success: next import in a day. Failure: try again in an hour, not on every start.
             prefs.setOnDemandImportTime(pl.id, if (p == null) LiveTvClock.nowMs() else LiveTvClock.nowMs() - REFRESH_MS + 60 * 60 * 1000L)
@@ -213,6 +217,7 @@ internal object OnDemandRepository {
                     genre = movie.genre, stalker = movie.stream.copy(sourceIdentity = identity), plot = movie.plot, durationSecs = movie.durationSeconds)
             }
             withContext(Dispatchers.Default) { OnDemandStore.replace(pl.id, kind, categories, items, publication = { commit -> prefs.withCurrentPlaylist(pl, commit) }) }
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("On Demand \"${pl.name}\": ${raw.size} movies, ${categories.size} categories from the portal")
         } else {
             val categoryNames = LinkedHashMap<String, String>()
             try { client.seriesCategories().forEach { categoryNames["CLASSIC:${it.id}"] = it.name } }
@@ -234,6 +239,7 @@ internal object OnDemandRepository {
                     stalkerSeriesVariant = series.variant.name, plot = series.plot)
             }
             withContext(Dispatchers.Default) { OnDemandStore.replace(pl.id, kind, categories, items, publication = { commit -> prefs.withCurrentPlaylist(pl, commit) }) }
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("On Demand \"${pl.name}\": ${raw.size} series, ${categories.size} categories from the portal")
         }
         infoCache.keys.removeAll { it.substringAfter(':').substringBefore(':') == pl.id }
     }
@@ -263,7 +269,9 @@ internal object OnDemandRepository {
                 genre = x.genre,
             )
         }
-        return withContext(Dispatchers.Default) { OnDemandStore.replace(pl.id, kind, categories, items) }
+        val saved = withContext(Dispatchers.Default) { OnDemandStore.replace(pl.id, kind, categories, items) }
+        com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("On Demand \"${pl.name}\": $saved $what, ${categories.size} categories from the provider")
+        return saved
     }
 
     /**
@@ -282,6 +290,11 @@ internal object OnDemandRepository {
             }
             // Nothing from the provider and nothing in the playlist itself: report why.
             if (!pl.vodInPlaylist) fromProvider.getOrThrow()
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add(
+                "On Demand \"${pl.name}\": the provider gave no $what" +
+                    (fromProvider.exceptionOrNull()?.let { " (${it.message ?: it::class.simpleName})" } ?: "") +
+                    "; reading them from the playlist"
+            )
             infoCache.keys.removeAll { it.substringAfter(':').substringBefore(':') == pl.id }
         }
         importFromPlaylist(pl, kind, what)
@@ -348,6 +361,7 @@ internal object OnDemandRepository {
             }
             _status.value = OnDemandStatus(true, "Storing ${items.size} movies from ${pl.name}…", silent = quietImport)
             OnDemandStore.replace(pl.id, VodKind.MOVIE, categories.entries.map { it.key to it.value }, items.asSequence())
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("On Demand \"${pl.name}\": ${items.size} movies from the playlist, ${categories.size} categories")
             return@withContext
         }
         // Series: each show is kept once (its first poster); the episodes go in a file of their own.
@@ -378,6 +392,7 @@ internal object OnDemandRepository {
         LiveTvFiles.writeText(LiveTvDirs.PLAYLISTS, episodesFile(pl.id), lines.joinToString("\n"))
         _status.value = OnDemandStatus(true, "Storing ${shows.size} series from ${pl.name}…", silent = quietImport)
         OnDemandStore.replace(pl.id, VodKind.SERIES, categories.entries.map { it.key to it.value }, shows.values.asSequence())
+        com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("On Demand \"${pl.name}\": ${shows.size} series (${lines.size} episodes) from the playlist, ${categories.size} categories")
         infoCache.keys.removeAll { it.substringAfter(':').substringBefore(':') == pl.id }
     }
 

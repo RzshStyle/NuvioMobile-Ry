@@ -131,6 +131,7 @@ internal object LiveTvRecorder {
         )
         if (!RecordingPlatform.available || root.isBlank()) {
             val failed = rec.copy(status = RecordingStatus.FAILED, endedAtMs = now, problem = "Recording isn't available on this device")
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Recording \"$title\" on ${channel.name}: recording isn't available on this device")
             update(failed)
             runCatching { onFinished(failed) }
             return failed
@@ -138,6 +139,7 @@ internal object LiveTvRecorder {
         // Not enough room to start: make room (if allowed) or say so.
         if (!ensureSpace(protect = id)) {
             val failed = rec.copy(status = RecordingStatus.FAILED, endedAtMs = now, problem = "Not enough storage space to record")
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Recording \"$title\" on ${channel.name}: not enough storage space (${RecordingPlatform.usableSpace() / (1024 * 1024)} MB free)")
             save(failed); update(failed)
             RecordingNotices.show("Not enough storage space to record \"$title\"")
             runCatching { onFinished(failed) }
@@ -145,6 +147,10 @@ internal object LiveTvRecorder {
         }
         save(rec)
         update(rec)
+        com.nuvio.app.features.livetv.model.LiveTvLoadReport.add(
+            (if (finite) "Saving catch-up \"$title\" on ${channel.name}" else "Recording \"$title\" on ${channel.name} until ${com.nuvio.app.core.format.formatLocalTime(stopAtMs)}") +
+                (if (fallbacks.isNotEmpty()) " (${fallbacks.size} other link(s) to try)" else "")
+        )
         RecordingPlatform.keepAlive(true)
         if (finite) synchronized(lock) { catchupSources[id] = channel.sourceId }
         val job = scope.launch {
@@ -165,6 +171,7 @@ internal object LiveTvRecorder {
     /** Stops a recording now (what's recorded is kept). */
     fun stop(id: String) {
         val job = synchronized(lock) { stopRequested += id; jobs[id] }
+        _recordings.value.firstOrNull { it.id == id }?.let { com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Recording \"${it.title}\": stopped by hand") }
         job?.cancel()
         // A recording stuck waiting on a dead connection can ignore the stop: if it is still
         // "recording" a few seconds later, end it here.
@@ -184,6 +191,7 @@ internal object LiveTvRecorder {
             problem = if (hasVideo) null else "Stopped before anything was recorded"
         )
         save(done); update(done)
+        com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Recording \"${done.title}\" was stuck; ended by hand: ${done.status}")
         synchronized(lock) { forced += id; jobs.remove(id)?.cancel(); catchupSources.remove(id); stopRequested.remove(id) }
         stopServiceIfIdle()
     }
@@ -248,6 +256,7 @@ internal object LiveTvRecorder {
                     HLS_SENT_NOTHING
                 }
                 if (problem == HLS_SENT_NOTHING && tsLink != null && !stopping(rec.id)) {
+                    com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Recording \"${rec.title}\": the HLS replay sent nothing in ${HLS_GIVE_UP_MS / 1000} s; saving the TS one instead")
                     links.remove(tsLink)
                     url = tsLink
                     hls = false
@@ -364,6 +373,8 @@ internal object LiveTvRecorder {
                 else (problem ?: latest.problem ?: "Nothing could be recorded from this channel ($NO_VIDEO_SHORT)")
             )
             if (_recordings.value.any { it.id == done.id }) { save(done); update(done) }
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Recording \"${done.title}\" finished: ${done.status}, ${(latest.durationSec / 60).toInt()} of ${(expectedSec / 60).toInt()} min" +
+                (if (byHand) ", stopped by hand" else "") + (done.problem?.let { " ($it)" } ?: ""))
             synchronized(lock) { jobs.remove(rec.id); stopRequested.remove(rec.id) }
             stopServiceIfIdle()
             // Stopped by hand before anything came in: not a failure to try again later.
@@ -379,6 +390,7 @@ internal object LiveTvRecorder {
     /** Shows what's going wrong while it's still recording (Recordings shows it under the title). */
     private fun noteProblem(rec: LiveTvRecording, problem: String?): LiveTvRecording {
         val latest = _recordings.value.firstOrNull { it.id == rec.id } ?: rec
+        if (problem != null && problem != latest.problem) com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Recording \"${latest.title}\": $problem")
         val r = latest.copy(problem = problem)
         update(r)
         return r
@@ -642,6 +654,7 @@ internal object LiveTvRecorder {
                 val fixed = if (hasVideo) rec.copy(status = RecordingStatus.DONE, endedAtMs = LiveTvClock.nowMs(), sizeBytes = RecordingPlatform.dirSize(d),
                     problem = "The app closed before it finished, so it stops early")
                 else rec.copy(status = RecordingStatus.FAILED, problem = "The app closed before anything was recorded")
+                com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Recording \"${rec.title}\": the app closed while it was recording (${fixed.status})")
                 save(fixed)
                 out += fixed
             } else out += rec

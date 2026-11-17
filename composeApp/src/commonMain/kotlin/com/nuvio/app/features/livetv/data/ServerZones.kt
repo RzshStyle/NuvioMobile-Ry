@@ -122,9 +122,11 @@ internal object ServerZones {
             val tz = found.first
             synchronized(lock) { failedAt.remove(pl.id); checkedAt[pl.id] = now }
             LiveTvPreferences.updatePlaylists { list -> list.map { if (it.id == pl.id) it.copy(serverTimezone = tz) else it } }
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Server time zone for \"${pl.name}\": $tz (${found.second})")
             return tz
         }
         synchronized(lock) { failedAt[pl.id] = now }
+        com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Server time zone for \"${pl.name}\": unknown (server didn't say, no guide gave it away)")
         return null
     }
 
