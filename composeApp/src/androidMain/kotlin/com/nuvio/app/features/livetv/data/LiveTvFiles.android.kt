@@ -143,12 +143,21 @@ internal actual object LiveTvFiles {
     }
 
     private fun describe(e: Exception): String = when (e) {
-        is UnknownHostException -> "Couldn't find the provider's server. Check the address, your internet, or try again later."
+        // Names the address that wasn't found (as the TV app does): it can differ from the one typed
+        // in, when the provider sends the app on to another server.
+        is UnknownHostException -> "Couldn't find the provider's server${missingHost(e)}. Check the address, your internet, or try again later."
         is SocketTimeoutException -> "The provider took too long to answer (timeout). It may be busy; try again later."
         is java.net.ConnectException -> "Couldn't connect to the provider's server."
         is javax.net.ssl.SSLException -> "Secure connection to the provider failed."
         is IllegalArgumentException -> "That isn't a valid web address."
         else -> e.message ?: e.javaClass.simpleName
+    }
+
+    /** " (cdn.example.com)" from Android's "Unable to resolve host "cdn.example.com": …", or "" when it names none. */
+    private fun missingHost(e: Exception): String {
+        val message = e.message.orEmpty()
+        val host = if ('"' in message) message.substringAfter('"').substringBefore('"') else message.trim()
+        return if (host.isNotEmpty() && host.length <= 100 && host.none { it.isWhitespace() }) " ($host)" else ""
     }
 
     /** A gzip stream is read through; anything else is handed back as is. */
