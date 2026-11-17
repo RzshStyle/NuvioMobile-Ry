@@ -815,6 +815,14 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         } else null
     }
 
+    // A highlight from Sports that played to its end: back to the game page.
+    LaunchedEffect(playbackSnapshot.isEnded) {
+        if (playbackSnapshot.isEnded && isLiveTv && LiveTvPlayback.isSportsClip(activeSourceUrl)) {
+            flushWatchProgress()
+            args.onBack()
+        }
+    }
+
     LaunchedEffect(playbackSnapshot.isEnded) {
         if (playbackSnapshot.isEnded && nextEpisodeCardDismissed &&
             playerSettingsUiState.streamAutoPlayNextEpisodeEnabled &&

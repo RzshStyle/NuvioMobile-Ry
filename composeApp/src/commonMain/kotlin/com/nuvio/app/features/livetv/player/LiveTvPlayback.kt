@@ -200,6 +200,10 @@ internal object LiveTvPlayback {
     /** Whether [url] is a catch-up replay (not a live channel), for seek thumbnails. */
     fun isCatchup(url: String): Boolean = synchronized(lock) { catchups.containsKey(url) }
 
+    /** An official highlight or condensed game from Sports (a clip: when it ends, the player closes). */
+    fun isSportsClip(url: String): Boolean =
+        synchronized(lock) { playing[url] }?.sourceId == com.nuvio.app.features.livetv.sports.SportsVideos.SOURCE_ID
+
     // ---------------------------------------------------------------- catch-up
 
     /**
