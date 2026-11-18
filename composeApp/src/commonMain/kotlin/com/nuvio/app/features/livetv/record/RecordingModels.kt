@@ -172,6 +172,8 @@ data class RecordingSchedule(
     /** Stable archive programme id, so a cold-start alarm never depends on an expiring URL. */
     val stalkerProgramId: String? = null,
     val stalkerSourceIdentity: String? = null,
+    /** The guide marked it as new (null: not known, set before this was saved). */
+    val isNew: Boolean? = null,
 ) {
     val pre: Long get() = if (preMs >= 0) preMs else RecordingRules.PRE_MS
     val post: Long get() = if (postMs >= 0) postMs else RecordingRules.POST_MS
@@ -184,6 +186,7 @@ data class RecordingSchedule(
         put("preMs", preMs); put("postMs", postMs)
         stalkerProgramId?.let { put("stalkerProgramId", it) }
         stalkerSourceIdentity?.let { put("stalkerSourceIdentity", it) }
+        isNew?.let { put("isNew", it) }
     }
 
     companion object {
@@ -203,6 +206,7 @@ data class RecordingSchedule(
             postMs = o.optLong("postMs", -1L),
             stalkerProgramId = o.optString("stalkerProgramId").ifBlank { null },
             stalkerSourceIdentity = o.optString("stalkerSourceIdentity").ifBlank { null },
+            isNew = if (o.containsKey("isNew")) o.optBoolean("isNew") else null,
         )
     }
 }
@@ -219,19 +223,54 @@ data class SeriesRule(
      * recording is deleted or dropped by "keep the last N", so a repeat is never recorded again.
      */
     val seen: List<String> = emptyList(),
+    /** Only airings the guide marks as new ("NEW", "(New)", or the guide's own new tag). */
+    val newOnly: Boolean = false,
 ) {
     val norm: String get() = RecordingRules.normalizeTitle(title)
 
     fun toJson(): JsonObject = buildJsonObject {
         put("id", id); put("channel", channel.toJson()); put("title", title); put("keepLast", keepLast)
-        put("seen", buildJsonArray { seen.forEach { add(it) } })
+        put("seen", buildJsonArray { seen.forEach { add(it) } }); put("newOnly", newOnly)
     }
 
     companion object {
         fun fromJson(o: JsonObject) = SeriesRule(
             o.optString("id"), ChannelSnapshot.fromJson(o.optJSONObject("channel") ?: JsonObject(emptyMap())),
             o.optString("title"), o.optInt("keepLast"),
-            o.optJSONArray("seen")?.strings()?.filter { it.isNotBlank() }.orEmpty()
+            o.optJSONArray("seen")?.strings()?.filter { it.isNotBlank() }.orEmpty(),
+            o.optBoolean("newOnly", false)
+        )
+    }
+}
+
+/**
+ * A recording set by hand that repeats: the same time on the chosen days of the week ([days]:
+ * 1 = Sunday … 7 = Saturday). The next week's airings are set ahead of time.
+ */
+data class RepeatRule(
+    val id: String,
+    val channel: ChannelSnapshot,
+    val title: String,
+    /** Start, in minutes after midnight (the phone's time). */
+    val minuteOfDay: Int,
+    val lengthMin: Int,
+    val days: Set<Int>,
+    /** Airings cancelled by hand (their start times), so they aren't set again. */
+    val skipped: List<Long> = emptyList(),
+) {
+    fun toJson(): JsonObject = buildJsonObject {
+        put("id", id); put("channel", channel.toJson()); put("title", title)
+        put("minuteOfDay", minuteOfDay); put("lengthMin", lengthMin)
+        put("days", buildJsonArray { days.sorted().forEach { add(it) } })
+        put("skipped", buildJsonArray { skipped.forEach { add(it) } })
+    }
+
+    companion object {
+        fun fromJson(o: JsonObject) = RepeatRule(
+            o.optString("id"), ChannelSnapshot.fromJson(o.optJSONObject("channel") ?: JsonObject(emptyMap())),
+            o.optString("title"), o.optInt("minuteOfDay"), o.optInt("lengthMin", 60).coerceAtLeast(1),
+            o.optJSONArray("days")?.mapNotNull { (it as? JsonPrimitive)?.content?.toIntOrNull() }?.filter { it in 1..7 }?.toSet().orEmpty(),
+            o.optJSONArray("skipped")?.mapNotNull { (it as? JsonPrimitive)?.content?.toLongOrNull() }.orEmpty(),
         )
     }
 }
@@ -278,8 +317,36 @@ object RecordingRules {
     fun isScheduled(schedules: List<RecordingSchedule>, channelKey: String, program: EpgProgram): Boolean =
         schedules.any { it.channel.key == channelKey && it.startMs == program.startMs }
 
-    /** A show title as compared between airings: lower case letters and digits. */
-    fun normalizeTitle(title: String): String = title.lowercase().filter { it.isLetterOrDigit() }
+    /** A show title as compared between airings: lower case letters and digits, without LIVE / NEW marks. */
+    fun normalizeTitle(title: String): String = cleanTitle(title).lowercase().filter { it.isLetterOrDigit() }
+
+    private val LIVE_MARK = Regex("""^\s*live\s*[:\-–|]\s*""", RegexOption.IGNORE_CASE)
+    private val NEW_MARK = Regex("""^\s*new\s*[:\-–|]\s*|\s*[(\[]\s*new\s*[)\]]\s*""", RegexOption.IGNORE_CASE)
+    private const val SMALL_NEW = "ᴺᴱᵂ"
+    private const val SMALL_LIVE = "ᴸᴵⱽᴱ"
+
+    /** The guide marks this airing as new ("NEW:", "(New)", a small raised ᴺᴱᵂ, or the guide's own new tag). */
+    fun isNewTitle(title: String): Boolean = SMALL_NEW in title || NEW_MARK.containsMatchIn(title.replace(SMALL_LIVE, "").replace(LIVE_MARK, ""))
+
+    /** A show's title without its LIVE / NEW marks (so a new airing and a repeat count as one show). */
+    fun cleanTitle(title: String): String {
+        val t = title.replace(SMALL_NEW, " ").replace(SMALL_LIVE, " ").replace(LIVE_MARK, "").replace(NEW_MARK, " ")
+            .replace(Regex("""\s+"""), " ").trim()
+        return t.ifBlank { title.trim() }
+    }
+
+    /** Sunday = 1 … Saturday = 7, for a day counted from 1970-01-01 (a Thursday). */
+    fun weekday(epochDay: Long): Int = (((epochDay + 4) % 7 + 7) % 7).toInt() + 1
+
+    /** "Every day", "Weekdays", "Weekends" or "Mon, Wed, Fri" (Monday first). */
+    fun daysLabel(days: Set<Int>): String = when {
+        days.size == 7 -> "Every day"
+        days == setOf(2, 3, 4, 5, 6) -> "Weekdays"
+        days == setOf(1, 7) -> "Weekends"
+        else -> listOf(2, 3, 4, 5, 6, 7, 1).filter { it in days }.joinToString(", ") { DAY_NAMES[it - 1] }
+    }
+
+    val DAY_NAMES = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 
     private val SE = Regex("""\bS(?:eason)?\s*0*(\d{1,3})\s*[\-.:,x]?\s*E(?:p(?:isode)?)?\s*0*(\d{1,4})\b""", RegexOption.IGNORE_CASE)
     private val SXE = Regex("""\b0*(\d{1,2})\s*x\s*0*(\d{1,4})\b""")

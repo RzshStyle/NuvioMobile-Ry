@@ -98,6 +98,7 @@ import nuvio.composeapp.generated.resources.livetv_guide_now
 import nuvio.composeapp.generated.resources.livetv_rec_cancel
 import nuvio.composeapp.generated.resources.livetv_rec_record
 import nuvio.composeapp.generated.resources.livetv_rec_series
+import nuvio.composeapp.generated.resources.livetv_rec_series_new_only
 import nuvio.composeapp.generated.resources.livetv_replay
 import nuvio.composeapp.generated.resources.livetv_remind_me
 import nuvio.composeapp.generated.resources.livetv_reminder_set
@@ -619,6 +620,15 @@ internal fun ProgramDetailsDialog(
                     onClick = {
                         if (series != null) LiveTvRecordingScheduler.removeSeries(series.id)
                         else NuvioToastController.show(LiveTvRecordingScheduler.addSeries(channel, full))
+                        onDismiss()
+                    },
+                )
+                // Only the airings the guide marks as NEW (no repeats).
+                if (recordable && series == null) Chip(
+                    label = stringResource(Res.string.livetv_rec_series_new_only),
+                    selected = false,
+                    onClick = {
+                        NuvioToastController.show(LiveTvRecordingScheduler.addSeries(channel, full, newOnly = true))
                         onDismiss()
                     },
                 )

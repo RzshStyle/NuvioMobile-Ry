@@ -2852,6 +2852,15 @@
     <string name="livetv_rec_cancel">Cancel recording</string>
     <string name="livetv_rec_series">Record series</string>
     <string name="livetv_rec_series_stop">Stop recording this series</string>
+    <string name="livetv_rec_series_new_only">New episodes only</string>
+    <string name="livetv_rec_series_all">All episodes</string>
+    <string name="livetv_rec_repeat">Repeat</string>
+    <string name="livetv_rec_repeat_once">Once</string>
+    <string name="livetv_rec_repeat_every_day">Every day</string>
+    <string name="livetv_rec_repeat_weekdays">Weekdays</string>
+    <string name="livetv_rec_repeat_weekends">Weekends</string>
+    <string name="livetv_rec_repeat_pick">Pick days</string>
+    <string name="livetv_rec_repeat_stop">Stop repeating</string>
     <string name="livetv_rec_record_now">Record now</string>
     <string name="livetv_rec_schedule">Schedule a recording</string>
     <string name="livetv_rec_stop">Stop recording</string>

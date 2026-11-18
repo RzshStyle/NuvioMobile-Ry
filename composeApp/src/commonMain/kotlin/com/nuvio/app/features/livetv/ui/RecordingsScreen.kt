@@ -73,6 +73,9 @@ import com.nuvio.app.features.livetv.record.RecordingRules
 import com.nuvio.app.features.livetv.record.RecordingSchedule
 import com.nuvio.app.features.livetv.record.RecordingStatus
 import com.nuvio.app.features.livetv.record.SeriesRule
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import com.nuvio.app.features.livetv.record.RepeatRule
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -91,6 +94,15 @@ import nuvio.composeapp.generated.resources.livetv_rec_recording
 import nuvio.composeapp.generated.resources.livetv_rec_schedule
 import nuvio.composeapp.generated.resources.livetv_rec_scheduled
 import nuvio.composeapp.generated.resources.livetv_rec_series
+import nuvio.composeapp.generated.resources.livetv_rec_repeat_stop
+import nuvio.composeapp.generated.resources.livetv_rec_repeat_pick
+import nuvio.composeapp.generated.resources.livetv_rec_repeat_weekends
+import nuvio.composeapp.generated.resources.livetv_rec_repeat_weekdays
+import nuvio.composeapp.generated.resources.livetv_rec_repeat_every_day
+import nuvio.composeapp.generated.resources.livetv_rec_repeat_once
+import nuvio.composeapp.generated.resources.livetv_rec_repeat
+import nuvio.composeapp.generated.resources.livetv_rec_series_all
+import nuvio.composeapp.generated.resources.livetv_rec_series_new_only
 import nuvio.composeapp.generated.resources.livetv_rec_series_stop
 import nuvio.composeapp.generated.resources.livetv_rec_start_time_hint
 import nuvio.composeapp.generated.resources.livetv_rec_stop
@@ -114,6 +126,7 @@ internal fun RecordingsScreen(
     val recordings by remember { LiveTvRecordingScheduler.start(); LiveTvRecorder.recordings }.collectAsStateWithLifecycle()
     val schedules by LiveTvRecordingScheduler.schedules.collectAsStateWithLifecycle()
     val series by LiveTvRecordingScheduler.series.collectAsStateWithLifecycle()
+    val repeats by LiveTvRecordingScheduler.repeats.collectAsStateWithLifecycle()
     val notice by RecordingNotices.current.collectAsStateWithLifecycle()
     var sheet by remember { mutableStateOf<Any?>(null) }
     LaunchedEffect(Unit) { LiveTvRecordingScheduler.fireOverdue() }
@@ -135,7 +148,7 @@ internal fun RecordingsScreen(
             contentPadding = PaddingValues(start = NuvioTokens.Space.s16, end = NuvioTokens.Space.s16, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16)),
             verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
         ) {
-            if (recordings.isEmpty() && schedules.isEmpty() && series.isEmpty()) {
+            if (recordings.isEmpty() && schedules.isEmpty() && series.isEmpty() && repeats.isEmpty()) {
                 item { Text(stringResource(Res.string.livetv_rec_empty), style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textMuted, modifier = Modifier.padding(vertical = NuvioTokens.Space.s24)) }
             }
             if (recordingNow.isNotEmpty()) {
@@ -144,9 +157,10 @@ internal fun RecordingsScreen(
                     RecordingRow(recordingNow[i], now, onClick = { onPlay(recordingNow[i]) }, onLongClick = { sheet = recordingNow[i] })
                 }
             }
-            if (schedules.isNotEmpty() || series.isNotEmpty()) {
+            if (schedules.isNotEmpty() || series.isNotEmpty() || repeats.isNotEmpty()) {
                 item { SectionTitle(stringResource(Res.string.livetv_rec_scheduled)) }
                 items(series.size, key = { "s:" + series[it].id }) { i -> SeriesRow(series[i], onClick = { sheet = series[i] }) }
+                items(repeats.size, key = { "m:" + repeats[it].id }) { i -> RepeatRow(repeats[i], onClick = { sheet = repeats[i] }) }
                 items(schedules.size, key = { "p:" + schedules[it].id }) { i -> ScheduleRow(schedules[i], onClick = { sheet = schedules[i] }) }
             }
             if (recorded.isNotEmpty()) {
@@ -162,6 +176,7 @@ internal fun RecordingsScreen(
         is LiveTvRecording -> RecordingSheet(s, onDismiss = { sheet = null }, onPlay = { onPlay(s) })
         is RecordingSchedule -> ScheduleSheet(s, onDismiss = { sheet = null })
         is SeriesRule -> SeriesSheet(s, onDismiss = { sheet = null })
+        is RepeatRule -> RepeatSheet(s, onDismiss = { sheet = null })
         else -> Unit
     }
 }
@@ -220,7 +235,42 @@ private fun ScheduleRow(s: RecordingSchedule, onClick: () -> Unit) {
 @Composable
 private fun SeriesRow(r: SeriesRule, onClick: () -> Unit) {
     val keep = if (r.keepLast > 0) stringResource(Res.string.livetv_rec_keep_last, r.keepLast) else stringResource(Res.string.livetv_rec_keep_all)
-    SimpleRow(icon = Icons.Filled.FiberManualRecord, title = stringResource(Res.string.livetv_rec_series) + ": " + r.title, subtitle = r.channel.name + "  ·  " + keep, onClick = onClick, tint = MaterialTheme.nuvio.colors.accent)
+    val which = if (r.newOnly) stringResource(Res.string.livetv_rec_series_new_only) + "  ·  " else ""
+    SimpleRow(icon = Icons.Filled.FiberManualRecord, title = stringResource(Res.string.livetv_rec_series) + ": " + r.title, subtitle = r.channel.name + "  ·  " + which + keep, onClick = onClick, tint = MaterialTheme.nuvio.colors.accent)
+}
+
+/** A repeating recording set by hand: its days and time. */
+@Composable
+private fun RepeatRow(r: RepeatRule, onClick: () -> Unit) {
+    SimpleRow(
+        icon = Icons.Filled.Schedule,
+        title = r.title,
+        subtitle = r.channel.name + "  ·  " + RecordingRules.daysLabel(r.days) + "  ·  " + minuteLabel(r.minuteOfDay),
+        onClick = onClick,
+        tint = MaterialTheme.nuvio.colors.accent,
+    )
+}
+
+/** "20:30" for a time of day in minutes after midnight. */
+private fun minuteLabel(minuteOfDay: Int): String =
+    (minuteOfDay / 60).toString().padStart(2, '0') + ":" + (minuteOfDay % 60).toString().padStart(2, '0')
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RepeatSheet(r: RepeatRule, onDismiss: () -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    fun close() { scope.launch { dismissNuvioBottomSheet(sheetState) { onDismiss() } } }
+    NuvioModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s12), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
+            Text(r.title, style = MaterialTheme.typography.titleMedium, color = tokens.colors.textPrimary, fontWeight = FontWeight.SemiBold)
+            Text(r.channel.name + "  ·  " + RecordingRules.daysLabel(r.days) + "  ·  " + minuteLabel(r.minuteOfDay), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted)
+        }
+        NuvioBottomSheetDivider()
+        NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_repeat_stop), icon = Icons.Filled.Delete, onClick = { LiveTvRecordingScheduler.removeRepeat(r.id); close() })
+        Spacer(Modifier.height(NuvioTokens.Space.s12))
+    }
 }
 
 @Composable
@@ -307,6 +357,10 @@ private fun SeriesSheet(r: SeriesRule, onDismiss: () -> Unit) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s12), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
             Text(r.title, style = MaterialTheme.typography.titleMedium, color = tokens.colors.textPrimary, fontWeight = FontWeight.SemiBold)
             Text(r.channel.name, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted)
+            Row(horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
+                Chip(label = stringResource(Res.string.livetv_rec_series_all), selected = !r.newOnly, onClick = { if (r.newOnly) { LiveTvRecordingScheduler.setNewOnly(r.id, false); close() } })
+                Chip(label = stringResource(Res.string.livetv_rec_series_new_only), selected = r.newOnly, onClick = { if (!r.newOnly) { LiveTvRecordingScheduler.setNewOnly(r.id, true); close() } })
+            }
             Text(stringResource(Res.string.livetv_rec_keep_last, r.keepLast), style = MaterialTheme.typography.labelMedium, color = tokens.colors.textSecondary)
             Row(horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
                 KEEP_CHOICES.forEach { n ->
@@ -334,16 +388,48 @@ internal fun ManualRecordingDialog(channel: LiveChannel, scheduleOnly: Boolean, 
     var tomorrow by remember { mutableStateOf(false) }
     var time by remember { mutableStateOf("") }
     var minutes by remember { mutableStateOf(60) }
+    // Repeat: empty = once; otherwise the days (1 = Sunday … 7 = Saturday) it records every week.
+    var repeatDays by remember { mutableStateOf(emptySet<Int>()) }
+    var pickingDays by remember { mutableStateOf(false) }
     val now = LiveTvClock.nowMs()
-    val startMs: Long? = if (startNow) now else parseTime(time, tomorrow, now)
+    val repeating = repeatDays.isNotEmpty() || pickingDays
+    val startMs: Long? = when {
+        repeating -> parseMinuteOfDay(time)?.let { nextAiring(now, it, repeatDays) }
+        startNow -> now
+        else -> parseTime(time, tomorrow, now)
+    }
     DialogSurface(onDismissRequest = onDismiss, title = stringResource(if (scheduleOnly) Res.string.livetv_rec_schedule else Res.string.livetv_rec_record_now)) {
         NuvioInputField(value = title, onValueChange = { title = it }, placeholder = stringResource(Res.string.livetv_rec_manual_title))
-        Row(horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
+        if (!repeating) Row(horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
             if (!scheduleOnly) Chip(label = stringResource(Res.string.livetv_rec_record_now), selected = startNow, onClick = { startNow = true })
             Chip(label = stringResource(Res.string.livetv_rec_today), selected = !startNow && !tomorrow, onClick = { startNow = false; tomorrow = false })
             Chip(label = stringResource(Res.string.livetv_rec_tomorrow), selected = !startNow && tomorrow, onClick = { startNow = false; tomorrow = true })
         }
-        if (!startNow) {
+        // Repeat: the same time every week on the days picked.
+        Text(stringResource(Res.string.livetv_rec_repeat), style = MaterialTheme.typography.labelMedium, color = tokens.colors.textSecondary)
+        Row(horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            val presets = listOf(
+                Res.string.livetv_rec_repeat_once to emptySet<Int>(),
+                Res.string.livetv_rec_repeat_every_day to (1..7).toSet(),
+                Res.string.livetv_rec_repeat_weekdays to setOf(2, 3, 4, 5, 6),
+                Res.string.livetv_rec_repeat_weekends to setOf(1, 7),
+            )
+            presets.forEach { (label, days) ->
+                Chip(label = stringResource(label), selected = !pickingDays && repeatDays == days, onClick = {
+                    pickingDays = false; repeatDays = days; if (days.isNotEmpty()) startNow = false
+                })
+            }
+            Chip(label = stringResource(Res.string.livetv_rec_repeat_pick), selected = pickingDays, onClick = { pickingDays = true; startNow = false })
+        }
+        if (pickingDays) Row(horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            // Monday first, Sunday last.
+            listOf(2, 3, 4, 5, 6, 7, 1).forEach { d ->
+                Chip(label = RecordingRules.DAY_NAMES[d - 1], selected = d in repeatDays, onClick = {
+                    repeatDays = if (d in repeatDays) repeatDays - d else repeatDays + d
+                })
+            }
+        }
+        if (repeating || !startNow) {
             NuvioInputField(value = time, onValueChange = { time = it }, placeholder = stringResource(Res.string.livetv_rec_start_time_hint))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
@@ -358,13 +444,41 @@ internal fun ManualRecordingDialog(channel: LiveChannel, scheduleOnly: Boolean, 
                 enabled = startMs != null,
                 onClick = {
                     val start = startMs ?: return@DialogButton
-                    val message = LiveTvRecordingScheduler.addManual(channel, title.trim(), start, start + minutes * 60_000L)
+                    val message = LiveTvRecordingScheduler.addManual(channel, title.trim(), start, start + minutes * 60_000L, repeatDays)
                     NuvioToastController.show(message)
                     onDismiss()
                 },
             )
         }
     }
+}
+
+/** "20:30" or "8:30 pm" as minutes after midnight; null when it isn't a time. */
+private fun parseMinuteOfDay(text: String): Int? {
+    val m = Regex("""^\s*(\d{1,2})[:.](\d{2})\s*([ap]m?)?\s*$""", RegexOption.IGNORE_CASE).find(text) ?: return null
+    var hour = m.groupValues[1].toInt()
+    val minute = m.groupValues[2].toInt()
+    val ampm = m.groupValues[3].lowercase()
+    if (ampm.startsWith("p") && hour < 12) hour += 12
+    if (ampm.startsWith("a") && hour == 12) hour = 0
+    if (hour !in 0..23 || minute !in 0..59) return null
+    return hour * 60 + minute
+}
+
+/** The next start at [minuteOfDay] on one of [days] (the phone's time), from [now] on; null with no days. */
+private fun nextAiring(now: Long, minuteOfDay: Int, days: Set<Int>): Long? {
+    if (days.isEmpty()) return null
+    val zone = LiveTvTimeZones.SYSTEM
+    val today = CivilTime.at(now, zone)
+    val todayDays = CivilTime.daysFromCivil(today.year, today.month, today.day)
+    for (ahead in 0..7) {
+        val epochDay = todayDays + ahead
+        if (RecordingRules.weekday(epochDay) !in days) continue
+        val date = CivilTime.atUtc(epochDay * 86_400_000L)
+        val at = CivilTime.toEpochMs(date.year, date.month, date.day, minuteOfDay / 60, minuteOfDay % 60, 0, zone)
+        if (at > now) return at
+    }
+    return null
 }
 
 /** "20:30" or "8:30 pm" as a time today (or tomorrow), in the device's zone; null when it isn't one or has passed. */
