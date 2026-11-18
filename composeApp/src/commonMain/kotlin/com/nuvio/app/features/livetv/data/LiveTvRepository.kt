@@ -117,6 +117,8 @@ internal object LiveTvRepository {
     fun ensureLoaded(updateCheckDelayMs: Long = 4_000L) {
         if (initialized) return
         initialized = true
+        // The servers channels play from get the player's automatic DNS retry.
+        scope.launch { channels.collect { LiveTvDns.noteChannels(it) } }
         scope.launch {
             runCatching { mutex.withLock { rebuildLocked() } }
             if (updateCheckDelayMs > 0) delay(updateCheckDelayMs)

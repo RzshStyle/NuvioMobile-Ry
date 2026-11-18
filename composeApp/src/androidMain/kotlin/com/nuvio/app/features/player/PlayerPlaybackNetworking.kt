@@ -46,7 +46,7 @@ internal object PlayerPlaybackNetworking {
 
     private val playbackHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .dns(IPv4FirstDns())
+            .dns(IPv4FirstDns(com.nuvio.app.features.livetv.data.ForkDns.playback))
             .sslSocketFactory(sslContext.socketFactory, trustAllManager)
             .hostnameVerifier(playbackHostnameVerifier)
             .connectTimeout(15, TimeUnit.SECONDS)

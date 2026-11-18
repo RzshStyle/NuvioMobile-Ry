@@ -17,6 +17,7 @@ internal actual object SportsPlatform {
             .connectTimeout(12, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .callTimeout(40, TimeUnit.SECONDS)
+            .dns(com.nuvio.app.features.livetv.data.ForkDns.app)
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)

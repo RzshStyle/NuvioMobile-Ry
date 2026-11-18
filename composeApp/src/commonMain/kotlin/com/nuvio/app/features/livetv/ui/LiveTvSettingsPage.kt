@@ -50,6 +50,8 @@ import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.LiveTvRepository
+import com.nuvio.app.features.livetv.data.LiveTvDns
+import com.nuvio.app.features.livetv.data.DnsChoice
 import com.nuvio.app.features.livetv.data.CivilTime
 import com.nuvio.app.features.livetv.model.LiveTvClock
 import com.nuvio.app.features.livetv.data.BackupFileException
@@ -173,6 +175,12 @@ import nuvio.composeapp.generated.resources.livetv_epg_refresh
 import nuvio.composeapp.generated.resources.livetv_epg_refresh_description
 import nuvio.composeapp.generated.resources.livetv_show_update_banners
 import nuvio.composeapp.generated.resources.livetv_show_update_banners_description
+import nuvio.composeapp.generated.resources.livetv_dns
+import nuvio.composeapp.generated.resources.livetv_dns_description
+import nuvio.composeapp.generated.resources.livetv_dns_dialog_message
+import nuvio.composeapp.generated.resources.livetv_dns_system
+import nuvio.composeapp.generated.resources.livetv_dns_cloudflare
+import nuvio.composeapp.generated.resources.livetv_dns_google
 import nuvio.composeapp.generated.resources.livetv_field_name
 import nuvio.composeapp.generated.resources.livetv_field_password
 import nuvio.composeapp.generated.resources.livetv_field_server
@@ -383,6 +391,7 @@ internal fun hoursLabel(h: Int): String = when {
 
 private sealed interface LiveDialog {
     data object AddM3u : LiveDialog
+    data object Dns : LiveDialog
     data object AddXtream : LiveDialog
     data object AddStalker : LiveDialog
     data object AddEpg : LiveDialog
@@ -446,6 +455,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
     val reminderLead by LiveTvPreferences.reminderLeadMinutes.collectAsStateWithLifecycle()
     val showInContinueWatching by LiveTvPreferences.showInContinueWatching.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<LiveDialog?>(null) }
+    var dnsChoice by remember { mutableStateOf(LiveTvDns.current()) }
     val scope = rememberCoroutineScope()
     var exactAlarms by remember { mutableStateOf(RecordingPlatform.canScheduleExact()) }
     var notificationsOn by remember { mutableStateOf(RecordingPlatform.notificationsAllowed()) }
@@ -612,6 +622,16 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(showImportProgress = on) } },
                 )
+                if (LiveTvDns.supported) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.livetv_dns),
+                        description = stringResource(Res.string.livetv_dns_description),
+                        isTablet = isTablet,
+                        trailingContent = { ValueLabel(dnsLabel(dnsChoice)) },
+                        onClick = { dialog = LiveDialog.Dns },
+                    )
+                }
             }
         }
 
@@ -1255,6 +1275,13 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             destructive = true,
             onDismiss = close,
         ) { LiveTvRepository.removeEpg(d.source.id) }
+        LiveDialog.Dns -> ChoiceDialog(
+            title = stringResource(Res.string.livetv_dns),
+            options = DnsChoice.entries.map { it to dnsLabel(it) },
+            selected = dnsChoice,
+            onDismiss = close,
+            message = stringResource(Res.string.livetv_dns_dialog_message),
+        ) { v -> LiveTvDns.set(v); dnsChoice = v }
         LiveDialog.PlaylistRefresh -> ChoiceDialog(
             title = stringResource(Res.string.livetv_playlist_refresh),
             options = REFRESH_HOURS.map { it to hoursLabel(it) },
@@ -1404,6 +1431,13 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             onDismiss = close,
         ) { v -> SportsRepository.updateSettings { it.copy(scoreDelaySeconds = v) } }
     }
+}
+
+@Composable
+private fun dnsLabel(value: DnsChoice): String = when (value) {
+    DnsChoice.SYSTEM -> stringResource(Res.string.livetv_dns_system)
+    DnsChoice.CLOUDFLARE -> stringResource(Res.string.livetv_dns_cloudflare)
+    DnsChoice.GOOGLE -> stringResource(Res.string.livetv_dns_google)
 }
 
 @Composable

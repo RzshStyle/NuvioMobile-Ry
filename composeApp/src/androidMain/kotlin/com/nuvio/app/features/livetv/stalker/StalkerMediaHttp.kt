@@ -21,6 +21,7 @@ internal object StalkerMediaHttp {
         // Independent HTTPS key requests do not change an HTTP master's segment transport.
         val secureCalls = java.util.Collections.synchronizedMap(java.util.WeakHashMap<Call, Boolean>())
         return OkHttpClient.Builder()
+        .dns(com.nuvio.app.features.livetv.data.ForkDns.provider)
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
         .followRedirects(true)

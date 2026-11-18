@@ -26,6 +26,8 @@ internal object LiveTvPreferencesAndroid {
         if (initialized) return
         initialized = true
         LiveTvFiles.initialize(context)
+        // The DNS setting, before any Live TV request.
+        com.nuvio.app.features.livetv.data.ForkDns.init(context)
         EpgStore.initialize(context)
         OnDemandStore.initialize(context)
         RecordingPlatform.initialize(context)

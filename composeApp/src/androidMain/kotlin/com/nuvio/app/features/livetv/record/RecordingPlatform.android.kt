@@ -48,6 +48,7 @@ internal actual object RecordingPlatform {
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
+            .dns(com.nuvio.app.features.livetv.data.ForkDns.playback)
             .build()
     }
 

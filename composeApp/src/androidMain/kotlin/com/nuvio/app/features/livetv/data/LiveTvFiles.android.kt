@@ -34,6 +34,7 @@ internal actual object LiveTvFiles {
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
+            .dns(ForkDns.provider)
             .build()
     }
 
