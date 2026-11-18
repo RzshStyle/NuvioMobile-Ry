@@ -1433,7 +1433,9 @@ internal object LiveTvRepository {
                 val assigned = _autoMatches.value[channel.key]
                 if (override == null && assigned != null && assigned.sourceId != stalkerGuideId(source)) continue
                 val shift = guideShiftMs(channel)
-                val start = maxOf(fromMs - shift, now - channel.catchup!!.days * 24L * HOUR)
+                // Only as far back as "Past guide kept", like the guide file's listings.
+                val keptFrom = now - prefs.currentSettings().epgPastHours.coerceAtLeast(1) * HOUR
+                val start = maxOf(fromMs - shift, now - channel.catchup!!.days * 24L * HOUR, keptFrom)
                 val end = minOf(toMs - shift, now)
                 if (start >= end) continue
                 val first = CivilTime.at(start, config.timezone)

@@ -330,7 +330,7 @@ import androidx.compose.material.icons.filled.FileUpload
 
 private val REFRESH_HOURS = listOf(3, 6, 12, 24, 48, 72, 168)
 private val FUTURE_DAYS = listOf(1, 2, 3, 5, 7, 10, 14)
-private val PAST_HOURS = listOf(1, 3, 6, 12, 24, 48, 72, 168)
+private val PAST_HOURS = listOf(1, 3, 6, 12, 24, 48, 72, 168, 336)
 
 private fun pastHoursLabel(h: Int): String = when {
     h == 1 -> "1 hour"
