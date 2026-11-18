@@ -155,6 +155,11 @@ internal object LiveTvRepository {
         scope.launch { runCatching { refreshInternal(forcePlaylists = false, forceEpg = true) } }
     }
 
+    /** "Hide Stray Entries" switched: the channel list is made again from the downloaded playlists. */
+    fun rebuildChannelList() {
+        scope.launch { runCatching { mutex.withLock { rebuildLocked() } } }
+    }
+
     /** After a restore from Google Drive: rebuild from the new sources, downloading what's missing. */
     fun reloadAfterSync(changedPlaylists: Set<String> = emptySet()) {
         scope.launch {
@@ -819,7 +824,10 @@ internal object LiveTvRepository {
     private fun playlistSegment(pl: PlaylistSource): String {
         val f = playlistFile(pl.id)
         return "${pl.id}:${pl.name.hashCode()}:${pl.effectiveUserAgent.hashCode()}:${pl.streamFormat}:" +
-            "${LiveTvFiles.size(LiveTvDirs.PLAYLISTS, f)}:${LiveTvFiles.lastModified(LiveTvDirs.PLAYLISTS, f)}"
+            "${LiveTvFiles.size(LiveTvDirs.PLAYLISTS, f)}:${LiveTvFiles.lastModified(LiveTvDirs.PLAYLISTS, f)}" +
+            // Stray entries are left out unless that's switched off. Only "off" is added, so lists
+            // saved before this setting existed stay valid (they're cleaned at the next update).
+            if (prefs.currentSettings().hideStrayEntries) "" else ":stray=off"
     }
 
     /**
@@ -883,18 +891,24 @@ internal object LiveTvRepository {
                 continue
             }
             if (!pl.isM3u && !pl.isXtream) continue
+            // Movies and episodes are left out while reading (see the check below), counted for
+            // the stray-entry check.
+            var vodLinks = 0
             val parsed = runCatching {
-                // Movies and episodes are left out while reading (see the check below).
-                LiveTvFiles.readChunks(LiveTvDirs.PLAYLISTS, file) { chunks -> M3uParser.parse(linesOf(chunks)) { url -> isVodEntry(url) } }
+                LiveTvFiles.readChunks(LiveTvDirs.PLAYLISTS, file) { chunks -> M3uParser.parse(linesOf(chunks)) { url -> isVodEntry(url).also { if (it) vodLinks++ } } }
             }.getOrNull() ?: continue
             embeddedEpgUrls[pl.id] = parsed.epgUrls
             // The playlist's own User-Agent: one shared copy for every channel with no headers of its own.
             val agent = pl.effectiveUserAgent
             val agentOnly = if (agent.isNotBlank()) mapOf("User-Agent" to agent) else emptyMap()
             var count = 0
+            val hideStrays = prefs.currentSettings().hideStrayEntries &&
+                isMarkedPlaylist(parsed.entries.count { LIVE_PATH.containsMatchIn(it.url) } + vodLinks, parsed.entries.count { !LIVE_PATH.containsMatchIn(it.url) })
+            var strays = 0
             for (e in parsed.entries) {
                 // Many providers' M3U links also list every movie and episode: not TV channels.
                 if (isVodEntry(e.url)) continue
+                if (hideStrays && isStrayEntry(e)) { strays++; continue }
                 count++
                 val groupTitle = e.group?.ifBlank { null } ?: "Uncategorized"
                 val baseKey = "${pl.id}|${e.tvgId ?: ""}|${e.name}"
@@ -925,7 +939,7 @@ internal object LiveTvRepository {
                     autoNumber = e.chno == null
                 )
             }
-            REPORT.add("Playlist \"${pl.name}\": $count channels read")
+            REPORT.add("Playlist \"${pl.name}\": $count channels read" + if (strays > 0) ", $strays stray entr${if (strays == 1) "y" else "ies"} left out" else "")
             if (count != pl.channelCount) {
                 prefs.updatePlaylists { list -> list.map { if (it.id == pl.id) it.copy(channelCount = count) else it } }
             }
@@ -1561,6 +1575,26 @@ internal object LiveTvRepository {
 
     /** A movie or episode in an M3U (by its link), not a live channel. */
     fun isVodEntry(url: String): Boolean = VOD_PATH.containsMatchIn(url) || VOD_EXT.containsMatchIn(url)
+
+    private val LIVE_PATH = Regex("""/live/""", RegexOption.IGNORE_CASE)
+    /** "S01E02", "S1 E2", "S01.E02": named like a series episode, not a channel. */
+    private val EPISODE_NAME = Regex("""\bS\d{1,3}\s*[._-]?\s*E\d{1,4}\b""", RegexOption.IGNORE_CASE)
+
+    /**
+     * A playlist whose links say what each entry is (/live/, /movie/, /series/): at least 50
+     * marked, and no more than 1 in 100 unmarked. Many providers' live links have no marker at
+     * all, so the stray check only applies where nearly everything has one.
+     */
+    internal fun isMarkedPlaylist(marked: Int, unmarked: Int): Boolean =
+        marked >= 50 && unmarked * 100 <= marked
+
+    /**
+     * A stray entry in a marked playlist: no marker in its link and named like an episode.
+     * Providers' exports sometimes tack these on; they showed up as one-item Live TV groups
+     * ("EURO Russian" with "RU | Telekanal S02 E02"). A marked live channel is never one.
+     */
+    internal fun isStrayEntry(e: M3uEntry): Boolean =
+        !LIVE_PATH.containsMatchIn(e.url) && EPISODE_NAME.containsMatchIn(e.name)
 
     /** "Programming", "No information", "To Be Announced"… (no real show). */
     fun isPlaceholderTitle(title: String): Boolean = PLACEHOLDER_TITLES.matches(title.trim().lowercase())

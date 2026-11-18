@@ -86,6 +86,7 @@ internal object LiveTvKeys {
     const val clock24 = "clock_24h"
     const val autoReconnect = "auto_reconnect"
     const val autoBackupChannel = "auto_backup_channel"
+    const val hideStrayEntries = "hide_stray_entries"
     const val catchupCache = "catchup_cache"
     const val channelSort = "channel_sort"
     const val solidHighlight = "solid_highlight"
@@ -806,6 +807,7 @@ internal open class LiveTvPreferencesStore {
             use24HourClock = p.bool(LiveTvKeys.clock24) ?: d.use24HourClock,
             autoReconnect = p.bool(LiveTvKeys.autoReconnect) ?: d.autoReconnect,
             autoBackupChannel = p.bool(LiveTvKeys.autoBackupChannel) ?: d.autoBackupChannel,
+            hideStrayEntries = p.bool(LiveTvKeys.hideStrayEntries) ?: d.hideStrayEntries,
             catchupCache = p.bool(LiveTvKeys.catchupCache) ?: d.catchupCache,
             channelSort = p.str(LiveTvKeys.channelSort)?.let { v -> ChannelSort.entries.firstOrNull { it.name == v } } ?: d.channelSort,
             solidHighlight = p.bool(LiveTvKeys.solidHighlight) ?: d.solidHighlight,
@@ -1086,6 +1088,7 @@ internal open class LiveTvPreferencesStore {
         p[LiveTvKeys.clock24] = s.use24HourClock
         p[LiveTvKeys.autoReconnect] = s.autoReconnect
         p[LiveTvKeys.autoBackupChannel] = s.autoBackupChannel
+        p[LiveTvKeys.hideStrayEntries] = s.hideStrayEntries
         p[LiveTvKeys.catchupCache] = s.catchupCache
         p[LiveTvKeys.channelSort] = s.channelSort.name
         p[LiveTvKeys.solidHighlight] = s.solidHighlight

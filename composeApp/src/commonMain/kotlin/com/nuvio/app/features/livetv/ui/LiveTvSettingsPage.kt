@@ -682,6 +682,17 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(cleanGroupNames = on) } },
                 )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_hide_stray_entries),
+                    description = stringResource(Res.string.livetv_hide_stray_entries_description),
+                    checked = settings.hideStrayEntries,
+                    isTablet = isTablet,
+                    onCheckedChange = { on ->
+                        update { it.copy(hideStrayEntries = on) }
+                        LiveTvRepository.rebuildChannelList()
+                    },
+                )
             }
         }
 
