@@ -8,10 +8,10 @@
 [![Downloads](https://img.shields.io/github/downloads/homelessbrian/NuvioPlusIPTV-Mobile/total?style=for-the-badge)](https://github.com/homelessbrian/NuvioPlusIPTV-Mobile/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=for-the-badge)](LICENSE)
 [![Based on Nuvio Mobile](https://img.shields.io/badge/based%20on-NuvioMedia%2FNuvioMobile-8A2BE2?style=for-the-badge)](https://github.com/NuvioMedia/NuvioMobile)
-[![Discord](https://img.shields.io/badge/chat-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/NvK5JVvvm)
+[![Discord](https://img.shields.io/badge/chat-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/QjrhNt3pK5)
 [![Support on Ko-fi](https://img.shields.io/badge/support-Ko--fi-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/homelessbrian)
 
-[What's new](#-new-in-this-update) · [Multiview](#-multiview) · [Sports hub](#-sports-hub) · [Calendar](#-calendar) · [VPN](#-built-in-vpn) · [Download](#-installation) · [Features](#-features) · [Setup](#-getting-started) · [Report a bug](#-reporting-bugs-and-requesting-features) · [Discord](https://discord.gg/NvK5JVvvm) · [Support](#-support-the-project) · [TV app](https://github.com/homelessbrian/NuvioPlusIPTV)
+[What's new](#-new-in-this-update) · [Multiview](#-multiview) · [Sports hub](#-sports-hub) · [Calendar](#-calendar) · [VPN](#-built-in-vpn) · [Download](#-installation) · [Features](#-features) · [Setup](#-getting-started) · [Report a bug](#-reporting-bugs-and-requesting-features) · [Discord](https://discord.gg/QjrhNt3pK5) · [Support](#-support-the-project) · [TV app](https://github.com/homelessbrian/NuvioPlusIPTV)
 
 > ### 🙌 Big thanks to [ghbarker](https://github.com/ghbarker)
 > The **built-in VPN**, **Multiview** and **Stalker / Ministra portals** are his work, and this app is built on his original phone port. Thank you!
@@ -22,13 +22,14 @@
 
 ## 🆕 New in this update
 
-- **🖥️ Multiview:** watch several channels or games at once, with your groups and live games from Sports in the picker. [More below](#-multiview).
-- **📡 Stalker / Ministra portals:** add them as a source for Live TV and On Demand.
-- **⚡ The guide opens straight away,** every time, with updates happening quietly in the background. Playlists load much faster and the app uses less memory.
-- **🖼️ Seek thumbnails:** preview pictures above the seek bar in movies, shows, catch-up, recordings and sports replays.
-- **📣 Full-time alerts** with the final score, and **Score alerts** for any single game, straight from its game page.
-- **🏆 Sports in the bottom bar,** next to Live TV.
-- **☁️ More of your setup syncs:** VPN profiles now move between phone and TV, and a new **Behavior and options** switch syncs things like refresh, recording, catch-up and sorting choices.
+- **🎬 Highlights and replays for finished games:** official highlights and condensed games (ESPN, NHL, MLB) and YouTube highlights, right on the game's page. [More below](#-sports-hub).
+- **🖥️ Multiview:** filter the Sports games by My Sports, All Events, Live Now or one sport, panes use the whole screen, and the bar and pane names fade away after a few seconds.
+- **📺 A guide for each playlist:** paste a guide link when you add a playlist, and switch each playlist's guides on or off.
+- **🎞️ On Demand from M3U playlists:** movies and series straight from the playlist.
+- **⏺️ Recordings:** record only new episodes of a series, and set recordings that repeat every day, on weekdays or on the days you pick.
+- **🌐 DNS setting:** Cloudflare or Google, for when channels say your provider's server can't be found.
+- **🧾 Start-Up Report** under Live TV settings → Help, to copy or share when something isn't working.
+- **🗑️ Deleting a playlist** now clears everything it left behind, and sync combines favorites, hidden channels and your own groups between devices.
 - **Built on Nuvio Mobile 0.6.12-beta.**
 
 ---
@@ -39,6 +40,8 @@ Watch several channels, or several games, at the same time.
 
 - **Open it** from the player's **Multiview** button on any channel, or choose **Add to Multiview** in a channel's menu.
 - **Pick channels** from your groups, or live games from the **Sports** tab, and choose a game's other streams.
+- **Filter the games:** chips over the Sports games for My Sports, All Events, Live Now and each sport that's on.
+- **Out of the way:** the top bar, pane names and edges fade after a few seconds; tap to bring them back.
 - **The sound follows the pane you pick.**
 - **Keeps itself going:** a pane that drops reconnects by itself, and one that won't play moves to a backup copy of the channel. A call or another app pausing it doesn't count.
 
@@ -66,7 +69,7 @@ Sports shows scores and schedules, and works out **which of your own channels ar
 - **Sports addons:** have a sports addon installed in Nuvio, like **HighFly** or **StremVerse**? Sports uses it too, with nothing to set up.
   - **Found automatically:** open a game and the app looks for it in your addons. While the page is open and nothing has shown up yet, it keeps checking, since streams usually appear close to the start.
   - **Live streams in the channel list:** a game that's on shows the addons' streams after your own channels.
-  - **Replays & highlights:** a finished game gets its own list of replays, highlights and recaps.
+  - **Replays & highlights:** a finished game gets its own list of replays, highlights and recaps, including official highlights and condensed games (ESPN, NHL, MLB) and YouTube highlights.
   - **Recording and picking a channel** work on your own playlist channels, not on an addon's streams.
 - **Choose leagues:** a row on All Events turns any league on or off.
 - **Tables:** league tables with form, place changes and playoff lines, and your team marked.
@@ -185,7 +188,7 @@ Requires **Android 7.0 or newer**. It installs **alongside** the official Nuvio 
 
 ## 🐞 Reporting bugs and requesting features
 
-Questions and chat are welcome on **[Discord](https://discord.gg/NvK5JVvvm)**. Please search [existing issues](https://github.com/homelessbrian/NuvioPlusIPTV-Mobile/issues) first, then [open a new one](https://github.com/homelessbrian/NuvioPlusIPTV-Mobile/issues/new). Say which phone or tablet you use and its Android version.
+Questions and chat are welcome on **[Discord](https://discord.gg/QjrhNt3pK5)**. Please search [existing issues](https://github.com/homelessbrian/NuvioPlusIPTV-Mobile/issues) first, then [open a new one](https://github.com/homelessbrian/NuvioPlusIPTV-Mobile/issues/new). Say which phone or tablet you use and its Android version.
 
 **If something in Sports is wrong,** say which game and which channel you expected.
 
