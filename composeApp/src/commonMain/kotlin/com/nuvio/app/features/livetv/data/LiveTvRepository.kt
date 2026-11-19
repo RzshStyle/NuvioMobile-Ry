@@ -479,7 +479,10 @@ internal object LiveTvRepository {
                 else downloadM3u(pl, file)
             }
             if (pl.isM3u) runCatching { refreshM3uAccount(pl) }
-            val err = result.exceptionOrNull()?.let { if (it is kotlinx.coroutines.CancellationException) throw it else it.message ?: "Download failed" }
+            val err = result.exceptionOrNull()?.let {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                else if (pl.isStalker) StalkerGateway.safeUpdateError(it) else it.message ?: "Download failed"
+            }
             prefs.updatePlaylists { list ->
                 list.map { if (it.id == pl.id) it.copy(lastUpdatedMs = if (err == null) now else it.lastUpdatedMs, lastError = err) else it }
             }
@@ -525,7 +528,10 @@ internal object LiveTvRepository {
                 }
             }
             if (result.getOrNull() == true) changed = true
-            val err = result.exceptionOrNull()?.let { if (it is kotlinx.coroutines.CancellationException) throw it else it.message ?: "Download failed" }
+            val err = result.exceptionOrNull()?.let {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                else if (target.stalkerSource != null) StalkerGateway.safeUpdateError(it) else it.message ?: "Download failed"
+            }
             if (target.sourceId != null) {
                 prefs.updateEpgSources { list ->
                     list.map { if (it.id == target.sourceId) it.copy(lastUpdatedMs = if (err == null) now else it.lastUpdatedMs, lastError = err) else it }

@@ -160,9 +160,9 @@ internal object OnDemandRepository {
             val t0 = LiveTvClock.nowMs()
             if (pl.isStalker) {
                 runCatching { importStalker(pl, VodKind.MOVIE) }
-                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; problem = "Couldn't import movies from ${pl.name}: ${it.message ?: "portal unavailable"}" }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; problem = "Couldn't import movies from ${pl.name}: ${com.nuvio.app.features.livetv.stalker.StalkerGateway.safeUpdateError(it)}" }
                 runCatching { importStalker(pl, VodKind.SERIES) }
-                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; problem = "Couldn't import series from ${pl.name}: ${it.message ?: "portal unavailable"}" }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; problem = "Couldn't import series from ${pl.name}: ${com.nuvio.app.features.livetv.stalker.StalkerGateway.safeUpdateError(it)}" }
             } else if (pl.isXtream) {
                 // Movies and series import separately, so a problem with one keeps the other.
                 runCatching { importXtream(pl, VodKind.MOVIE) }

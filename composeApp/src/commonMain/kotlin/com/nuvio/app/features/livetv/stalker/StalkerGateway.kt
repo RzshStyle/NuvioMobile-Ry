@@ -21,6 +21,27 @@ internal object StalkerGateway {
     private val mutex = Mutex()
     private val sessions = mutableMapOf<String, Session>()
 
+    /**
+     * What went wrong updating a Stalker portal (channels, guide, movies, series), safe to show
+     * and share. Other errors can carry file names made from the account, web addresses or
+     * server text, so only the portal's own fixed messages are passed through.
+     */
+    fun safeUpdateError(failure: Throwable): String {
+        if (failure is StalkerException) return failure.message.orEmpty()
+        val msg = failure.message
+        if (msg == StalkerPlaybackSupport.ROUTING || msg == StalkerPlaybackSupport.ROUTE_MISMATCH ||
+            msg == StalkerPlaybackSupport.ENGINE) return msg
+        val kind = failure::class.simpleName.orEmpty()
+        return when {
+            kind == "UnknownHostException" || kind == "ConnectException" || kind == "UnresolvedAddressException" ->
+                "The Stalker portal could not be reached."
+            kind.contains("Timeout") -> "The Stalker portal took too long to answer. Try again later."
+            kind == "FileNotFoundException" -> "The portal's data couldn't be saved on this device. Try again."
+            kind.endsWith("IOException") || kind.endsWith("SocketException") -> "The connection to the Stalker portal failed. Try again."
+            else -> "The Stalker portal couldn't be updated (${kind.ifBlank { "error" }}). Try again."
+        }
+    }
+
     suspend fun client(source: PlaylistSource): StalkerClient {
         ensureCurrent(source)
         val config = source.stalker?.takeIf { source.isStalker }
