@@ -109,6 +109,7 @@ import com.nuvio.app.features.livetv.sports.channelPickerSearchResults
 import com.nuvio.app.features.livetv.sports.SportsRepository
 import com.nuvio.app.features.livetv.sports.SportsSettings
 import com.nuvio.app.features.livetv.sports.SportsWatchController
+import com.nuvio.app.features.livetv.sports.SportsWatchFilter
 import com.nuvio.app.features.livetv.sports.SportsWatchGame
 import com.nuvio.app.features.livetv.sports.SportsWatchRow
 import com.nuvio.app.features.livetv.ui.ChannelLogo
@@ -153,6 +154,10 @@ fun MultiviewScreen(
     val defaultSportsSettings = remember { MutableStateFlow(SportsSettings()) }
     val sportsGames by (sports?.games ?: noGames).collectAsStateWithLifecycle()
     val sportsRows by (sports?.rows ?: noRows).collectAsStateWithLifecycle()
+    val noFilters = remember { MutableStateFlow(emptyList<SportsWatchFilter>()) }
+    val noFilterKey = remember { MutableStateFlow<String?>(null) }
+    val sportsFilters by (sports?.filters ?: noFilters).collectAsStateWithLifecycle()
+    val sportsFilterKey by (sports?.filterKey ?: noFilterKey).collectAsStateWithLifecycle()
     val sportsChannels by (sports?.allowedChannels ?: noChannels).collectAsStateWithLifecycle()
     val sportsSettings by (sports?.settings ?: defaultSportsSettings).collectAsStateWithLifecycle()
     val listFlow = remember { LiveTvRepository.ensureLoaded(); LiveTvViewState.list }
@@ -421,6 +426,9 @@ fun MultiviewScreen(
                 onPane = ::openSportsPane,
                 onClose = { sportsControlsOpen = false },
                 onChannels = { showChannels(target) },
+                filters = sportsFilters,
+                filterKey = sportsFilterKey,
+                onFilter = { key -> sports.pickFilter(key) },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
             }

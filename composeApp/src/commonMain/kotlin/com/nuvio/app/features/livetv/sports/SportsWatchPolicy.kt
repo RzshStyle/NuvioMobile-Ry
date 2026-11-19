@@ -12,6 +12,42 @@ internal data class SportsWatchGame(val event: SportsEvent, val channels: List<C
 /** The Sports page's row/section order, with only games that can be watched now or shortly. */
 internal data class SportsWatchRow(val key: String, val title: String, val games: List<SportsWatchGame>)
 
+/** A filter chip over Multiview's Sports list: My Sports, All Events, Live Now, or one sport. */
+internal data class SportsWatchFilter(val key: String, val icon: String, val label: String)
+
+/** Multiview's Sports filter chips and how they map to the Sports page's selection. */
+internal object SportsWatchFilters {
+    const val MINE = "mine"
+    const val ALL = "all"
+    const val LIVE = "live"
+    private const val SPORT = "sport:"
+
+    /** My Sports (when something is followed), All Events, Live Now, then each sport with a game on now or soon. */
+    fun filters(games: List<SportsWatchGame>, follows: SportsFollows, settings: SportsSettings): List<SportsWatchFilter> {
+        val order = SportsCatalog.sportsOrder(settings)
+        val sports = games.mapNotNull { SportsCatalog.league(it.event.leagueId)?.sport }.distinct()
+            .sortedBy { order.indexOf(it).let { i -> if (i < 0) 99 else i } }
+        return buildList {
+            if (!follows.isEmpty) add(SportsWatchFilter(MINE, "★", "My Sports"))
+            add(SportsWatchFilter(ALL, "▦", "All Events"))
+            add(SportsWatchFilter(LIVE, "●", "Live Now"))
+            sports.forEach { add(SportsWatchFilter(SPORT + it.name, it.icon, it.label)) }
+        }
+    }
+
+    /** Which chip the current selection is (null: one the chips don't offer, like another day). */
+    fun key(mine: Boolean, live: Boolean, day: Int, sport: String?): String? = when {
+        mine -> MINE
+        live -> LIVE
+        day != 0 -> null
+        sport != null -> SPORT + sport
+        else -> ALL
+    }
+
+    /** The sport a chip stands for (null for the other chips). */
+    fun sport(key: String): String? = key.takeIf { it.startsWith(SPORT) }?.removePrefix(SPORT)
+}
+
 internal data class SportsWatchRules(
     val user: LiveUserState,
     val live: LiveTvSettings,

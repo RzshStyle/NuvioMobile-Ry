@@ -60,6 +60,7 @@ import com.nuvio.app.features.livetv.model.LiveTvClock
 import com.nuvio.app.features.livetv.sports.ChannelMatch
 import com.nuvio.app.features.livetv.sports.Sport
 import com.nuvio.app.features.livetv.sports.SportsCatalog
+import com.nuvio.app.features.livetv.sports.SportsWatchFilter
 import com.nuvio.app.features.livetv.sports.SportsWatchGame
 import com.nuvio.app.features.livetv.sports.SportsWatchRow
 
@@ -87,6 +88,11 @@ internal fun MobileSportsGameStrip(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
     onChannels: (() -> Unit)? = null,
+    /** Chips over the games: My Sports, All Events, Live Now and each sport on now. */
+    filters: List<SportsWatchFilter> = emptyList(),
+    /** The chip the list is showing now (null: a Sports page filter the chips don't offer). */
+    filterKey: String? = null,
+    onFilter: (String) -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
     val chosenGames = remember { mutableStateMapOf<Int, String>() }
@@ -126,7 +132,8 @@ internal fun MobileSportsGameStrip(
 
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val compact = maxWidth > maxHeight || maxHeight < 300.dp
-        val panelHeight = minOf(maxHeight, if (compact) 224.dp else 320.dp)
+        val filtersShown = !streamsOpen && filters.isNotEmpty()
+        val panelHeight = minOf(maxHeight, (if (compact) 224.dp else 320.dp) + if (filtersShown) 40.dp else 0.dp)
         Column(
             Modifier.fillMaxWidth().height(panelHeight)
                 .clip(tokens.shapes.card)
@@ -187,6 +194,29 @@ internal fun MobileSportsGameStrip(
                     ) {
                         Icon(Icons.Filled.LiveTv, contentDescription = null, tint = tokens.colors.textPrimary, modifier = Modifier.size(16.dp))
                         Text("Channels", style = MaterialTheme.typography.labelMedium, color = tokens.colors.textPrimary)
+                    }
+                }
+            }
+            if (filtersShown) {
+                val chipState = rememberLazyListState()
+                LaunchedEffect(filterKey, filters.size) {
+                    val at = filters.indexOfFirst { it.key == filterKey }
+                    if (at > 0) chipState.scrollToItem((at - 1).coerceAtLeast(0))
+                }
+                LazyRow(
+                    Modifier.fillMaxWidth().height(40.dp),
+                    state = chipState,
+                    contentPadding = PaddingValues(horizontal = NuvioTokens.Space.s12),
+                    horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    items(filters, key = { it.key }) { f ->
+                        Chip("${f.icon} ${f.label}", selected = f.key == filterKey, onClick = {
+                            if (f.key != filterKey) {
+                                onFilter(f.key)
+                                rowListState.requestScrollToItem(0)
+                            }
+                        })
                     }
                 }
             }

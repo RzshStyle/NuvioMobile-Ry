@@ -21,13 +21,30 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlin.concurrent.Volatile
 
-internal data class SportsWatchPageSelection(val profileId: Int, val mine: Boolean, val day: Int = 0, val sport: String? = null)
+internal data class SportsWatchPageSelection(val profileId: Int, val mine: Boolean, val day: Int = 0, val sport: String? = null,
+    /** Live Now only (a Multiview chip; the Sports page never sets it). */
+    val live: Boolean = false)
 
 /** Actual page context only, kept in memory and never carried into another profile. */
 internal object SportsWatchSelection {
     val current = MutableStateFlow<SportsWatchPageSelection?>(null)
-    fun select(mine: Boolean, day: Int = 0, sport: String? = null) {
-        current.value = SportsWatchPageSelection(LiveTvPreferences.activeProfile.value, mine, day, sport)
+    fun select(mine: Boolean, day: Int = 0, sport: String? = null, live: Boolean = false) {
+        val next = SportsWatchPageSelection(LiveTvPreferences.activeProfile.value, mine, day, sport, live)
+        // The Sports page reports its filter on every redraw: a Multiview chip picked since stays
+        // until the page's own filter actually changes.
+        if (!fromChip || next != lastFromPage) {
+            fromChip = false
+            current.value = next
+        }
+        lastFromPage = next
+    }
+    private var lastFromPage: SportsWatchPageSelection? = null
+    private var fromChip = false
+
+    /** A Multiview filter chip: the list follows it until a filter is chosen on the Sports page again. */
+    fun pickChip(mine: Boolean, sport: String?, live: Boolean) {
+        fromChip = true
+        current.value = SportsWatchPageSelection(LiveTvPreferences.activeProfile.value, mine, 0, sport, live)
     }
 }
 
@@ -84,7 +101,14 @@ internal class SportsWatchController(private val profileId: Int?) {
             val mine = selected?.mine ?: !input.follows.isEmpty
             val current = SportsWatchPolicy.games(input.events, matches, allowed, input.settings, now)
                 .associateBy { it.event.id }
-            if (mine) {
+            if (selected?.live == true) {
+                // Live Now chip: what's on now in every sport.
+                val active = repo.activeLeagues(input.settings, input.follows).mapTo(HashSet()) { it.id } + SportsMatcher.OTHER_ID
+                val query = SportsDayQuery(0, null, repo.dayStart(0), repo.dayStart(1), active,
+                    input.settings.onlyOnMyChannels && LiveTvRepository.channels.value.isNotEmpty() && matches.isNotEmpty(), input.follows)
+                val page = buildSportsDayPage(SportsDayInputs(query, input.events, input.settings, matches, now), ::isMine)
+                SportsWatchPolicy.projectRows(listOf(Triple("live", "Live Now", page.sections.live)), current)
+            } else if (mine) {
                 val page = buildMySportsPage(MySportsInputs(input.known, input.follows, now), ::isMine)
                 SportsWatchPolicy.projectRows(page.rows.map { Triple(it.key, it.title, it.events) }, current)
             } else {
@@ -101,6 +125,28 @@ internal class SportsWatchController(private val profileId: Int?) {
             }
         }
     }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Multiview's filter chips, from the games that are on now or about to start. */
+    val filters: StateFlow<List<SportsWatchFilter>> = combine(games, repo.follows, settings) { list, follows, sports ->
+        SportsWatchFilters.filters(list, follows, sports)
+    }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The chip that matches what the list shows now (the Sports page's filter, or the last chip picked). */
+    val filterKey: StateFlow<String?> = combine(SportsWatchSelection.current, repo.follows) { selected, follows ->
+        val own = selected?.takeIf { it.profileId == profileId }
+        if (own == null) (if (follows.isEmpty) SportsWatchFilters.ALL else SportsWatchFilters.MINE)
+        else SportsWatchFilters.key(own.mine, own.live, own.day, own.sport)
+    }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Picking a chip: the list follows it until a filter is chosen on the Sports page again. */
+    fun pickFilter(key: String) {
+        if (!profileIsCurrent()) return
+        SportsWatchSelection.pickChip(
+            mine = key == SportsWatchFilters.MINE,
+            sport = SportsWatchFilters.sport(key),
+            live = key == SportsWatchFilters.LIVE,
+        )
+    }
 
     fun profileIsCurrent(): Boolean = !closed && profileId != null &&
         profileId == LiveTvPreferences.activeProfile.value && profileId ==
