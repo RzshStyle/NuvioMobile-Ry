@@ -472,6 +472,10 @@ internal object LiveTvDriveSync {
                 else -> {
                     val merged = r.toMutableMap()
                     l.forEach { (f, v) -> if (v.toString() != b[f]?.toString()) merged[f] = v }
+                    // A setting cleared on this device since the last sync. Some are only saved while
+                    // they're set (a playlist's switched-off guides: turning the last one back on
+                    // leaves nothing saved), so the other device's old value kept coming back.
+                    b.keys.forEach { f -> if (f !in l) merged.remove(f) }
                     result += JsonObject(merged)
                 }
             }
