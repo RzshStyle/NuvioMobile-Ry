@@ -152,6 +152,8 @@ import nuvio.composeapp.generated.resources.livetv_guide_shift_description
 import nuvio.composeapp.generated.resources.livetv_time_shifts_note
 import nuvio.composeapp.generated.resources.livetv_clean_group_names
 import nuvio.composeapp.generated.resources.livetv_clean_group_names_description
+import nuvio.composeapp.generated.resources.livetv_hide_stray_entries
+import nuvio.composeapp.generated.resources.livetv_hide_stray_entries_description
 import nuvio.composeapp.generated.resources.livetv_section_catchup
 import nuvio.composeapp.generated.resources.livetv_days_ahead
 import nuvio.composeapp.generated.resources.livetv_days_ahead_description
