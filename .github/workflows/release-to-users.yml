@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       notes:
-        description: "What changed (shown on the release page)"
+        description: "What changed (leave empty to use RELEASE_NOTES.md)"
         required: false
         type: string
 
@@ -49,6 +49,32 @@ jobs:
           echo "Nuvio Mobile $BASE -> release $TAG (version code $((NUM * 100 + N)))"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "code=$((NUM * 100 + N))" >> "$GITHUB_OUTPUT"
+
+      # The release text: what's typed in the "What changed" box, or else RELEASE_NOTES.md from main
+      # (its first line becomes "# Nuvio + IPTV Mobile <version>"). Stops before building if the file
+      # hasn't changed since the last release, so old notes are never published again.
+      - name: Release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          TYPED: ${{ inputs.notes }}
+        run: |
+          mkdir -p out
+          if [ -n "$(printf '%s' "$TYPED" | tr -d '[:space:]')" ]; then
+            printf '%s\n' "$TYPED" > out/release-notes.md
+            echo "Using the notes typed in the box."
+          else
+            if [ ! -s RELEASE_NOTES.md ]; then echo "::error::RELEASE_NOTES.md is missing or empty, and no notes were typed."; exit 1; fi
+            LAST_TAG=$(gh release list -R "$GITHUB_REPOSITORY" --limit 50 --json tagName -q '.[].tagName' | grep -vx downloader | head -1 || true)
+            if [ -n "$LAST_TAG" ] && git rev-parse -q --verify "refs/tags/$LAST_TAG" >/dev/null \
+                && git diff --quiet "$LAST_TAG" HEAD -- RELEASE_NOTES.md; then
+              echo "::error::RELEASE_NOTES.md hasn't changed since $LAST_TAG. Update it on main, or type the notes in the box."
+              exit 1
+            fi
+            { echo "# Nuvio + IPTV Mobile $TAG"; sed '1{/^# /d}' RELEASE_NOTES.md; } > out/release-notes.md
+            echo "Using RELEASE_NOTES.md."
+          fi
+          cat out/release-notes.md
 
       - uses: actions/setup-go@v5
         with:
@@ -134,7 +160,7 @@ jobs:
           files: |
             out/*.apk
             out/openvpn2-corresponding-source.tar.gz
-          body: ${{ inputs.notes }}
+          body_path: out/release-notes.md
 
       - name: Update the Downloader link
         env:

@@ -23,7 +23,7 @@
 ## 🆕 New in this update
 
 - **🎬 Highlights and replays for finished games:** official highlights and condensed games (ESPN, NHL, MLB) and YouTube highlights, right on the game's page. [More below](#-sports-hub).
-- **🖥️ Multiview:** filter the Sports games by My Sports, All Events, Live Now or one sport, panes use the whole screen, and the bar and pane names fade away after a few seconds.
+- **🖥️ Multiview:** a cleaner look with floating corner buttons and light pane names that fade away, panes that use the whole screen, and Sports filters for My Sports, All Events, Live Now or one sport.
 - **📺 A guide for each playlist:** paste a guide link when you add a playlist, and switch each playlist's guides on or off.
 - **🎞️ On Demand from M3U playlists:** movies and series straight from the playlist.
 - **⏺️ Recordings:** record only new episodes of a series, and set recordings that repeat every day, on weekdays or on the days you pick.
