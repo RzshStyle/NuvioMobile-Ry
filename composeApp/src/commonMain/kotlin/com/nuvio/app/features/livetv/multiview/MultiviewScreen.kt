@@ -321,11 +321,13 @@ fun MultiviewScreen(
         }
     }
     val density = LocalDensity.current
-    var headerHeight by remember { mutableStateOf(0.dp) }
-    // Top-row pane names move down below the bar while it is up, so they are never under it.
-    val topLabelInset by animateDpAsState(
-        if (overlaysShown) (headerHeight - NuvioTokens.Space.s4 * 2).coerceAtLeast(0.dp) else 0.dp,
-        tween(MULTIVIEW_FADE_MS), label = "multiviewTopLabelInset",
+    // Pane names sit at the bottom of each pane, clear of the top bar. While the games strip is
+    // open, the bottom-row names lift above it so they are never hidden behind it.
+    val sportsStripOpen = showingSports && sportsControlsOpen && sports != null
+    var sportsStripHeight by remember { mutableStateOf(0.dp) }
+    val bottomLabelInset by animateDpAsState(
+        if (sportsStripOpen) (sportsStripHeight - NuvioTokens.Space.s4 * 2).coerceAtLeast(0.dp) else 0.dp,
+        tween(MULTIVIEW_FADE_MS), label = "multiviewBottomLabelInset",
     )
 
     Box(
@@ -358,7 +360,7 @@ fun MultiviewScreen(
                             nowTitle = channel?.key?.let { nowShowing[it] },
                             focused = permittedSelection.focusedPane == pane,
                             overlaysShown = overlaysShown,
-                            labelTopInset = if (rowIndex == 0) topLabelInset else 0.dp,
+                            labelBottomInset = if (rowIndex == layoutRows.lastIndex) bottomLabelInset else 0.dp,
                             playbackActive = playbackActive,
                             audio = audio,
                             mayPlayChannel = playerPermission,
@@ -429,7 +431,8 @@ fun MultiviewScreen(
                 filters = sportsFilters,
                 filterKey = sportsFilterKey,
                 onFilter = { key -> sports.pickFilter(key) },
-                modifier = Modifier.align(Alignment.BottomCenter),
+                modifier = Modifier.align(Alignment.BottomCenter)
+                    .onSizeChanged { sportsStripHeight = with(density) { it.height.toDp() } },
             )
             }
         }
@@ -457,7 +460,6 @@ fun MultiviewScreen(
                         tokens.colors.background.copy(alpha = 0.78f),
                         tokens.colors.background.copy(alpha = 0f),
                     )))
-                    .onSizeChanged { headerHeight = with(density) { it.height.toDp() } }
                     .padding(bottom = NuvioTokens.Space.s8),
             ) {
                 NuvioScreenHeader(
@@ -526,7 +528,7 @@ private fun MultiviewPane(
     nowTitle: String?,
     focused: Boolean,
     overlaysShown: Boolean,
-    labelTopInset: Dp,
+    labelBottomInset: Dp,
     playbackActive: Boolean,
     audio: MultiviewAudioCoordinator,
     mayPlayChannel: ((LiveChannel) -> Boolean)?,
@@ -594,7 +596,7 @@ private fun MultiviewPane(
                         "Reconnecting…",
                         style = MaterialTheme.typography.labelSmall,
                         color = tokens.colors.textSecondary,
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(NuvioTokens.Space.s8)
+                        modifier = Modifier.align(Alignment.TopStart).padding(NuvioTokens.Space.s8)
                             .clip(tokens.shapes.compactCard).background(tokens.colors.surface.copy(alpha = 0.8f))
                             .padding(horizontal = NuvioTokens.Space.s6, vertical = NuvioTokens.Space.s2),
                     )
@@ -645,7 +647,7 @@ private fun MultiviewPane(
                 .graphicsLayer { alpha = 0.6f * (1f - overlay) },
         )
         if (overlay > 0f) Row(
-            Modifier.align(Alignment.TopCenter).padding(top = labelTopInset).fillMaxWidth()
+            Modifier.align(Alignment.BottomCenter).padding(bottom = labelBottomInset).fillMaxWidth()
                 .graphicsLayer { alpha = overlay }
                 .background(tokens.colors.background.copy(alpha = 0.82f))
                 .padding(start = NuvioTokens.Space.s8),
