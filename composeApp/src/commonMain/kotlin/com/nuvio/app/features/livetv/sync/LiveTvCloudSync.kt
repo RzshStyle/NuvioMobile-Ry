@@ -386,6 +386,7 @@ internal object LiveTvCloudSync {
     private suspend fun reconcileAndReport(uid: String, doneMessage: String? = null) {
         _state.value = _state.value.copy(busy = true)
         val result = runCatching { reconcile(uid) }
+        result.exceptionOrNull()?.let { com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Sync failed: ${it.message?.take(120) ?: it::class.simpleName}") }
         _state.value = _state.value.copy(
             busy = false,
             lastSyncMs = store.getLong(KEY_LAST_SYNC),
@@ -405,12 +406,19 @@ internal object LiveTvCloudSync {
             val local = SyncParts.strip(localFull)
             val removedHere = prefs.removedSourceIds()
             when {
-                remote is Remote.Failed -> return failText(remote.code)
+                remote is Remote.Failed -> {
+                    com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Sync: couldn't read the saved setup (HTTP ${remote.code})")
+                    return failText(remote.code)
+                }
                 remote is Remote.Found && usable(remote.data) -> {
                     val remoteView = SyncParts.strip(remote.data)
                     val merged = drive.merge(readBase(uid), SyncParts.freshen(local, remoteView), remoteView, false, removedHere)
                     val changedHere = merged.toString() != local.toString()
-                    if (changedHere) apply(SyncParts.keep(merged, localFull))
+                    if (changedHere) {
+                        val keys = (merged.keys + local.keys).filter { merged[it] != local[it] }
+                        com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Sync: applied changes from your other devices (${keys.take(6).joinToString()}${if (keys.size > 6) "…" else ""})")
+                        apply(SyncParts.keep(merged, localFull))
+                    }
                     val news = if (changedHere) UPDATED_TEXT else null
                     val mergedFull = SyncParts.keep(merged, remote.data)
                     if (merged.toString() == remoteView.toString() || !usable(mergedFull)) {
@@ -418,7 +426,7 @@ internal object LiveTvCloudSync {
                         return news
                     }
                     when (val result = putSetup(remote.revision, mergedFull)) {
-                        is Put.Saved -> { saved(uid, merged, removedHere); return news }
+                        is Put.Saved -> { saved(uid, merged, removedHere); com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Sync: this phone's changes saved to your account"); return news }
                         Put.Conflict -> Unit // another device saved first: look again
                         else -> return putText(result)
                     }

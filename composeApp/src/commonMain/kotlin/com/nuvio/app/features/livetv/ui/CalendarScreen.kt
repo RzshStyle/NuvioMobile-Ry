@@ -193,6 +193,8 @@ internal fun CalendarScreen(
     }
     val open: (CalendarEntry) -> Unit = { e ->
         if (e.kind == CalendarKind.GAME) e.eventId?.let { LiveTvDeepLinks.handle(LiveTvDeepLinks.sportsGameUrl(it)) }
+        // No page for a show TVmaze alone knows (many news shows): its options instead.
+        else if (e.contentId.startsWith("tvmaze:")) menuFor = e
         else onOpenTitle(e.type, e.contentId, e.title)
     }
     val hold: (CalendarEntry) -> Unit = { e -> menuFor = e }
@@ -304,7 +306,7 @@ internal fun CalendarScreen(
                 onHideWatched = { on -> LiveTvPreferences.updateSettings { it.copy(calendarHideWatched = on) } },
                 open = open, hold = hold,
             )
-            CalTab.FOLLOWING -> FollowingTab(follows, state.entries, now, open = { f -> onOpenTitle(f.type, f.id, f.name) }, onHold = { f ->
+            CalTab.FOLLOWING -> FollowingTab(follows, state.entries, now, open = { f -> if (f.id.startsWith("tvmaze:")) menuFor = followAsEntry(f) else onOpenTitle(f.type, f.id, f.name) }, onHold = { f ->
                 menuFor = followAsEntry(f)
             })
         }
@@ -804,7 +806,7 @@ private fun EntrySheet(e: CalendarEntry, followed: Boolean, hits: List<CalendarG
             }
             NuvioBottomSheetDivider()
         }
-        NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_calendar_open), icon = Icons.Filled.Info, onClick = { close(onOpen) })
+        if (!e.contentId.startsWith("tvmaze:")) NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_calendar_open), icon = Icons.Filled.Info, onClick = { close(onOpen) })
         if (!isGame) {
             NuvioBottomSheetActionRow(
                 title = stringResource(if (followed) Res.string.livetv_calendar_unfollow else Res.string.livetv_calendar_follow),

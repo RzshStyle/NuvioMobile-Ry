@@ -21,12 +21,13 @@ private val portalHttp by lazy {
     VpnHttpClient.wrap(OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
         .callTimeout(65, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false)
-        .retryOnConnectionFailure(false).build())
+        .retryOnConnectionFailure(false).dns(com.nuvio.app.features.livetv.data.ForkDns.provider).build())
 }
 private val portalGuideHttp by lazy {
     VpnHttpClient.wrap(OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
-        .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false).build())
+        .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
+        .dns(com.nuvio.app.features.livetv.data.ForkDns.provider).build())
 }
 
 /** HTTP-only can authenticate directly on HTTPS but play through a different IP on HTTP. */

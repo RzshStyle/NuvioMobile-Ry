@@ -6,6 +6,7 @@ import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.LiveTvRepository
 import com.nuvio.app.features.livetv.data.NowNext
 import com.nuvio.app.features.livetv.data.VideoPlaying
+import com.nuvio.app.features.livetv.model.LiveTvLoadReport
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.model.LiveTvClock
 import com.nuvio.app.features.livetv.parental.ParentalControls
@@ -62,6 +63,8 @@ internal object SportsRepository {
     private val prefs = LiveTvPreferences
     private val liveRepo = LiveTvRepository
     private val feeds = SportsFeeds()
+    // Official highlights and condensed games (ESPN, NHL, MLB, YouTube via TheSportsDB).
+    private val videos = SportsVideos { feeds.dataRaw(it) }
     private val matcher = SportsMatcher()
     private const val DIR = LiveTvDirs.SPORTS
 
@@ -325,6 +328,7 @@ internal object SportsRepository {
      */
     fun openGame(ev: SportsEvent) {
         addonJobs.remove(ev.id)?.cancel()
+        lookForVideos(ev)
         // Replays found for this game a few minutes ago at most: no need to ask again.
         if (ev.state == GameState.POST && _addonVod.value[ev.id]?.isNotEmpty() == true &&
             LiveTvClock.nowMs() - (vodAt.value[ev.id] ?: 0L) < VOD_FRESH_MS
@@ -340,6 +344,46 @@ internal object SportsRepository {
     }
 
     private val vodAt = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    // ---- official videos (see SportsVideos)
+
+    private val _videos = MutableStateFlow<Map<String, List<ChannelMatch>>>(emptyMap())
+    /** Finished games: event id -> their official highlights, recaps and condensed games. */
+    val videoMatches: StateFlow<Map<String, List<ChannelMatch>>> = _videos.asStateFlow()
+    private val videoAt = SyncMap<String, Long>()
+    private val videoJobs = SyncMap<String, kotlinx.coroutines.Job>()
+
+    /** A finished game's official videos, looked for once (again after a while: they keep coming for a few hours). */
+    private fun lookForVideos(ev: SportsEvent) {
+        if (ev.state != GameState.POST) return
+        val at = videoAt[ev.id]
+        val fresh = if (_videos.value[ev.id].isNullOrEmpty()) VIDEO_EMPTY_FRESH_MS else VIDEO_FRESH_MS
+        if (at != null && LiveTvClock.nowMs() - at < fresh) return
+        if (videoJobs[ev.id]?.isActive == true) return
+        videoJobs[ev.id] = scope.launch {
+            try {
+                val espn = runCatching { summaryFor(ev)?.videos }.getOrNull().orEmpty()
+                val found = videos.find(ev, espn).map { SportsVideos.match(it) }
+                _videos.update { it + (ev.id to found) }
+                videoAt[ev.id] = LiveTvClock.nowMs()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                _videos.update { if (it.containsKey(ev.id)) it else it + (ev.id to emptyList()) }
+            } finally {
+                videoJobs.remove(ev.id)
+            }
+        }
+    }
+
+    /** A picked video ready to play (NHL's and YouTube's links are worked out now); null: it can't be. */
+    suspend fun playableVideo(ch: LiveChannel): LiveChannel? =
+        if (SportsVideos.needsResolving(ch)) videos.playable(ch) else ch
+
+    /** Official videos found: asked again after half an hour (more get added for a few hours). */
+    private const val VIDEO_FRESH_MS = 30 * 60_000L
+    /** None found yet: asked again after five minutes. */
+    private const val VIDEO_EMPTY_FRESH_MS = 5 * 60_000L
 
     /** One look through your sports addons for [ev], shown add-on by add-on as each answers; true when something was found. */
     private suspend fun lookInAddons(ev: SportsEvent): Boolean {
@@ -432,9 +476,15 @@ internal object SportsRepository {
                 val st = SportsSettings.fromJson(prefs.sportsSettingsJson.first())
                 SportsCatalog.leagues.filter { it.espnPath != null && (isMine(it, f) || SportsCatalog.shown(it, st)) }.map { it.id }.toSet()
             }.getOrDefault(emptySet())
+            val t0 = LiveTvClock.nowMs()
             runCatching { withContext(Dispatchers.Default) { leagueData.update { it + readSavedScores(first) } } }
+            val tFirst = LiveTvClock.nowMs()
             runCatching { withContext(Dispatchers.Default) { loadCache(skip = first) } }
             cacheReady.value = true
+            LiveTvLoadReport.add(
+                "Sports: saved scores read in ${LiveTvLoadReport.seconds(LiveTvClock.nowMs() - t0)} s (${leagueData.value.size} leagues; " +
+                    "${first.size} of the page's own in ${LiveTvLoadReport.seconds(tFirst - t0)} s)"
+            )
             runCatching { updateLoop() }
         }
         scope.launch { runCatching { matchLoop() } }
@@ -565,6 +615,11 @@ internal object SportsRepository {
         }
     }
 
+    /** The last "leagues failed" line written to the report (the same one isn't written again). */
+    private var lastFailLine: String? = null
+    /** Only the first score round (and slow ones) go in the report: a round runs every 30 seconds. */
+    private var firstScoresReported = false
+
     private suspend fun updateOnce(now: Long) {
         val s = settings.value
         val f = follows.value
@@ -615,6 +670,10 @@ internal object SportsRepository {
             val failed = ArrayList<String>()
             val reasons = LinkedHashSet<String>()
             val failLock = Mutex()
+            val roundT0 = LiveTvClock.nowMs()
+            // For the Start-Up Report: unchanged ready-made files, ready-made files read, direct reads.
+            val counts = IntArray(3)
+            suspend fun count(i: Int) { failLock.lock(); try { counts[i]++ } finally { failLock.unlock() } }
             coroutineScopeFetch(due) { l ->
                 gate.withPermit {
                     val nearNow = data[l.id]?.events?.any { it.startMs in (now - 6 * HOUR)..(now + 6 * HOUR) } == true
@@ -630,6 +689,7 @@ internal object SportsRepository {
                         if (games == null) {
                             // Same file as last time: nothing to read or save.
                             leagueData.update { m -> m + (l.id to LeagueData(m[l.id]?.events.orEmpty(), at, null)) }
+                            count(0)
                             return@withPermit
                         }
                         val before = leagueData.value[l.id]?.events
@@ -638,9 +698,11 @@ internal object SportsRepository {
                         compact.hash?.let { compactSeen["d|" + l.id] = it }
                         compactDirty = true
                         if (before != null && scoreDelayMs.value <= 0) noticeScoring(l, before, games)
+                        count(1)
                         return@withPermit
                     }
                     val r = runCatching { if (useDirect) fetchScoreboard(l, days) else fetchViaSharedCache(l, days, now) }
+                    if (r.isSuccess) count(2)
                     r.onSuccess { raws ->
                         if (compactSeen.remove("d|" + l.id) != null) compactDirty = true
                         val parsed = raws.flatMap { raw -> runCatching { SportsFeeds.parseScoreboard(l, raw) }.getOrElse { emptyList() } }
@@ -661,6 +723,15 @@ internal object SportsRepository {
                 }
             }
             val why = reasons.take(2).joinToString(", ")
+            if (failed.isNotEmpty()) {
+                val line = "Sports scores: ${failed.size} of ${due.size} leagues failed (${failed.take(4).joinToString()}${if (failed.size > 4) "…" else ""}): $why"
+                if (line != lastFailLine) { lastFailLine = line; LiveTvLoadReport.add(line) }
+            } else lastFailLine = null
+            val took = LiveTvClock.nowMs() - roundT0
+            if (!firstScoresReported || took > 5_000) {
+                firstScoresReported = true
+                LiveTvLoadReport.add("Sports scores: ${due.size} leagues checked in ${LiveTvLoadReport.seconds(took)} s (${counts[0]} unchanged, ${counts[1] + counts[2]} read, ${counts[1]} of them ready-made, ${failed.size} failed)")
+            }
             _problem.value = if (failed.size >= due.size && due.isNotEmpty()) "Couldn't reach the scores service ($why). Showing what was saved." else null
             _updatedAt.value = LiveTvClock.nowMs()
             saveCompactSeen()
@@ -716,6 +787,7 @@ internal object SportsRepository {
                 if (raws.isEmpty()) {
                     // Try again in an hour, not straight away.
                     weekData.update { m -> m + (l.id to LeagueData(m[l.id]?.events.orEmpty(), at - 2 * HOUR, "failed")) }
+                    LiveTvLoadReport.add("Sports: couldn't get the week ahead for ${l.name}")
                     return@withPermit
                 }
                 val parsed = raws.flatMap { raw -> runCatching { SportsFeeds.parseScoreboard(l, raw) }.getOrDefault(emptyList()) }.distinctBy { it.id }
@@ -1217,8 +1289,10 @@ internal object SportsRepository {
             val firstSearch = _matches.value.isEmpty()
             if (_matches.value.isEmpty() && status.loading) {
                 _matching.value = true
+                val w0 = LiveTvClock.nowMs()
                 withTimeoutOrNull(10 * MINUTE) { liveRepo.status.first { !it.loading } }
                 _matching.value = false
+                LiveTvLoadReport.add("Sports matching waited ${(LiveTvClock.nowMs() - w0) / 1000} s for the guide to finish loading")
             }
             // Not while the player is open (unless you're on the Sports page).
             awaitNotWatching()
@@ -1257,7 +1331,12 @@ internal object SportsRepository {
             lastQuickAt = lastFullAt
             pickPending = false
             lastRun = LiveTvClock.nowMs()
-            runCatching { runMatch() }
+            val why = kickReason ?: "games, channels or settings changed"
+            kickReason = null
+            val t0 = LiveTvClock.nowMs()
+            runCatching { runMatch() }.onFailure { LiveTvLoadReport.add("Sports matching failed (${it.message?.take(120) ?: it::class.simpleName})") }
+            val took = LiveTvClock.nowMs() - t0
+            if (took > 2_000) LiveTvLoadReport.add("Sports matching took ${LiveTvLoadReport.seconds(took)} s (page open: ${viewers.value > 0}; for: $why)")
             lastMatchAt = LiveTvClock.nowMs()
             runCatching { saveMatches() }
         }
@@ -1276,9 +1355,11 @@ internal object SportsRepository {
     /** Waits while a player screen is open; the Sports page being open ends the wait. */
     private suspend fun awaitNotWatching() {
         if (viewers.value > 0 || VideoPlaying.open.value == 0) return
+        val t0 = LiveTvClock.nowMs()
         combine(VideoPlaying.open, viewers) { playing, v -> v > 0 || playing == 0 }.first { it }
         // Back from the video: a moment for the screen to settle first.
         if (viewers.value == 0) delay(5_000)
+        LiveTvLoadReport.add("Sports matching waited ${(LiveTvClock.nowMs() - t0) / 1000} s while video was playing")
     }
 
     private fun saveMatches() {
@@ -1309,7 +1390,10 @@ internal object SportsRepository {
             }
             if (list.isNotEmpty()) out[o.getString("id")] = list
         }
-        if (out.isNotEmpty() && _matches.value.isEmpty()) _matches.value = out
+        if (out.isNotEmpty() && _matches.value.isEmpty()) {
+            _matches.value = out
+            LiveTvLoadReport.add("Sports: showing last time's channels for ${out.size} games while matching again")
+        }
     }
 
     @Volatile private var pickPending = false
@@ -1343,10 +1427,12 @@ internal object SportsRepository {
             val quickEvents = events.value.filter { ev ->
                 ev.state == GameState.LIVE || (ev.state == GameState.PRE && ev.startMs in now..(now + 3 * HOUR))
             }
+            val quickAt = LiveTvClock.nowMs()
             if (quickEvents.isNotEmpty()) runCatching {
                 matcher.match(SportsMatcher.Input(events = quickEvents, channels = channels, quality = user.channelQuality,
                     shiftMs = shift, settings = s, now = now, readGuide = false))
             }.onSuccess { quick ->
+                if (!quickOnly) LiveTvLoadReport.add("Sports quick channels: ${quick.matches.size} games in ${LiveTvClock.nowMs() - quickAt} ms")
                 val fresh = quick.matches.filterKeys { it !in _matches.value }
                 if (fresh.isNotEmpty()) {
                     _matches.value = _matches.value + fresh
@@ -1375,6 +1461,7 @@ internal object SportsRepository {
                 )
             )
             _matches.value = keepPicksMadeMeanwhile(result.matches, saved)
+            LiveTvLoadReport.add(result.summary)
             rebuildLiveScores()
         } finally {
             _matching.value = false
@@ -1682,7 +1769,11 @@ internal object SportsRepository {
     }
 
     /** A game's summary as last asked: when, the score then, its scoring plays and the rest. */
-    private class GameSummary(val at: Long, val sig: String, val plays: List<ScoringPlay>, val extras: GameExtras)
+    private class GameSummary(
+        val at: Long, val sig: String, val plays: List<ScoringPlay>, val extras: GameExtras,
+        /** The game's videos in ESPN's summary (highlights, big plays). */
+        val videos: List<SportsVideos.Video> = emptyList()
+    )
     private val summaryCache = SyncMap<String, GameSummary>()
 
     private suspend fun summaryFor(ev: SportsEvent): GameSummary? = withContext(Dispatchers.Default) {
@@ -1700,7 +1791,8 @@ internal object SportsRepository {
         }.getOrNull() ?: return@withContext cached
         val plays = if (ev.state == GameState.PRE) emptyList() else runCatching { SportsFeeds.parseSummary(root) }.getOrDefault(emptyList())
         val extras = runCatching { SportsExtras.parse(root, ev, league.sport) }.getOrDefault(GameExtras())
-        GameSummary(LiveTvClock.nowMs(), sig, plays, extras).also { summaryCache[ev.id] = it }
+        val clips = if (tsdbId != null || ev.state == GameState.PRE) emptyList() else runCatching { SportsVideos.espn(root) }.getOrDefault(emptyList())
+        GameSummary(LiveTvClock.nowMs(), sig, plays, extras, clips).also { summaryCache[ev.id] = it }
     }
 
     /** The game's scoring plays (touchdowns, goals…), when ESPN has them. */

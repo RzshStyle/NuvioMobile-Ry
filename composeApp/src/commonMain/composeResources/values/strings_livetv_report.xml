@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="livetv_section_help">Help</string>
+    <string name="livetv_report_title">Start-Up Report</string>
+    <string name="livetv_report_description">What Live TV did since the app started: loading, guide, Sports, On Demand, recordings and playback problems</string>
+    <string name="livetv_report_subtitle">Since the app started. Send it when something isn\'t working so it\'s clear what happened.</string>
+    <string name="livetv_report_empty">Nothing yet: open Live TV first.</string>
+    <string name="livetv_report_copy_short">Copy short</string>
+    <string name="livetv_report_copy_full">Copy all</string>
+    <string name="livetv_report_share">Share</string>
+    <string name="livetv_report_copied_short">Short report copied: it fits in one Discord message</string>
+    <string name="livetv_report_copied_full">Whole report copied</string>
+</resources>

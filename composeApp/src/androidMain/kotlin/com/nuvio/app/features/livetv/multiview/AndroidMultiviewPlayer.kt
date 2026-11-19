@@ -84,6 +84,32 @@ internal class AndroidMultiviewPlayer(
 
     init { focus.register(this) }
 
+    /** Channels whose decoder line is already in the report, so a reconnect doesn't repeat it. */
+    private val decoderReported = mutableSetOf<String>()
+
+    /**
+     * Which video decoder the phone gave this pane and the picture's colour format, once per
+     * channel, so a pane whose picture looks wrong (e.g. tinted) can be told apart from one that's fine.
+     */
+    private val decoderReport = object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+        override fun onVideoDecoderInitialized(
+            eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+            decoderName: String,
+            initializedTimestampMs: Long,
+            initializationDurationMs: Long,
+        ) {
+            if (released) return
+            val ch = channel ?: return
+            val f = engine?.videoFormat
+            val key = "${ch.key}|$decoderName|${f?.sampleMimeType}|${f?.width}x${f?.height}|${f?.colorInfo}"
+            if (!decoderReported.add(key)) return
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add(
+                "Multiview: ${ch.name} video decoder $decoderName (${MultiviewDecoderReport.decodersOpen()} Multiview decoders open); " +
+                    MultiviewDecoderReport.describe(f)
+            )
+        }
+    }
+
     override fun play(channel: LiveChannel) {
         if (released) return
         stopEngine()
@@ -113,8 +139,12 @@ internal class AndroidMultiviewPlayer(
         // Playing for a while since the last drop counts as recovered: start the tries over.
         if (playingSince > 0L && SystemClock.elapsedRealtime() - playingSince >= RECOVERED_AFTER_MS) reconnectAttempt = 0
         playingSince = 0L
-        if (reconnectAttempt >= MAX_RECONNECTS) return false
+        if (reconnectAttempt >= MAX_RECONNECTS) {
+            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Multiview: ${selected.name} gave up after $MAX_RECONNECTS reconnects")
+            return false
+        }
         val attempt = ++reconnectAttempt
+        com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Multiview: ${selected.name} dropped, reconnecting (try $attempt)")
         stopEngine()
         reconnecting = true
         mutableState.value = MultiviewTileState(isReconnecting = true)
@@ -240,6 +270,8 @@ internal class AndroidMultiviewPlayer(
                 if (token != generation || !canPlay()) return@launch
                 val player = buildPlayer()
                 engine = player
+                player.addAnalyticsListener(decoderReport)
+                MultiviewDecoderReport.openPlayers += player
                 player.addListener(object : Player.Listener {
                     override fun onEvents(player: Player, events: Player.Events) {
                         if (engine !== player) return
@@ -267,6 +299,8 @@ internal class AndroidMultiviewPlayer(
                         // it is tried as HLS then DASH, an unreadable HLS playlist as TS.
                         val other = if (selected.drm == null && selected.stalker == null) otherFormat(error, request) else null
                         if (other != null) {
+                            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Multiview: ${selected.name} failed (${error.errorCodeName}); trying it " +
+                                if (other.url != request.url) "with the provider's TS link" else "as ${other.streamType ?: "TS"}")
                             requestOverride = other
                             stopEngine()
                             startIfVisible()
@@ -278,11 +312,13 @@ internal class AndroidMultiviewPlayer(
                             LiveTvPlayback.tsLinkFor(request.url)
                         } else null
                         if (ts != null && ts != request.url) {
+                            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Multiview: ${selected.name} failed (${error.errorCodeName}); trying its TS link")
                             triedTs = true
                             requestOverride = request.copy(url = ts, streamType = null)
                             stopEngine()
                             startIfVisible()
                         } else if (!multiviewRetryable(error) || !scheduleReconnect()) {
+                            com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Multiview: ${selected.name} won't play (${error.errorCodeName}${multiviewHttpStatus(error)?.let { ", HTTP $it" } ?: ""})")
                             stopEngine()
                             reconnecting = false
                             mutableState.value = MultiviewTileState(error = multiviewPlaybackError(error), failed = true)
@@ -359,6 +395,10 @@ internal class AndroidMultiviewPlayer(
         previous?.volume = 0f
         surface?.bind(null)
         focus.abandon(this)
+        previous?.let {
+            it.removeAnalyticsListener(decoderReport)
+            MultiviewDecoderReport.openPlayers -= it
+        }
         previous?.run {
             playWhenReady = false
             stop()

@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.ListAlt
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Login
@@ -49,6 +50,8 @@ import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.LiveTvRepository
+import com.nuvio.app.features.livetv.data.LiveTvDns
+import com.nuvio.app.features.livetv.data.DnsChoice
 import com.nuvio.app.features.livetv.data.CivilTime
 import com.nuvio.app.features.livetv.model.LiveTvClock
 import com.nuvio.app.features.livetv.data.BackupFileException
@@ -107,6 +110,9 @@ import nuvio.composeapp.generated.resources.livetv_stalker_language
 import nuvio.composeapp.generated.resources.livetv_stalker_optional_login
 import nuvio.composeapp.generated.resources.livetv_stalker_device_binding
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.livetv_section_help
+import nuvio.composeapp.generated.resources.livetv_report_title
+import nuvio.composeapp.generated.resources.livetv_report_description
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.action_delete
 import nuvio.composeapp.generated.resources.action_edit
@@ -169,6 +175,12 @@ import nuvio.composeapp.generated.resources.livetv_epg_refresh
 import nuvio.composeapp.generated.resources.livetv_epg_refresh_description
 import nuvio.composeapp.generated.resources.livetv_show_update_banners
 import nuvio.composeapp.generated.resources.livetv_show_update_banners_description
+import nuvio.composeapp.generated.resources.livetv_dns
+import nuvio.composeapp.generated.resources.livetv_dns_description
+import nuvio.composeapp.generated.resources.livetv_dns_dialog_message
+import nuvio.composeapp.generated.resources.livetv_dns_system
+import nuvio.composeapp.generated.resources.livetv_dns_cloudflare
+import nuvio.composeapp.generated.resources.livetv_dns_google
 import nuvio.composeapp.generated.resources.livetv_field_name
 import nuvio.composeapp.generated.resources.livetv_field_password
 import nuvio.composeapp.generated.resources.livetv_field_server
@@ -318,7 +330,7 @@ import androidx.compose.material.icons.filled.FileUpload
 
 private val REFRESH_HOURS = listOf(3, 6, 12, 24, 48, 72, 168)
 private val FUTURE_DAYS = listOf(1, 2, 3, 5, 7, 10, 14)
-private val PAST_HOURS = listOf(1, 3, 6, 12, 24, 48, 72, 168)
+private val PAST_HOURS = listOf(1, 3, 6, 12, 24, 48, 72, 168, 336)
 
 private fun pastHoursLabel(h: Int): String = when {
     h == 1 -> "1 hour"
@@ -379,6 +391,7 @@ internal fun hoursLabel(h: Int): String = when {
 
 private sealed interface LiveDialog {
     data object AddM3u : LiveDialog
+    data object Dns : LiveDialog
     data object AddXtream : LiveDialog
     data object AddStalker : LiveDialog
     data object AddEpg : LiveDialog
@@ -408,6 +421,7 @@ private sealed interface LiveDialog {
     /** A backup file was picked and read: confirm before it replaces this device's setup. */
     data class ConfirmImportFile(val text: String, val info: BackupFileInfo) : LiveDialog
     data object ConfirmSignOut : LiveDialog
+    data object StartUpReport : LiveDialog
     data object ParentalMenu : LiveDialog
     data object ParentalSetPin : LiveDialog
     /** Asks the current PIN, then [then]. */
@@ -441,6 +455,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
     val reminderLead by LiveTvPreferences.reminderLeadMinutes.collectAsStateWithLifecycle()
     val showInContinueWatching by LiveTvPreferences.showInContinueWatching.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<LiveDialog?>(null) }
+    var dnsChoice by remember { mutableStateOf(LiveTvDns.current()) }
     val scope = rememberCoroutineScope()
     var exactAlarms by remember { mutableStateOf(RecordingPlatform.canScheduleExact()) }
     var notificationsOn by remember { mutableStateOf(RecordingPlatform.notificationsAllowed()) }
@@ -607,6 +622,16 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(showImportProgress = on) } },
                 )
+                if (LiveTvDns.supported) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.livetv_dns),
+                        description = stringResource(Res.string.livetv_dns_description),
+                        isTablet = isTablet,
+                        trailingContent = { ValueLabel(dnsLabel(dnsChoice)) },
+                        onClick = { dialog = LiveDialog.Dns },
+                    )
+                }
             }
         }
 
@@ -656,6 +681,17 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     checked = settings.cleanGroupNames,
                     isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(cleanGroupNames = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_hide_stray_entries),
+                    description = stringResource(Res.string.livetv_hide_stray_entries_description),
+                    checked = settings.hideStrayEntries,
+                    isTablet = isTablet,
+                    onCheckedChange = { on ->
+                        update { it.copy(hideStrayEntries = on) }
+                        LiveTvRepository.rebuildChannelList()
+                    },
                 )
             }
         }
@@ -1106,6 +1142,18 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             }
             LiveTvCloudSyncSection(isTablet = isTablet)
         }
+
+        SettingsSection(title = stringResource(Res.string.livetv_section_help), isTablet = isTablet) {
+            SettingsGroup(isTablet = isTablet) {
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_report_title),
+                    description = stringResource(Res.string.livetv_report_description),
+                    icon = Icons.Filled.Info,
+                    isTablet = isTablet,
+                    onClick = { dialog = LiveDialog.StartUpReport },
+                )
+            }
+        }
     }
 
     drive.signIn?.let { prompt -> DriveSignInDialog(prompt, onCancel = { LiveTvDriveSync.cancelSignIn() }) }
@@ -1117,6 +1165,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
         LiveDialog.AddXtream -> XtreamForm(null, onDismiss = close)
         LiveDialog.AddStalker -> StalkerForm(null, onDismiss = close)
         LiveDialog.AddEpg -> EpgForm(null, onDismiss = close)
+        LiveDialog.StartUpReport -> StartUpReportDialog(onDismiss = close)
         is LiveDialog.EditPlaylist -> when {
             d.source.isStalker -> StalkerForm(d.source, onDismiss = close)
             d.source.isXtream -> XtreamForm(d.source, onDismiss = close)
@@ -1237,6 +1286,13 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             destructive = true,
             onDismiss = close,
         ) { LiveTvRepository.removeEpg(d.source.id) }
+        LiveDialog.Dns -> ChoiceDialog(
+            title = stringResource(Res.string.livetv_dns),
+            options = DnsChoice.entries.map { it to dnsLabel(it) },
+            selected = dnsChoice,
+            onDismiss = close,
+            message = stringResource(Res.string.livetv_dns_dialog_message),
+        ) { v -> LiveTvDns.set(v); dnsChoice = v }
         LiveDialog.PlaylistRefresh -> ChoiceDialog(
             title = stringResource(Res.string.livetv_playlist_refresh),
             options = REFRESH_HOURS.map { it to hoursLabel(it) },
@@ -1386,6 +1442,13 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             onDismiss = close,
         ) { v -> SportsRepository.updateSettings { it.copy(scoreDelaySeconds = v) } }
     }
+}
+
+@Composable
+private fun dnsLabel(value: DnsChoice): String = when (value) {
+    DnsChoice.SYSTEM -> stringResource(Res.string.livetv_dns_system)
+    DnsChoice.CLOUDFLARE -> stringResource(Res.string.livetv_dns_cloudflare)
+    DnsChoice.GOOGLE -> stringResource(Res.string.livetv_dns_google)
 }
 
 @Composable

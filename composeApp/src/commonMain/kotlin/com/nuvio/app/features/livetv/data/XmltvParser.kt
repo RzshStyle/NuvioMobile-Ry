@@ -185,6 +185,7 @@ object XmltvParser {
         var icon: String? = null
         var date: String? = null
         var people: ArrayList<String>? = null
+        var newTag = false
         val depth = parser.depth
         var event = parser.next()
         while (!(event == XmlScanner.END_TAG && parser.depth == depth)) {
@@ -205,6 +206,8 @@ object XmltvParser {
                     "icon" -> { icon = parser.getAttributeValue("src"); skip(parser) }
                     "date" -> { val t = readText(parser); if (date == null) date = t }
                     "credits" -> readCredits(parser, people ?: ArrayList<String>().also { people = it })
+                    // The guide's own "new episode" tag: used by "new episodes only".
+                    "new" -> { newTag = true; skip(parser) }
                     else -> skip(parser)
                 }
                 // A field that was never closed ended at the next show: this show ends there too.
@@ -225,7 +228,8 @@ object XmltvParser {
         return EpgProgram(
             startMs = start,
             stopMs = stop,
-            title = title?.trim().orEmpty().ifBlank { "No information" },
+            title = title?.trim().orEmpty().ifBlank { "No information" }
+                .let { if (newTag && !com.nuvio.app.features.livetv.record.RecordingRules.isNewTitle(it)) "$it (New)" else it },
             // Very long descriptions are cut: a big guide holds several hundred thousand listings.
             description = fullDesc?.let { if (it.length > 800) it.take(800).trimEnd() + "…" else it },
             category = category?.trim(),

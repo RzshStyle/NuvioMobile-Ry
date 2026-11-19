@@ -109,6 +109,9 @@ internal class SportsFeeds {
     /** A TheSportsDB game's goals, cards, stats and line-ups (the nuvio-data job writes them). */
     suspend fun tsdbGameRaw(tsdbEventId: String): String = get(DATA_URL + "sportsdb/games/$tsdbEventId.json")
 
+    /** Any of our own data files by its full address (see [DATA_URL]). */
+    suspend fun dataRaw(url: String): String = get(url)
+
     // ------------------------------------------------------------------ the shared ESPN schedule cache
 
     /**

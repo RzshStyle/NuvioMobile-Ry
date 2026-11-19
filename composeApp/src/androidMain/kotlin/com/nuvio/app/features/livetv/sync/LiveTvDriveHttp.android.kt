@@ -24,6 +24,7 @@ internal actual object LiveTvDriveHttp {
         OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .dns(com.nuvio.app.features.livetv.data.ForkDns.app)
             .build()
     }
 

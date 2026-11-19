@@ -2691,6 +2691,12 @@
     <string name="livetv_update_all_description">Downloads the latest channels and listings instead of waiting for the next automatic update</string>
     <string name="livetv_show_update_banners">Show update banners</string>
     <string name="livetv_show_update_banners_description">Show playlist, EPG and On Demand update progress. When off, updates continue in the background.</string>
+    <string name="livetv_dns">DNS</string>
+    <string name="livetv_dns_description">How the app finds your provider's servers. Try Cloudflare or Google if channels say the server can't be found.</string>
+    <string name="livetv_dns_dialog_message">System is your network's normal lookup; if it can't find a provider's server, the app tries Cloudflare and Google by itself. Cloudflare and Google get around internet companies that block IPTV servers, but also go around home ad blockers and family filters. Not used while the VPN is on. Home server names (like nas.local) always work.</string>
+    <string name="livetv_dns_system">System</string>
+    <string name="livetv_dns_cloudflare">Cloudflare (1.1.1.1)</string>
+    <string name="livetv_dns_google">Google (8.8.8.8)</string>
     <string name="livetv_playlist_refresh">Check playlists for updates every</string>
     <string name="livetv_playlist_refresh_description">How often channel lists are downloaded again from your providers</string>
     <string name="livetv_epg_refresh">Check guides for updates every</string>
@@ -2758,6 +2764,8 @@
     <string name="livetv_epg_shift">Time shift</string>
     <string name="livetv_epg_shift_description">Moves this guide's listings earlier or later, for listings out of step with what's playing</string>
     <string name="livetv_clean_group_names">Also clean group names</string>
+    <string name="livetv_hide_stray_entries">Hide Stray Entries</string>
+    <string name="livetv_hide_stray_entries_description">Leaves out odd leftovers some providers add to their playlists, like a show episode sitting in its own one-item group. Real channels are never hidden</string>
     <string name="livetv_clean_group_names_description">Take the Channel Name Cleanup words (set in the TV app) off group names too, like "| NL | Sports"</string>
     <string name="livetv_time_shifts_note">Catch-up and guide time shifts are set for each playlist and guide: tap one under Playlists or Guides to change it.</string>
     <string name="livetv_on_demand">On Demand</string>
@@ -2844,6 +2852,15 @@
     <string name="livetv_rec_cancel">Cancel recording</string>
     <string name="livetv_rec_series">Record series</string>
     <string name="livetv_rec_series_stop">Stop recording this series</string>
+    <string name="livetv_rec_series_new_only">New episodes only</string>
+    <string name="livetv_rec_series_all">All episodes</string>
+    <string name="livetv_rec_repeat">Repeat</string>
+    <string name="livetv_rec_repeat_once">Once</string>
+    <string name="livetv_rec_repeat_every_day">Every day</string>
+    <string name="livetv_rec_repeat_weekdays">Weekdays</string>
+    <string name="livetv_rec_repeat_weekends">Weekends</string>
+    <string name="livetv_rec_repeat_pick">Pick days</string>
+    <string name="livetv_rec_repeat_stop">Stop repeating</string>
     <string name="livetv_rec_record_now">Record now</string>
     <string name="livetv_rec_schedule">Schedule a recording</string>
     <string name="livetv_rec_stop">Stop recording</string>

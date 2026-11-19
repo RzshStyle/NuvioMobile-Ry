@@ -26,10 +26,13 @@ internal object LiveTvPreferencesAndroid {
         if (initialized) return
         initialized = true
         LiveTvFiles.initialize(context)
+        // The DNS setting, before any Live TV request.
+        com.nuvio.app.features.livetv.data.ForkDns.init(context)
         EpgStore.initialize(context)
         OnDemandStore.initialize(context)
         RecordingPlatform.initialize(context)
         LiveTvDriveHttp.initialize(context)
+        VpnReportLines.start()
         val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
         val devicePreferences = context.getSharedPreferences(devicePreferencesName, Context.MODE_PRIVATE)
         LiveTvPreferences.installPersistence(

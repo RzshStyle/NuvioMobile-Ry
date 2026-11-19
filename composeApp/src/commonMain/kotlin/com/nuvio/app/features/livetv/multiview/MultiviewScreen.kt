@@ -1,5 +1,12 @@
 package com.nuvio.app.features.livetv.multiview
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -58,12 +65,21 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
@@ -93,6 +109,7 @@ import com.nuvio.app.features.livetv.sports.channelPickerSearchResults
 import com.nuvio.app.features.livetv.sports.SportsRepository
 import com.nuvio.app.features.livetv.sports.SportsSettings
 import com.nuvio.app.features.livetv.sports.SportsWatchController
+import com.nuvio.app.features.livetv.sports.SportsWatchFilter
 import com.nuvio.app.features.livetv.sports.SportsWatchGame
 import com.nuvio.app.features.livetv.sports.SportsWatchRow
 import com.nuvio.app.features.livetv.ui.ChannelLogo
@@ -137,6 +154,10 @@ fun MultiviewScreen(
     val defaultSportsSettings = remember { MutableStateFlow(SportsSettings()) }
     val sportsGames by (sports?.games ?: noGames).collectAsStateWithLifecycle()
     val sportsRows by (sports?.rows ?: noRows).collectAsStateWithLifecycle()
+    val noFilters = remember { MutableStateFlow(emptyList<SportsWatchFilter>()) }
+    val noFilterKey = remember { MutableStateFlow<String?>(null) }
+    val sportsFilters by (sports?.filters ?: noFilters).collectAsStateWithLifecycle()
+    val sportsFilterKey by (sports?.filterKey ?: noFilterKey).collectAsStateWithLifecycle()
     val sportsChannels by (sports?.allowedChannels ?: noChannels).collectAsStateWithLifecycle()
     val sportsSettings by (sports?.settings ?: defaultSportsSettings).collectAsStateWithLifecycle()
     val listFlow = remember { LiveTvRepository.ensureLoaded(); LiveTvViewState.list }
@@ -259,6 +280,7 @@ fun MultiviewScreen(
                     .mapNotNull { watch?.resolve(eventId, it.channel.key)?.channel }
                     .firstOrNull { it.key !in tried && playerPermission?.invoke(it) != false }
                 if (next != null) {
+                    com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Multiview: ${failed.name} won't play: switched P${pane + 1} to ${next.name}, same game")
                     sportsEvents[pane] = eventId
                     session.assign(pane, next)
                     return true
@@ -267,6 +289,7 @@ fun MultiviewScreen(
         }
         val backup = LiveTvPlayback.backupChannel(failed, tried)
             ?.takeIf { c -> playerPermission?.invoke(c) ?: LiveTvViewState.list.value.visible.any { it == c } } ?: return false
+        com.nuvio.app.features.livetv.model.LiveTvLoadReport.add("Multiview: ${failed.name} won't play: switched P${pane + 1} to ${backup.name} (${backup.group})")
         session.assign(pane, backup)
         return true
     }
@@ -285,28 +308,39 @@ fun MultiviewScreen(
         }
     }
 
-    Column(
+    // The top bar, the pane names and the pane edges show and fade together, like on TV: one timer,
+    // restarted by any touch. The panes use the whole screen; the bar floats over them while shown.
+    var overlayTick by remember(session) { mutableIntStateOf(0) }
+    var overlaysShown by remember(session) { mutableStateOf(true) }
+    val overlaysStay = editingPane != null || (showingSports && sportsControlsOpen)
+    LaunchedEffect(overlayTick, overlaysStay) {
+        overlaysShown = true
+        if (!overlaysStay) {
+            delay(MULTIVIEW_OVERLAY_MS)
+            overlaysShown = false
+        }
+    }
+    val density = LocalDensity.current
+    var headerHeight by remember { mutableStateOf(0.dp) }
+    // Top-row pane names move down below the bar while it is up, so they are never under it.
+    val topLabelInset by animateDpAsState(
+        if (overlaysShown) (headerHeight - NuvioTokens.Space.s4 * 2).coerceAtLeast(0.dp) else 0.dp,
+        tween(MULTIVIEW_FADE_MS), label = "multiviewTopLabelInset",
+    )
+
+    Box(
         modifier.fillMaxSize().background(tokens.colors.background).statusBarsPadding()
-            .liveTvSideInsets().padding(bottom = nuvioSafeBottomPadding()),
-    ) {
-        NuvioScreenHeader(
-            title = "Multiview",
-            onBack = onBack,
-            includeStatusBarPadding = false,
-            actions = {
-                IconButton(onClick = { openPicker(permittedSelection.focusedPane ?: sportsTargetPane.takeIf { showingSports } ?: 0) }) {
-                    Icon(Icons.Filled.Tune, contentDescription = "Edit streams and layout", tint = tokens.colors.textPrimary)
+            .liveTvSideInsets().padding(bottom = nuvioSafeBottomPadding())
+            .pointerInput(session) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.type == PointerEventType.Press || event.type == PointerEventType.Release) overlayTick++
+                    }
                 }
             },
-        )
-        Text(
-            if (showingSports) "Tap a pane, then tap a game to play it there. Hold a game for its other streams."
-            else "Tap a video to hear it. Hold a pane to change its channel.",
-            style = MaterialTheme.typography.bodySmall,
-            color = tokens.colors.textMuted,
-            modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s4),
-        )
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+    ) {
+        Box(Modifier.fillMaxSize()) {
             BoxWithConstraints(Modifier.fillMaxSize().padding(NuvioTokens.Space.s4)) {
                 val layoutRows = permittedSelection.layout.rowsFor(tall = maxHeight > maxWidth)
                 for (pane in 0 until permittedSelection.layout.paneCount) {
@@ -323,6 +357,8 @@ fun MultiviewScreen(
                             channel = channel,
                             nowTitle = channel?.key?.let { nowShowing[it] },
                             focused = permittedSelection.focusedPane == pane,
+                            overlaysShown = overlaysShown,
+                            labelTopInset = if (rowIndex == 0) topLabelInset else 0.dp,
                             playbackActive = playbackActive,
                             audio = audio,
                             mayPlayChannel = playerPermission,
@@ -390,8 +426,59 @@ fun MultiviewScreen(
                 onPane = ::openSportsPane,
                 onClose = { sportsControlsOpen = false },
                 onChannels = { showChannels(target) },
+                filters = sportsFilters,
+                filterKey = sportsFilterKey,
+                onFilter = { key -> sports.pickFilter(key) },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+            }
+        }
+        // With everything hidden, the first tap only brings the bar and names back (it doesn't
+        // also move the sound or open a menu), like a video player's controls.
+        if (!overlaysShown) {
+            Box(
+                Modifier.fillMaxSize().clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClickLabel = "Show controls",
+                ) { overlayTick++ },
+            )
+        }
+        AnimatedVisibility(
+            visible = overlaysShown,
+            enter = fadeIn(tween(MULTIVIEW_FADE_MS)),
+            exit = fadeOut(tween(MULTIVIEW_FADE_MS)),
+            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
+        ) {
+            Column(
+                Modifier.fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(
+                        tokens.colors.background.copy(alpha = 0.92f),
+                        tokens.colors.background.copy(alpha = 0.78f),
+                        tokens.colors.background.copy(alpha = 0f),
+                    )))
+                    .onSizeChanged { headerHeight = with(density) { it.height.toDp() } }
+                    .padding(bottom = NuvioTokens.Space.s8),
+            ) {
+                NuvioScreenHeader(
+                    title = "Multiview",
+                    onBack = onBack,
+                    includeStatusBarPadding = false,
+                    actions = {
+                        IconButton(onClick = { openPicker(permittedSelection.focusedPane ?: sportsTargetPane.takeIf { showingSports } ?: 0) }) {
+                            Icon(Icons.Filled.Tune, contentDescription = "Edit streams and layout", tint = tokens.colors.textPrimary)
+                        }
+                    },
+                )
+                Text(
+                    if (showingSports) "Tap a pane, then tap a game to play it there. Hold a game for its other streams."
+                    else "Tap a video to hear it. Hold a pane to change its channel.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.colors.textMuted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16),
+                )
             }
         }
     }
@@ -438,6 +525,8 @@ private fun MultiviewPane(
     channel: LiveChannel?,
     nowTitle: String?,
     focused: Boolean,
+    overlaysShown: Boolean,
+    labelTopInset: Dp,
     playbackActive: Boolean,
     audio: MultiviewAudioCoordinator,
     mayPlayChannel: ((LiveChannel) -> Boolean)?,
@@ -452,9 +541,16 @@ private fun MultiviewPane(
     var attempt by remember(ownerId, channel) { mutableIntStateOf(0) }
     // Channels this pane already moved off because they wouldn't play (a run of backups).
     val backupTried = remember(ownerId) { HashSet<String>() }
+    // A pane that is empty, loading or has failed keeps its name and edge (never an unnamed black box).
+    var busy by remember(ownerId, channel) { mutableStateOf(false) }
+    val overlay by animateFloatAsState(
+        if (overlaysShown || busy || channel == null || !playbackActive) 1f else 0f,
+        tween(MULTIVIEW_FADE_MS), label = "multiviewPaneOverlay",
+    )
+    val edge = if (focused) tokens.colors.accent else tokens.colors.borderDefault
     Box(
         modifier.clip(tokens.shapes.compactCard).background(tokens.colors.surfaceCard)
-            .border(if (focused) 2.dp else 1.dp, if (focused) tokens.colors.accent else tokens.colors.borderDefault, tokens.shapes.compactCard),
+            .border(if (focused) 2.dp else 1.dp, edge.copy(alpha = edge.alpha * overlay), tokens.shapes.compactCard),
     ) {
         if (channel != null && playbackActive) {
             // A replacement gets a new native owner; disposing the old pane closes its connection.
@@ -475,6 +571,7 @@ private fun MultiviewPane(
                     audio.register(ownerId, player)
                     onDispose { audio.unregister(ownerId, player) }
                 }
+                LaunchedEffect(state.isLoading, state.error) { busy = state.isLoading || state.error != null }
                 if (state.isLoading) NuvioLoadingIndicator(modifier = Modifier.align(Alignment.Center))
                 // Out of tries on this channel: a backup copy (or the game's next stream) if there is one.
                 LaunchedEffect(state.failed) {
@@ -539,8 +636,18 @@ private fun MultiviewPane(
                 }
             }
         }
-        Row(
-            Modifier.align(Alignment.TopCenter).fillMaxWidth().background(tokens.colors.background.copy(alpha = 0.82f))
+        // Names hidden: only a faint speaker on the pane that has the sound.
+        if (focused && overlay < 1f) Icon(
+            Icons.Filled.VolumeUp,
+            contentDescription = null,
+            tint = tokens.colors.textPrimary,
+            modifier = Modifier.align(Alignment.TopEnd).padding(NuvioTokens.Space.s8).size(16.dp)
+                .graphicsLayer { alpha = 0.6f * (1f - overlay) },
+        )
+        if (overlay > 0f) Row(
+            Modifier.align(Alignment.TopCenter).padding(top = labelTopInset).fillMaxWidth()
+                .graphicsLayer { alpha = overlay }
+                .background(tokens.colors.background.copy(alpha = 0.82f))
                 .padding(start = NuvioTokens.Space.s8),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
@@ -809,3 +916,7 @@ private fun LayoutChip(layout: MultiviewLayout, selected: Boolean, onClick: () -
 }
 
 private const val RECONNECT_MARK_AFTER_MS = 4_000L
+
+/** How long the top bar, pane names and pane edges stay up after the last touch (same as TV). */
+private const val MULTIVIEW_OVERLAY_MS = 5_000L
+private const val MULTIVIEW_FADE_MS = 450

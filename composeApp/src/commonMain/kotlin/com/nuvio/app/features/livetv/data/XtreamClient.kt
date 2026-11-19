@@ -1,12 +1,10 @@
 package com.nuvio.app.features.livetv.data
 
-import com.nuvio.app.core.network.createApiHttpClient
 import com.nuvio.app.core.network.readBoundedResponseBody
 import com.nuvio.app.features.livetv.model.LiveTvClock
 import com.nuvio.app.features.livetv.model.PlaylistAccount
 import com.nuvio.app.features.livetv.model.PlaylistSource
 import io.ktor.client.HttpClient
-import io.ktor.client.plugins.HttpRedirect
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareGet
@@ -86,10 +84,8 @@ internal class XtreamLoginError(message: String) : Exception(message)
 internal class XtreamClient(
     // Follows redirects (panels move servers or hand out a load-balancer address with a 302); the
     // app's shared client doesn't, which showed up as "HTTP 302" here.
-    private val client: HttpClient = createApiHttpClient().config {
-        followRedirects = true
-        install(HttpRedirect) { allowHttpsDowngrade = true }
-    }
+    // Its own lookup on Android: the DNS setting, and a retry when a provider's server isn't found.
+    private val client: HttpClient = createXtreamHttpClient()
 ) {
 
     // ---------- account ----------
