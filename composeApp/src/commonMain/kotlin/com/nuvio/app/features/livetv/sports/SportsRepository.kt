@@ -879,10 +879,15 @@ internal object SportsRepository {
             runCatching { feeds.teamScheduleRaw(path, t.teamId, fixtures = false) }.getOrNull()?.let { raws += l to it }
             if (path.startsWith("soccer/") || l.national) {
                 runCatching { feeds.teamScheduleRaw(path, t.teamId, fixtures = true) }.getOrNull()?.let { raws += l to it }
+                // The team's other competitions: results as well as games to come (ESPN gives a
+                // league's results only when asked for that league, so England's Nations League
+                // games and friendlies, or a club's cup games, need their own request).
                 for (rid in SportsCatalog.relatedLeagues(l.id)) {
                     val rl = SportsCatalog.league(rid) ?: continue
                     val rp = rl.espnPath ?: continue
-                    runCatching { feeds.teamScheduleRaw(rp, t.teamId, fixtures = true) }.getOrNull()?.let { raws += rl to it }
+                    for (fixtures in listOf(false, true)) {
+                        runCatching { feeds.teamScheduleRaw(rp, t.teamId, fixtures = fixtures) }.getOrNull()?.let { raws += rl to it }
+                    }
                 }
             }
             val at = LiveTvClock.nowMs()
