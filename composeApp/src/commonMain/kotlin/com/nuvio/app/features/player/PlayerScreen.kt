@@ -50,6 +50,7 @@ fun PlayerScreen(
     stream: com.nuvio.app.features.streams.StreamItem? = null,
     stalkerMediaPolicy: com.nuvio.app.features.livetv.stalker.StalkerMediaPolicy? = null,
     sourceFromLinkCache: Boolean = false,
+    sourceAutoSelected: Boolean = false,
 ) {
     DisposableEffect(Unit) {
         com.nuvio.app.features.livetv.data.VideoPlaying.opened()
@@ -100,6 +101,7 @@ fun PlayerScreen(
             onOpenPartyMedia = onOpenPartyMedia,
             stream = stream,
             sourceFromLinkCache = sourceFromLinkCache,
+            sourceAutoSelected = sourceAutoSelected,
         )
     )
 }

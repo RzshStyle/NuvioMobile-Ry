@@ -80,6 +80,7 @@ internal fun PlayerDestination(
         sourceFilename = launch.sourceFilename,
         stream = launch.stream,
         sourceFromLinkCache = launch.sourceFromLinkCache,
+        sourceAutoSelected = launch.sourceAutoSelected,
         onBack = onBack,
         onOpenInExternalPlayer = { request ->
             if (launch.stalkerMediaPolicy != null) {
