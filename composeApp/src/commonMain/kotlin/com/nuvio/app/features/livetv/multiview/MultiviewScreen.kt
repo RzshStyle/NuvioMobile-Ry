@@ -99,6 +99,10 @@ import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
+import com.nuvio.app.features.livetv.data.bool
+import com.nuvio.app.features.livetv.data.LiveTvKeys
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.shape.CircleShape
 import com.nuvio.app.features.livetv.data.LiveTvRepository
 import com.nuvio.app.features.livetv.data.VideoPlaying
 import com.nuvio.app.features.livetv.model.LiveChannel
@@ -321,14 +325,21 @@ fun MultiviewScreen(
         }
     }
     val density = LocalDensity.current
-    // Pane names sit at the bottom of each pane, clear of the top bar. While the games strip is
-    // open, the bottom-row names lift above it so they are never hidden behind it.
+    // No header bar: two small round buttons float in the top corners, so nothing on screen moves
+    // when the controls fade in or out. While the games strip is open, the panes shrink to sit
+    // above it (instead of the names being pushed around).
     val sportsStripOpen = showingSports && sportsControlsOpen && sports != null
     var sportsStripHeight by remember { mutableStateOf(0.dp) }
-    val bottomLabelInset by animateDpAsState(
-        if (sportsStripOpen) (sportsStripHeight - NuvioTokens.Space.s4 * 2).coerceAtLeast(0.dp) else 0.dp,
-        tween(MULTIVIEW_FADE_MS), label = "multiviewBottomLabelInset",
-    )
+    // The "how to use" tip shows once per device, as a short pop-up instead of a permanent line.
+    LaunchedEffect(Unit) {
+        if (LiveTvPreferences.rawDevice.value.bool(LiveTvKeys.multiviewHintShown) != true) {
+            NuvioToastController.show(
+                if (showingSports) "Tap a pane, then tap a game to play it there. Hold a game for its other streams."
+                else "Tap a video to hear it. Hold a pane to change its channel."
+            )
+            LiveTvPreferences.editDevice { it[LiveTvKeys.multiviewHintShown] = true }
+        }
+    }
 
     Box(
         modifier.fillMaxSize().background(tokens.colors.background).statusBarsPadding()
@@ -343,7 +354,11 @@ fun MultiviewScreen(
             },
     ) {
         Box(Modifier.fillMaxSize()) {
-            BoxWithConstraints(Modifier.fillMaxSize().padding(NuvioTokens.Space.s4)) {
+            BoxWithConstraints(
+                Modifier.fillMaxSize()
+                    .padding(bottom = if (sportsStripOpen) sportsStripHeight else 0.dp)
+                    .padding(NuvioTokens.Space.s4),
+            ) {
                 val layoutRows = permittedSelection.layout.rowsFor(tall = maxHeight > maxWidth)
                 for (pane in 0 until permittedSelection.layout.paneCount) {
                     val rowIndex = layoutRows.indexOfFirst { pane in it }
@@ -360,7 +375,6 @@ fun MultiviewScreen(
                             nowTitle = channel?.key?.let { nowShowing[it] },
                             focused = permittedSelection.focusedPane == pane,
                             overlaysShown = overlaysShown,
-                            labelBottomInset = if (rowIndex == layoutRows.lastIndex) bottomLabelInset else 0.dp,
                             playbackActive = playbackActive,
                             audio = audio,
                             mayPlayChannel = playerPermission,
@@ -453,34 +467,16 @@ fun MultiviewScreen(
             exit = fadeOut(tween(MULTIVIEW_FADE_MS)),
             modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
         ) {
-            Column(
-                Modifier.fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(
-                        tokens.colors.background.copy(alpha = 0.92f),
-                        tokens.colors.background.copy(alpha = 0.78f),
-                        tokens.colors.background.copy(alpha = 0f),
-                    )))
-                    .padding(bottom = NuvioTokens.Space.s8),
+            Row(
+                Modifier.fillMaxWidth().padding(NuvioTokens.Space.s12),
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                NuvioScreenHeader(
-                    title = "Multiview",
-                    onBack = onBack,
-                    includeStatusBarPadding = false,
-                    actions = {
-                        IconButton(onClick = { openPicker(permittedSelection.focusedPane ?: sportsTargetPane.takeIf { showingSports } ?: 0) }) {
-                            Icon(Icons.Filled.Tune, contentDescription = "Edit streams and layout", tint = tokens.colors.textPrimary)
-                        }
-                    },
-                )
-                Text(
-                    if (showingSports) "Tap a pane, then tap a game to play it there. Hold a game for its other streams."
-                    else "Tap a video to hear it. Hold a pane to change its channel.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = tokens.colors.textMuted,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16),
-                )
+                MultiviewCornerButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = tokens.colors.textPrimary)
+                }
+                MultiviewCornerButton(onClick = { openPicker(permittedSelection.focusedPane ?: sportsTargetPane.takeIf { showingSports } ?: 0) }) {
+                    Icon(Icons.Filled.Tune, contentDescription = "Edit streams and layout", tint = tokens.colors.textPrimary)
+                }
             }
         }
     }
@@ -528,7 +524,6 @@ private fun MultiviewPane(
     nowTitle: String?,
     focused: Boolean,
     overlaysShown: Boolean,
-    labelBottomInset: Dp,
     playbackActive: Boolean,
     audio: MultiviewAudioCoordinator,
     mayPlayChannel: ((LiveChannel) -> Boolean)?,
@@ -646,17 +641,26 @@ private fun MultiviewPane(
             modifier = Modifier.align(Alignment.TopEnd).padding(NuvioTokens.Space.s8).size(16.dp)
                 .graphicsLayer { alpha = 0.6f * (1f - overlay) },
         )
+        // A light label over a soft fade (no solid bar): name and what's on, a small speaker on the
+        // pane with the sound, and a quiet ⋮ to change the pane.
         if (overlay > 0f) Row(
-            Modifier.align(Alignment.BottomCenter).padding(bottom = labelBottomInset).fillMaxWidth()
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .graphicsLayer { alpha = overlay }
-                .background(tokens.colors.background.copy(alpha = 0.82f))
-                .padding(start = NuvioTokens.Space.s8),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
+                .background(Brush.verticalGradient(listOf(
+                    tokens.colors.background.copy(alpha = 0f),
+                    tokens.colors.background.copy(alpha = 0.6f),
+                )))
+                .padding(start = NuvioTokens.Space.s8, top = NuvioTokens.Space.s16),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
         ) {
-            // The channel's logo and what's on now, like the guide.
-            if (channel != null) ChannelLogo(channel, size = 22.dp)
-            Column(Modifier.weight(1f)) {
+            if (focused) Icon(
+                Icons.Filled.VolumeUp,
+                contentDescription = "Audio selected",
+                tint = tokens.colors.textPrimary,
+                modifier = Modifier.padding(bottom = NuvioTokens.Space.s8).size(14.dp),
+            )
+            Column(Modifier.weight(1f).padding(bottom = NuvioTokens.Space.s6)) {
                 Text(
                     channel?.name ?: "Pane ${pane + 1}",
                     style = MaterialTheme.typography.labelMedium,
@@ -667,25 +671,31 @@ private fun MultiviewPane(
                 if (nowTitle != null) Text(
                     nowTitle,
                     style = MaterialTheme.typography.labelSmall,
-                    color = tokens.colors.textMuted,
+                    color = tokens.colors.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (focused) Row(
-                Modifier.clip(tokens.shapes.compactCard).background(tokens.colors.accent)
-                    .padding(horizontal = NuvioTokens.Space.s6, vertical = NuvioTokens.Space.s2),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
-            ) {
-                Icon(Icons.Filled.VolumeUp, contentDescription = "Audio selected", tint = tokens.colors.onAccent, modifier = Modifier.size(14.dp))
-                Text("SOUND", style = MaterialTheme.typography.labelSmall, color = tokens.colors.onAccent, fontWeight = FontWeight.Bold)
-            }
-            IconButton(onClick = onEdit) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "Change pane ${pane + 1}", tint = tokens.colors.textPrimary)
+            IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    Icons.Filled.MoreVert,
+                    contentDescription = "Change pane ${pane + 1}",
+                    tint = tokens.colors.textSecondary,
+                    modifier = Modifier.size(18.dp),
+                )
             }
         }
     }
+}
+
+/** A small round button floating over the videos (Multiview has no header bar). */
+@Composable
+private fun MultiviewCornerButton(onClick: () -> Unit, content: @Composable () -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(40.dp).clip(CircleShape).background(tokens.colors.background.copy(alpha = 0.6f)),
+    ) { content() }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

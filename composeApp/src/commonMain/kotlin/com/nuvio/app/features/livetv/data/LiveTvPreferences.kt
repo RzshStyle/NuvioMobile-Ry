@@ -148,6 +148,8 @@ internal object LiveTvKeys {
     const val groupPlaylistHeadings = "group_playlist_headings"
     /** This device has had Group by Playlist turned on once (per device, never synced). */
     const val groupPlaylistTurnedOn = "group_playlist_turned_on_once"
+    /** This device has shown the Multiview "how to use" tip once (per device, never synced). */
+    const val multiviewHintShown = "multiview_hint_shown_once"
     /** This device has looked once for channels renamed before renames were followed (per device). */
     const val renamedChannelsChecked = "renamed_channels_checked"
     /** This device only: ids of playlists and guides removed here, not yet passed on by sync. */
