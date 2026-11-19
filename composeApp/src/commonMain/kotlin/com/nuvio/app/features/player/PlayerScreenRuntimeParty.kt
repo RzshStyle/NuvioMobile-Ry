@@ -172,6 +172,8 @@ internal fun PlayerScreenRuntime.currentPartyStream(): PartyStream? {
     if (!com.nuvio.app.features.livetv.stalker.mayUseGenericMediaRequests(activeStalkerMediaPolicy != null, activeStream, activeSourceUrl)) return null
     val stream = activeStream ?: return null
     if (!isShareableStreamUrl(activeSourceUrl) || activeSourceAudioUrl != null) return null
+    // A media server stream that signs in through its headers would hand the server token to every member.
+    if (stream.serverTarget != null && activeSourceHeaders.isNotEmpty()) return null
     return PartyStream(
         mediaKey = partyKey,
         url = activeSourceUrl,

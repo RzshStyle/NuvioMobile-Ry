@@ -47,4 +47,5 @@ internal data class PlayerScreenArgs(
     val stream: com.nuvio.app.features.streams.StreamItem? = null,
     val stalkerMediaPolicy: com.nuvio.app.features.livetv.stalker.StalkerMediaPolicy? = null,
     val sourceFromLinkCache: Boolean = false,
+    val sourceAutoSelected: Boolean = false,
 )
