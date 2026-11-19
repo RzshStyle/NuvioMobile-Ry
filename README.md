@@ -30,7 +30,7 @@
 - **🌐 DNS setting:** Cloudflare or Google, for when channels say your provider's server can't be found.
 - **🧾 Start-Up Report** under Live TV settings → Help, to copy or share when something isn't working.
 - **🗑️ Deleting a playlist** now clears everything it left behind, and sync combines favorites, hidden channels and your own groups between devices.
-- **Built on Nuvio Mobile 0.6.12-beta.**
+- **Built on Nuvio Mobile 1.1.0-beta.2,** with Plex and Silo servers, Stremio tracking addons, a new Downloads screen and Library filters.
 
 ---
 

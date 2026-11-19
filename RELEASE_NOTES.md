@@ -1,4 +1,4 @@
-# Nuvio + IPTV Mobile 0.6.12-beta-iptv.4
+# Nuvio + IPTV Mobile 1.1.0-beta.2-iptv.1
 
 ## What's new
 
@@ -35,6 +35,19 @@
 - Golf and tennis tournaments show on every day they're on
 - **Airing Today** now lists shows it used to miss (lots of news shows), with their Live TV options
 
+### Nuvio Mobile 1.1.0-beta.2
+- Now built on Nuvio Mobile 1.1.0-beta.2 (up from 0.6.12-beta)
+- **Plex and Silo** can be connected next to Jellyfin and Emby, to browse and play your own library
+- **Stremio tracking addons** for your player and library are supported
+- **Downloads** has a new look and follows your custom poster setting
+- **Library** remembers your list and type, and adds genre, year and watched filters
+- **Subtitles:** an outline width setting, and styled subtitles keep their colours and positions
+- When a source won't start, the next matching source plays by itself, next episodes included
+- Choose what tapping a **Continue Watching** item opens
+- Keyboard support in the player, with the up and down arrows changing the volume
+- Faster start-up, and the loading screen shows each step
+- New and updated translations: Brazilian Portuguese, Ukrainian, Simplified Chinese, French, Vietnamese, Hebrew, Slovak and Urdu
+
 ## Fixed
 - **Deleting a playlist** now clears everything it left behind (hidden groups, favorites, custom group channels, channel order, reminders and scheduled recordings). Leftovers from playlists you already deleted are cleared too
 - **Sync:** a playlist order you change is no longer undone, and favorites, hidden channels and your own groups now combine between your phone and TV instead of one overwriting the other
@@ -44,3 +57,4 @@
 - Stalker portal update errors no longer show your portal account details
 - The VPN can no longer end up on without a profile chosen, even after a sync
 - Sports division standings show in the right order (NBA divisions came out worst first)
+- TorBox cached links are recognised properly, and episode ratings match the addon's episode order
