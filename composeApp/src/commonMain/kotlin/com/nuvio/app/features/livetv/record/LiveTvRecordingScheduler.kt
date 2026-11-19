@@ -22,7 +22,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -68,6 +70,7 @@ internal object LiveTvRecordingScheduler {
             load()
             armAll()
             expandRepeats()
+            scope.launch { forgetDeletedPlaylists() }
             // New guide listings: look for new airings of series.
             LiveTvRepository.guideGeneration.drop(1).debounce(10_000).collect { if (_series.value.isNotEmpty()) expandSeries() }
         }
@@ -113,6 +116,32 @@ internal object LiveTvRecordingScheduler {
             else -> "on $d"
         }
         return "Recording \"${rule.title}\" $daysText at ${com.nuvio.app.core.format.formatLocalTime(startMs)}"
+    }
+
+    /**
+     * Shows, series and repeating recordings set on a playlist that has been deleted can never
+     * record: they go when it's deleted (or at start, for ones deleted before). Not while there
+     * are no playlists at all at start (a fresh install or a restore on its way), only when the
+     * last one is deleted while the app is open.
+     */
+    private suspend fun forgetDeletedPlaylists() {
+        var hadAny = false
+        LiveTvPreferences.playlists.map { list -> list.mapTo(HashSet()) { it.id } }.distinctUntilChanged().collect { ids ->
+            if (ids.isEmpty() && !hadAny) return@collect
+            hadAny = ids.isNotEmpty()
+            mutex.withLock {
+                fun gone(c: ChannelSnapshot) = c.sourceId.isNotEmpty() && c.sourceId !in ids
+                val deadSchedules = _schedules.value.filter { gone(it.channel) }
+                val deadSeries = _series.value.filter { gone(it.channel) }
+                val deadRepeats = _repeats.value.filter { gone(it.channel) }
+                if (deadSchedules.isEmpty() && deadSeries.isEmpty() && deadRepeats.isEmpty()) return@withLock
+                deadSchedules.forEach { RecordingPlatform.cancelAlarm(it.id) }
+                _schedules.value = _schedules.value - deadSchedules.toSet()
+                _series.value = _series.value - deadSeries.toSet()
+                _repeats.value = _repeats.value - deadRepeats.toSet()
+                save()
+            }
+        }
     }
 
     /** Stops a repeating recording (and cancels the airings it set that haven't started). */

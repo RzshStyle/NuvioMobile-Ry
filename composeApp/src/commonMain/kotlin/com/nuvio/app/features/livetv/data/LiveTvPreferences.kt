@@ -757,6 +757,100 @@ internal open class LiveTvPreferencesStore {
         if (saved != null) saveDevicePersisted?.invoke(saved)
     }
 
+    /**
+     * Takes out everything kept for channels and groups of playlists that no longer exist: hidden
+     * groups and channels, favorites, recents, custom groups' channels, channel copies and orders,
+     * group order, reminders, renames and per-channel choices, for every profile. Deleting a
+     * playlist used to leave all of it behind (hidden groups still listed in Settings, custom
+     * groups counting channels that were gone). Same keys as the TV app, so a setup synced from
+     * a TV is cleaned the same way.
+     *
+     * Only what clearly belongs to a deleted playlist goes: channel keys start with the
+     * playlist's id ("<id>|…") and its group ids with "<id>::" when there is more than one
+     * playlist. Group names without a playlist id (a single playlist's) can't be told apart and
+     * are left alone. Returns how many entries were taken out.
+     */
+    /** A playlist id (they are random UUIDs). */
+    private val PLAYLIST_ID = Regex("""[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}""")
+
+    fun forgetDeletedPlaylists(existingIds: Set<String>): Int {
+        var removed = 0
+        fun deadOwner(owner: String) = owner.isNotEmpty() && owner !in existingIds && PLAYLIST_ID.matches(owner)
+        fun deadChannel(key: String) = deadOwner(key.substringBefore('|', ""))
+        fun deadGroup(id: String) = deadOwner(id.substringBefore("::", ""))
+        fun <T> keep(list: List<T>, dead: (T) -> Boolean): List<T> = list.filterNot(dead).also { removed += list.size - it.size }
+        edit { p ->
+            removed = 0
+            for ((name, value) in p.toList()) {
+                val base = name.replace(LiveTvKeys.PROFILE_SUFFIX, "")
+                if (value is PrefValue.StringSet) {
+                    val dead: (String) -> Boolean = when (base) {
+                        "hidden_channels" -> ::deadChannel
+                        "hidden_groups", "locked_groups" -> ::deadGroup
+                        "collapsed_playlists" -> ::deadOwner
+                        else -> continue
+                    }
+                    val set = value.value.toList()
+                    val kept = keep(set, dead)
+                    if (kept.size != set.size) p[name] = kept.toSet()
+                    continue
+                }
+                val raw = (value as? PrefValue.Str)?.value ?: continue
+                when (base) {
+                    "favorites", "recent" -> {
+                        val list = LiveTvCodec.decodeStringList(raw)
+                        val kept = keep(list, ::deadChannel)
+                        if (kept.size != list.size) p[name] = LiveTvCodec.encodeStringList(kept)
+                    }
+                    "group_order" -> {
+                        val list = LiveTvCodec.decodeStringList(raw)
+                        val kept = keep(list, ::deadGroup)
+                        if (kept.size != list.size) p[name] = LiveTvCodec.encodeStringList(kept)
+                    }
+                    "last_channel", "previous_channel" -> if (deadChannel(raw)) { p.remove(name); removed++ }
+                    "last_group" -> if (deadGroup(raw)) { p.remove(name); removed++ }
+                    "custom_groups" -> {
+                        val groups = LiveTvCodec.decodeCustomGroups(raw)
+                        val before = removed
+                        val kept = groups.map { g -> g.copy(channelKeys = keep(g.channelKeys, ::deadChannel)) }
+                        if (removed != before) p[name] = LiveTvCodec.encodeCustomGroups(kept)
+                    }
+                    "channel_order", "channel_copies" -> {
+                        val map = LiveTvCodec.decodeListMap(raw)
+                        val before = removed
+                        val kept = LinkedHashMap<String, List<String>>()
+                        map.forEach { (groupId, keys) ->
+                            if (deadGroup(groupId)) removed++ else kept[groupId] = keep(keys, ::deadChannel)
+                        }
+                        if (removed != before) p[name] = LiveTvCodec.encodeListMap(kept)
+                    }
+                    "recent_groups" -> {
+                        val map = LiveTvCodec.decodeStringMap(raw)
+                        val kept = map.filterNot { (k, v) -> deadChannel(k) || deadGroup(v) }
+                        if (kept.size != map.size) { removed += map.size - kept.size; p[name] = LiveTvCodec.encodeStringMap(kept) }
+                    }
+                    "group_names" -> {
+                        val map = LiveTvCodec.decodeStringMap(raw)
+                        val kept = map.filterKeys { !deadGroup(it) }
+                        if (kept.size != map.size) { removed += map.size - kept.size; p[name] = LiveTvCodec.encodeStringMap(kept) }
+                    }
+                    "channel_names", "channel_logos", "channel_numbers", "epg_overrides", "picture_shapes",
+                    "channel_quality", "channel_audio", "channel_captions" -> {
+                        val map = LiveTvCodec.decodeStringMap(raw)
+                        val kept = map.filterKeys { !deadChannel(it) }
+                        if (kept.size != map.size) { removed += map.size - kept.size; p[name] = LiveTvCodec.encodeStringMap(kept) }
+                    }
+                    "reminders" -> {
+                        val list = LiveTvCodec.decodeReminders(raw)
+                        val kept = keep(list) { deadChannel(it.channelKey) }
+                        if (kept.size != list.size) p[name] = LiveTvCodec.encodeReminders(kept)
+                    }
+                }
+            }
+        }
+        return removed
+    }
+
     // ---------- reading ----------
 
     val playlists: StateFlow<List<PlaylistSource>> = _data

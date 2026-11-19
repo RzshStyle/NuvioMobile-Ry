@@ -119,6 +119,16 @@ internal object LiveTvRepository {
         initialized = true
         // The servers channels play from get the player's automatic DNS retry.
         scope.launch { channels.collect { LiveTvDns.noteChannels(it) } }
+        // Settings left behind by playlists deleted before this was done on delete (or deleted
+        // on another device and synced here). Not with no playlists at all: a fresh install or a
+        // restore still on its way.
+        runCatching {
+            val ids = prefs.currentPlaylists().mapTo(HashSet()) { it.id }
+            if (ids.isNotEmpty()) {
+                val n = prefs.forgetDeletedPlaylists(ids)
+                if (n > 0) REPORT.add("Took out $n saved settings for channels and groups of deleted playlists")
+            }
+        }
         scope.launch {
             runCatching { mutex.withLock { rebuildLocked() } }
             if (updateCheckDelayMs > 0) delay(updateCheckDelayMs)
@@ -306,6 +316,11 @@ internal object LiveTvRepository {
         discardStalkerSnapshots(id)
         scope.launch { StalkerGateway.invalidateSource(id) }
         dropPlaylistNow(id)
+        // Its hidden groups, favorites, custom groups' channels, reminders and so on go with it.
+        runCatching {
+            val n = prefs.forgetDeletedPlaylists(prefs.currentPlaylists().mapTo(HashSet()) { it.id })
+            if (n > 0) REPORT.add("Playlist deleted: took out $n saved settings for its channels and groups")
+        }
         scope.launch { runCatching { mutex.withLock { rebuildLocked() } } }
     }
 
