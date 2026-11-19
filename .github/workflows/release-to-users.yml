@@ -2,7 +2,7 @@ name: Release to Users
 
 # Publishes the phone app to users from the main branch (what was tested and approved), whichever
 # branch is picked in the Run workflow menu. Unfinished work on dev is never released.
-# The version number is picked automatically: Nuvio Mobile 0.6.6 -> 0.6.6-beta-iptv.1, .2, ...
+# The version number is picked automatically: Nuvio Mobile 1.1.0-beta.2 -> 1.1.0-beta.2-iptv.1, .2, ...
 # The app's built-in updater offers each new release.
 on:
   workflow_dispatch:
@@ -39,7 +39,8 @@ jobs:
           BASE=$(sed -nE 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]#]+).*$/\1/p' iosApp/Configuration/Version.xcconfig | head -1)
           NUM=$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*=[[:space:]]*([0-9]+).*$/\1/p' iosApp/Configuration/Version.xcconfig | head -1)
           if [ -z "$BASE" ] || [ -z "$NUM" ]; then echo "::error::Couldn't read the Nuvio Mobile version"; exit 1; fi
-          PREFIX="${BASE%-beta}-beta-iptv."
+          # 0.6.12-beta -> 0.6.12-beta-iptv.N, 1.1.0-beta.2 -> 1.1.0-beta.2-iptv.N, 1.0.0 -> 1.0.0-iptv.N
+          PREFIX="$BASE-iptv."
           LAST=$(gh release list -R "$GITHUB_REPOSITORY" --limit 200 --json tagName -q '.[].tagName' \
             | grep -F "$PREFIX" | sed "s/^$(printf '%s' "$PREFIX" | sed 's/[.[\*^$/]/\\&/g')//" \
             | grep -E '^[0-9]+$' | sort -n | tail -1 || true)
