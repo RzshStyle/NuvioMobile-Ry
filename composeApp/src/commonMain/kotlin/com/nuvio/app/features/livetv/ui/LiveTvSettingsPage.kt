@@ -316,6 +316,10 @@ import nuvio.composeapp.generated.resources.livetv_sports_score_delay_minutes
 import nuvio.composeapp.generated.resources.livetv_sports_hide_scores_description
 import nuvio.composeapp.generated.resources.livetv_sports_score_chip
 import nuvio.composeapp.generated.resources.livetv_sports_score_chip_description
+import nuvio.composeapp.generated.resources.livetv_sports_show_condensed
+import nuvio.composeapp.generated.resources.livetv_sports_show_condensed_description
+import nuvio.composeapp.generated.resources.livetv_sports_show_highlights
+import nuvio.composeapp.generated.resources.livetv_sports_show_highlights_description
 import nuvio.composeapp.generated.resources.livetv_show_tab_description
 import nuvio.composeapp.generated.resources.livetv_stream_format
 import nuvio.composeapp.generated.resources.livetv_stream_format_description
@@ -857,6 +861,22 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 GameAlertsRow(isTablet = isTablet, onClick = { showGameAlerts = true })
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_sports_show_highlights),
+                    description = stringResource(Res.string.livetv_sports_show_highlights_description),
+                    checked = sports.showHighlights,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> SportsRepository.updateSettings { it.copy(showHighlights = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_sports_show_condensed),
+                    description = stringResource(Res.string.livetv_sports_show_condensed_description),
+                    checked = sports.showCondensed,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> SportsRepository.updateSettings { it.copy(showCondensed = on) } },
+                )
             }
         }
         if (showGameAlerts) GameAlertsSheet(onDismiss = { showGameAlerts = false })

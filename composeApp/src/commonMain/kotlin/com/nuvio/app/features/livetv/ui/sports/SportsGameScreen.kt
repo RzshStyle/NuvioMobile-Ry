@@ -184,7 +184,9 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions) {
     val vodLooked = repo.vodMatches.collectAsStateWithLifecycle().value[ev.id]
     // Official highlights and condensed games (ESPN, NHL, MLB, YouTube) go in the same list.
     val official = repo.videoMatches.collectAsStateWithLifecycle().value[ev.id]
-    val replays = remember(vodLooked, official) { SportsVideos.merge(vodLooked.orEmpty(), official.orEmpty()) }
+    val replays = remember(vodLooked, official, settings.showHighlights, settings.showCondensed) {
+        SportsVideos.merge(vodLooked.orEmpty(), official.orEmpty(), settings.showHighlights, settings.showCondensed)
+    }
     val videoScope = androidx.compose.runtime.rememberCoroutineScope()
     val vodAddons = repo.vodAddons.collectAsStateWithLifecycle().value[ev.id]
     val suggestNuvioSports by repo.suggestNuvioSports.collectAsStateWithLifecycle()

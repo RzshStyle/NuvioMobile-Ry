@@ -3006,6 +3006,10 @@
     <string name="livetv_sports_show_description">The Sports hub in the Live TV tab: scores, your teams, and which channels show each game</string>
     <string name="livetv_sports_score_chip">Live scores on channels</string>
     <string name="livetv_sports_score_chip_description">The score of the game a channel is showing, on its row in the channel list</string>
+    <string name="livetv_sports_show_highlights">Show highlights</string>
+    <string name="livetv_sports_show_highlights_description">A finished game's page lists highlights, recaps and big plays. Off: only replays of the whole game (and condensed games, if they're on)</string>
+    <string name="livetv_sports_show_condensed">Show condensed games</string>
+    <string name="livetv_sports_show_condensed_description">A finished game's page lists condensed games: the whole game cut down to the action</string>
     <!-- Live TV: parental controls -->
     <string name="livetv_parental">Parental controls</string>
     <string name="livetv_parental_pin">Parental PIN</string>
