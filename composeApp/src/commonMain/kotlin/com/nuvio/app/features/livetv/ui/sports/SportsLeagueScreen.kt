@@ -92,6 +92,14 @@ fun SportsLeagueScreen(
         loading = false
     }
     val table = tables[leagueId]
+    // College: open on your team's conference, else the first.
+    LaunchedEffect(table?.leagueId, table?.fetchedAt) {
+        val t = table ?: return@LaunchedEffect
+        if (t.groupTabs && conference !in t.tabs) {
+            val mine = follows.teams.map { it.teamId }
+            conference = mine.firstNotNullOfOrNull { id -> t.find(id)?.first?.let(t::tabOf) } ?: t.tabs.first()
+        }
+    }
     val games = remember(known, leagueId, now / 60_000L) {
         known.filter { it.leagueId == leagueId && it.startMs > now - 3 * 86_400_000L }.sortedBy { it.startMs }.take(80)
     }
@@ -119,6 +127,12 @@ fun SportsLeagueScreen(
                 }
                 if (view != StandingsView.LEAGUE.name) table.conferences.forEach { c ->
                     Chip(Standings.shortGroupName(c), selected = (conference ?: table.conferences.first()) == c, onClick = { conference = c })
+                }
+            }
+            if (mode == "table" && table?.groupTabs == true) {
+                val shown = table.tabName(conference)
+                table.tabs.forEach { tab ->
+                    Chip(table.tabLabel(tab), selected = tab == shown, onClick = { conference = tab })
                 }
             }
         }
@@ -199,7 +213,7 @@ private fun TableView(table: Standings, view: StandingsView, conference: String?
 }
 
 private fun cellWidth(key: String) = when (key) {
-    "streak", "gamesBehind", "winPercent", "behind" -> 46.dp
+    "streak", "gamesBehind", "winPercent", "behind", "conf" -> 46.dp
     "pointDifferential" -> 36.dp
     else -> 28.dp
 }
