@@ -943,7 +943,7 @@ internal fun MainAppContent(
             liveChannelOpenJob?.cancel()
             liveChannelOpenJob = coroutineScope.launch {
                 try {
-                    val launchId = LiveTvPlayback.prepare(channel, activePlaybackProfileId, nowTitle)
+                    val launchId = LiveTvPlayback.prepare(channel, activePlaybackProfileId, nowTitle?.let { com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(it) })
                     navController.navigate(PlayerRoute(launchId = launchId, title = channel.name))
                 } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
                 catch (failure: com.nuvio.app.features.livetv.stalker.StalkerRoutingException) { NuvioToastController.show(failure.message.orEmpty()) }

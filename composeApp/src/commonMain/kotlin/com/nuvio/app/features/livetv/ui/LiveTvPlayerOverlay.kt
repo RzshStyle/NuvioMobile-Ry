@@ -360,7 +360,7 @@ private fun PanelChannelRow(channel: LiveChannel, now: EpgProgram?, nowMs: Long,
             ).joinToString("  ")
             if (head.isNotBlank()) Text(head, style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (now != null) {
-                Text(now.title, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(now.title), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 NuvioProgressBar(progress = now.progress(nowMs), height = NuvioTokens.Space.s3, fillColor = tokens.colors.accent)
             }
         }
@@ -468,7 +468,7 @@ private fun MiniGuideRow(
                             .padding(horizontal = NuvioTokens.Space.s8, vertical = NuvioTokens.Space.s4),
                     ) {
                         Column {
-                            Text(p.title, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textPrimary, fontWeight = if (live) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(p.title), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textPrimary, fontWeight = if (live) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (w > 60.dp) Text(formatClock(p.startMs), style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted, maxLines = 1)
                         }
                     }

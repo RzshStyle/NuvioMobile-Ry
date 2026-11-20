@@ -404,7 +404,7 @@ private fun GuideRow(
                                     Icon(Icons.Filled.Replay, contentDescription = null, tint = tokens.colors.textMuted, modifier = Modifier.width(12.dp).height(12.dp))
                                 }
                                 Text(
-                                    text = p.title,
+                                    text = com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(p.title),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = tokens.colors.textPrimary,
                                     fontWeight = if (live) FontWeight.SemiBold else FontWeight.Medium,
@@ -576,7 +576,7 @@ internal fun ProgramDetailsDialog(
     val bellOn = bellShow?.let { b -> bellFollows.any { it.id == b.imdb || it.imdbId == b.imdb } } == true
     // Record: a show still to come or on now; a past show too when the channel keeps it in catch-up.
     val recordable = !LiveTvRepository.isPlaceholderTitle(program.title) && (program.stopMs > now || LiveTvCatchup.isReplayable(channel, program, now))
-    DialogSurface(onDismissRequest = onDismiss, title = full.title) {
+    DialogSurface(onDismissRequest = onDismiss, title = com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(full.title)) {
         Text(
             text = channel.name + "  ·  " + formatClock(full.startMs) + " – " + formatClock(full.stopMs) + (full.episode?.let { "  ·  $it" } ?: ""),
             style = MaterialTheme.typography.bodyMedium,

@@ -322,17 +322,53 @@ object RecordingRules {
 
     private val LIVE_MARK = Regex("""^\s*live\s*[:\-–|]\s*""", RegexOption.IGNORE_CASE)
     private val NEW_MARK = Regex("""^\s*new\s*[:\-–|]\s*|\s*[(\[]\s*new\s*[)\]]\s*""", RegexOption.IGNORE_CASE)
-    private const val SMALL_NEW = "ᴺᴱᵂ"
-    private const val SMALL_LIVE = "ᴸᴵⱽᴱ"
+    /**
+     * Small raised letters some guides put in titles ("ᴺᴱᵂ", "ᴺᵉʷ", "ᴸᴵⱽᴱ", "ʟɪᴠᴇ"), in any mix of
+     * cases, and the ordinary letter each one stands for.
+     */
+    private const val SMALL = "ᴬᴮᴰᴱᴳᴴᴵᴶᴷᴸᴹᴺᴼᴾᴿᵀᵁⱽᵂᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻᶦᶫᶰᶸᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘʀꜱᴛᴜᴠᴡʏᴢ⁰¹²³⁴⁵⁶⁷⁸⁹⁺"
+    private const val PLAIN = "abdeghijklmnoprtuvwabcdefghijklmnoprstuvwxyzilnuabcdefghijklmnoprstuvwyz0123456789+"
+    private val SMALL_RUN = Regex("[$SMALL]+")
 
-    /** The guide marks this airing as new ("NEW:", "(New)", a small raised ᴺᴱᵂ, or the guide's own new tag). */
-    fun isNewTitle(title: String): Boolean = SMALL_NEW in title || NEW_MARK.containsMatchIn(title.replace(SMALL_LIVE, "").replace(LIVE_MARK, ""))
+    private fun plainOf(run: String): String = buildString {
+        run.forEach { ch -> val i = SMALL.indexOf(ch); if (i >= 0) append(PLAIN[i]) }
+    }
+
+    /** [title] with each small raised mark in [words] swapped for [with]; the marks found go in [found]. */
+    private fun smallMarks(title: String, with: String, found: MutableSet<String>? = null, words: Set<String> = NEW_LIVE): String =
+        if (title.none { it in SMALL }) title
+        else title.replace(SMALL_RUN) { m ->
+            val w = plainOf(m.value)
+            if (w in words) { found?.add(w); with } else m.value
+        }
+
+    private val NEW_LIVE = setOf("new", "live")
+    private val NEW_ONLY = setOf("new")
+
+    /** The guide marks this airing as new ("NEW:", "(New)", a small raised ᴺᴱᵂ / ᴺᵉʷ, or the guide's own new tag). */
+    fun isNewTitle(title: String): Boolean {
+        val found = HashSet<String>(2)
+        val t = smallMarks(title, "", found)
+        return "new" in found || NEW_MARK.containsMatchIn(t.replace(LIVE_MARK, ""))
+    }
 
     /** A show's title without its LIVE / NEW marks (so a new airing and a repeat count as one show). */
     fun cleanTitle(title: String): String {
-        val t = title.replace(SMALL_NEW, " ").replace(SMALL_LIVE, " ").replace(LIVE_MARK, "").replace(NEW_MARK, " ")
+        val t = smallMarks(title, " ").replace(LIVE_MARK, "").replace(NEW_MARK, " ")
             .replace(Regex("""\s+"""), " ").trim()
         return t.ifBlank { title.trim() }
+    }
+
+    /**
+     * A show's title as shown on screen: one plain "(New)" for a new airing, however the guide marked
+     * it. Guides that both wrote a mark in the title and flagged the show as new showed it twice.
+     */
+    fun shownTitle(title: String): String {
+        // Most titles have no mark at all: no work for those.
+        if (!title.contains("new", ignoreCase = true) && title.none { it in SMALL }) return title
+        if (!isNewTitle(title)) return title
+        val clean = smallMarks(title, " ", words = NEW_ONLY).replace(NEW_MARK, " ").replace(Regex("""\s+"""), " ").trim()
+        return if (clean.isBlank()) title.trim() else "$clean (New)"
     }
 
     /** Sunday = 1 … Saturday = 7, for a day counted from 1970-01-01 (a Thursday). */

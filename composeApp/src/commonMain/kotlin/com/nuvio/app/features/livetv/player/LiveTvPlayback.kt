@@ -239,9 +239,9 @@ internal object LiveTvPlayback {
             }
             prefsRecordWatched(channel)
             return PlayerLaunchStore.put(PlayerLaunch(
-                profileId = profileId, title = program.title, sourceUrl = req.url, sourceHeaders = req.headers, stalkerMediaPolicy = req.mediaPolicy,
+                profileId = profileId, title = com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(program.title), sourceUrl = req.url, sourceHeaders = req.headers, stalkerMediaPolicy = req.mediaPolicy,
                 streamType = req.streamType, logo = channel.logo, poster = program.icon ?: channel.logo,
-                streamTitle = program.title, streamSubtitle = channel.name, pauseDescription = program.description,
+                streamTitle = com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(program.title), streamSubtitle = channel.name, pauseDescription = program.description,
                 providerName = channel.sourceName, providerAddonId = PROVIDER_ID, contentType = CONTENT_TYPE,
                 videoId = channel.key, parentMetaId = channel.key, parentMetaType = CONTENT_TYPE,
                 initialPositionMs = offsetMs.coerceAtLeast(0),
@@ -277,13 +277,13 @@ internal object LiveTvPlayback {
         prefs.recordWatched(channel.key)
         val launch = PlayerLaunch(
             profileId = profileId,
-            title = program.title,
+            title = com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(program.title),
             sourceUrl = req.url,
             sourceHeaders = req.headers,
             streamType = req.streamType,
             logo = channel.logo,
             poster = program.icon ?: channel.logo,
-            streamTitle = program.title,
+            streamTitle = com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(program.title),
             streamSubtitle = channel.name,
             pauseDescription = program.description,
             providerName = channel.sourceName,

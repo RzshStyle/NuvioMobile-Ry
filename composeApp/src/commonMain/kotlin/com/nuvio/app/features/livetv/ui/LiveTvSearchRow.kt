@@ -189,7 +189,7 @@ private fun LiveSearchCard(hit: LiveSearchHit) {
         }
         Column(modifier = Modifier.padding(8.dp)) {
             Text(
-                text = p?.title ?: hit.channel.name,
+                text = p?.title?.let { com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(it) } ?: hit.channel.name,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,

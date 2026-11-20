@@ -146,7 +146,7 @@ internal fun SportsNetworksTab(actions: SportsActions) {
 private fun nowText(tile: NetworkTile, onNow: Map<String, com.nuvio.app.features.livetv.data.NowNext>, use24h: Boolean): String {
     val lead = tile.lead ?: return "Not found. Choose a channel"
     val nn = onNow[lead.key] ?: return "No guide info"
-    nn.now?.let { return it.title }
+    nn.now?.let { return com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(it.title) }
     nn.next?.let { return "Next: " + clockText(it.startMs, use24h) }
     return "No guide info"
 }

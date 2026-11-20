@@ -721,7 +721,7 @@ internal fun ChannelRow(
             }
             if (current != null) {
                 Text(
-                    text = current.title + (current.episode?.let { "  ·  $it" } ?: ""),
+                    text = com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(current.title) + (current.episode?.let { "  ·  $it" } ?: ""),
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (showName) tokens.colors.textSecondary else tokens.colors.textPrimary,
                     fontWeight = if (showName) FontWeight.Normal else FontWeight.Medium,
@@ -731,7 +731,7 @@ internal fun ChannelRow(
                 NuvioProgressBar(progress = current.progress(nowMs), height = NuvioTokens.Space.s3, fillColor = tokens.colors.accent)
                 nowNext.next?.let { next ->
                     Text(
-                        text = formatClock(next.startMs) + "  " + next.title,
+                        text = formatClock(next.startMs) + "  " + com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(next.title),
                         style = MaterialTheme.typography.bodySmall,
                         color = tokens.colors.textMuted,
                         maxLines = 1,

@@ -450,7 +450,7 @@ private fun SportsChannelRow(m: ChannelMatch, copies: Int, ev: SportsEvent, use2
                 if (copies > 1) Text("+${copies - 1}", style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted)
             }
             Text(
-                text = listOfNotNull(m.channel.sourceName.takeIf { it.isNotBlank() }, m.program?.let { p -> "${sportsClock(p.startMs)} ${p.title}" } ?: m.how).joinToString(" · "),
+                text = listOfNotNull(m.channel.sourceName.takeIf { it.isNotBlank() }, m.program?.let { p -> "${sportsClock(p.startMs)} ${com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(p.title)}" } ?: m.how).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
