@@ -74,7 +74,8 @@ internal object LiveTvRecorder {
     fun filePath(rec: LiveTvRecording): String = rec.dir + "/" + rec.fileName
 
     /** A link the player can open. */
-    fun playUrl(rec: LiveTvRecording): String = RecordingPlatform.playUrl(filePath(rec))
+    fun playUrl(rec: LiveTvRecording): String =
+        RecordingPlatform.playUrl(filePath(rec)).also { com.nuvio.app.features.livetv.player.LiveTvPlayback.noteRecording(it) }
 
     /** Roughly how much room there is where recordings go. */
     fun freeBytes(): Long = RecordingPlatform.usableSpace()

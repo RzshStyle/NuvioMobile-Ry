@@ -46,6 +46,12 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.media3.exoplayer.hls.DefaultHlsExtractorFactory
+import androidx.media3.exoplayer.hls.HlsMediaSource
+import com.nuvio.app.features.livetv.player.LiveCaptions
+import com.nuvio.app.features.livetv.player.LiveTvCaptions
+import com.nuvio.app.features.livetv.player.LiveTvPlayback
 import androidx.media3.common.VideoSize
 import androidx.media3.common.text.Cue
 import androidx.media3.common.text.CueGroup
@@ -365,10 +371,25 @@ private fun ExoPlayerSurface(
         resolvedMediaItem.isLocalFileSource()
     }
 
-    val extractorsFactory = remember(sourceUrl, stalkerMediaPolicy) {
+    // Live channels, catch-up and recordings: look for the closed captions hidden inside the
+    // video (CEA-608/708), which streams rarely announce, as the TV app does.
+    val liveCaptions = remember(sourceUrl) {
+        LiveTvPlayback.looksForCaptions(sourceUrl).also { if (it) LiveCaptions.reset() }
+    }
+    val extractorsFactory = remember(sourceUrl, stalkerMediaPolicy, liveCaptions) {
         DefaultExtractorsFactory()
-            .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)
+            .setTsExtractorFlags(
+                if (liveCaptions) {
+                    DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS or
+                        DefaultTsPayloadReaderFactory.FLAG_OVERRIDE_CAPTION_DESCRIPTORS
+                } else {
+                    DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS
+                }
+            )
             .setTsExtractorTimestampSearchBytes(1500 * TsExtractor.TS_PACKET_SIZE)
+            .let { factory ->
+                if (liveCaptions) LiveCaptions.Extractors(factory.setTsSubtitleFormats(LiveCaptions.formats)) else factory
+            }
             .let { factory -> // AutoSync hook: no observation while disabled.
                 AutoSyncPreferencesRepository.ensureLoaded()
                 if (stalkerMediaPolicy == null && AutoSyncPreferencesRepository.preferredSubtitleAutoSyncOnStart.value) {
@@ -451,6 +472,19 @@ private fun ExoPlayerSurface(
                 setMediaSource(mergedSource, startPositionMs.coerceAtLeast(0L))
             } else {
                 setMediaSource(mergedSource)
+            }
+        } else if (liveCaptions && videoMediaItem.localConfiguration?.mimeType == MimeTypes.APPLICATION_M3U8) {
+            // HLS: captions looked for even when the playlist doesn't list them (or says NONE).
+            val hlsSource = AudioDelayMediaSource(
+                HlsMediaSource.Factory(dataSourceFactory)
+                    .setExtractorFactory(LiveCaptions.Hls(DefaultHlsExtractorFactory()))
+                    .createMediaSource(videoMediaItem),
+                audioDelayUs::get,
+            )
+            if (startPositionMs != null) {
+                setMediaSource(hlsSource, startPositionMs.coerceAtLeast(0L))
+            } else {
+                setMediaSource(hlsSource)
             }
         } else if (startPositionMs != null) {
             setMediaItem(videoMediaItem, startPositionMs.coerceAtLeast(0L))
@@ -616,6 +650,7 @@ private fun ExoPlayerSurface(
                 .build()
         }
 
+        if (liveCaptions) liveCaptionPlayers[player] = true
         player.applySubtitleTrackPreferences(
             preferredLanguage = playerSettings.preferredSubtitleLanguage,
             useForcedSubtitles = playerSettings.subtitleStyle.useForcedSubtitles,
@@ -2847,19 +2882,42 @@ private fun exoPreferredTextLanguage(preferredLanguage: String): String? {
     }
 }
 
+/** Players looking for the closed captions inside live video (see [LiveCaptions]). */
+private val liveCaptionPlayers = java.util.Collections.synchronizedMap(java.util.WeakHashMap<ExoPlayer, Boolean>())
+
+/**
+ * The text tracks the Subtitles menu offers, in the order its indexes count. Live channels are
+ * told to look for every caption type (CC1–CC4, digital), so of those only one closed-captions
+ * entry is offered, plus any other type seen carrying text (or switched on); ordinary
+ * subtitles first. Everything else: all text tracks, as before.
+ */
+private fun ExoPlayer.textGroupsShown(): List<Tracks.Group> {
+    val text = currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+    if (liveCaptionPlayers[this] != true) return text
+    val cea = text.filter { LiveCaptions.kindOf(it.mediaTrackGroup.getFormat(0)) != null }
+    if (cea.isEmpty()) return text
+    val kindOf = { g: Tracks.Group -> LiveCaptions.kindOf(g.mediaTrackGroup.getFormat(0))!! }
+    val primary = LiveTvCaptions.primary(cea.map(kindOf).distinct())
+    val found = LiveTvCaptions.found.value
+    val shown = cea.filter { kindOf(it) == primary || kindOf(it) in found || it.isSelected }
+        .distinctBy(kindOf)
+        .sortedBy { if (kindOf(it) == primary) 0 else 1 }
+    return text.filter { it !in cea } + shown
+}
+
 private fun ExoPlayer.extractSubtitleTracks(context: Context): List<SubtitleTrack> {
     val tracks = mutableListOf<SubtitleTrack>()
     val trackNameProvider = CustomDefaultTrackNameProvider(context.resources)
     var idx = 0
-    for (group in currentTracks.groups) {
-        if (group.type != C.TRACK_TYPE_TEXT) continue
+    for (group in textGroupsShown()) {
         val format = group.mediaTrackGroup.getFormat(0)
         val hasForcedSelectionFlag = (format.selectionFlags and C.SELECTION_FLAG_FORCED) != 0
+        val captionKind = if (liveCaptionPlayers[this] == true) LiveCaptions.kindOf(format) else null
         tracks.add(
             SubtitleTrack(
                 index = idx,
-                id = format.id ?: idx.toString(),
-                label = trackNameProvider.getTrackName(format),
+                id = captionKind ?: format.id ?: idx.toString(),
+                label = captionKind?.let { LiveTvCaptions.label(it) } ?: trackNameProvider.getTrackName(format),
                 language = format.language,
                 isSelected = group.isSelected,
                 isForced = inferForcedSubtitleTrack(
@@ -2889,8 +2947,8 @@ private fun ExoPlayer.selectTrackByPredicate(
     val typeName = if (trackType == C.TRACK_TYPE_AUDIO) "AUDIO" else "TEXT"
     Log.d(TAG, "selectTrack: type=$typeName target=$targetDescription")
     var idx = 0
-    for (group in currentTracks.groups) {
-        if (group.type != trackType) continue
+    val groups = if (trackType == C.TRACK_TYPE_TEXT) textGroupsShown() else currentTracks.groups.filter { it.type == trackType }
+    for (group in groups) {
         val format = group.mediaTrackGroup.getFormat(0)
         if (!predicate(idx, format)) {
             idx++

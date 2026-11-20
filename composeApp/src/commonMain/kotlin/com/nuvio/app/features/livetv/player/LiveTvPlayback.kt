@@ -207,6 +207,19 @@ internal object LiveTvPlayback {
     /** Whether this provider id is Live TV's (the player asks before trying a fallback). */
     fun owns(providerAddonId: String?): Boolean = providerAddonId == PROVIDER_ID
 
+    /** Recordings handed to the player (their captions are inside the video too). */
+    private val recordings = HashSet<String>()
+
+    fun noteRecording(url: String) { synchronized(lock) { recordings += url } }
+
+    /**
+     * Whether the player should look for closed captions hidden inside the video: live channels,
+     * catch-up and recordings (not Sports highlight clips).
+     */
+    fun looksForCaptions(url: String): Boolean = synchronized(lock) {
+        url in recordings || (playing[url]?.let { it.sourceId != com.nuvio.app.features.livetv.sports.SportsVideos.SOURCE_ID } ?: false)
+    }
+
     fun isPortalReplay(url: String): Boolean = synchronized(lock) { catchups[url]?.portal != null }
 
     /** Whether [url] is a catch-up replay (not a live channel), for seek thumbnails. */
