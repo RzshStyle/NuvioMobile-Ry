@@ -809,7 +809,7 @@ internal object SportsRepository {
         val noSchedule = f.teams.flatMap { listOf(it.leagueId) + SportsCatalog.relatedLeagues(it.leagueId) }
             .filter { it.startsWith("rugby/") || it.startsWith("rugby-league/") || it.startsWith("australian-football/") }
         val ids = (f.pins + f.leagues + noSchedule).toSet()
-        if (aheadData.value.keys.any { it !in ids }) aheadData.update { m -> m.filterKeys { it in ids } }
+        if (aheadData.value.keys.any { it.removePrefix(SEASON_KEY) !in ids }) aheadData.update { m -> m.filterKeys { it.removePrefix(SEASON_KEY) in ids } }
         val due = ids.mapNotNull { SportsCatalog.league(it) }.filter { l ->
             l.espnPath != null && now - (aheadData.value[l.id]?.fetchedAt ?: 0L) > (if (force) HOUR else 6 * HOUR)
         }
@@ -838,6 +838,35 @@ internal object SportsRepository {
                     list.filter { it.startMs >= keepFrom || it.startMs >= newest - 4 * DAY }
                 }
             aheadData.update { it + (l.id to LeagueData(parsed, at, null)) }
+        }
+        updateSeasonPast(now, ids)
+    }
+
+    /**
+     * Followed leagues made of a few big events (Formula 1, NASCAR, UFC, golf and tennis tours):
+     * every result of the last year, so their row goes back through the whole season (each with
+     * its highlights and replays). Months that are over don't change: once a day is plenty.
+     */
+    private suspend fun updateSeasonPast(now: Long, ids: Set<String>) {
+        val due = ids.mapNotNull { SportsCatalog.league(it) }.filter { l ->
+            l.kind == LeagueKind.EVENT && l.espnPath != null && now - (aheadData.value[SEASON_KEY + l.id]?.fetchedAt ?: 0L) > DAY
+        }
+        if (due.isEmpty()) return
+        val thisMonth = SportsDates.monthKey(now)
+        // The months before this one (this month's results come with the weeks ahead above).
+        val wanted = (1..SEASON_MONTHS).map { SportsDates.monthKey(now - it * 30L * DAY) }.distinct().filter { it != thisMonth }
+        val from = now - SEASON_MONTHS * 31L * DAY
+        for (l in due) {
+            val raws = wanted.mapNotNull { m -> runCatching { feeds.scoreboardDayRaw(l, m) }.getOrNull() }
+            val at = LiveTvClock.nowMs()
+            if (raws.isEmpty()) {
+                aheadData.update { m -> m + (SEASON_KEY + l.id to LeagueData(m[SEASON_KEY + l.id]?.events.orEmpty(), at - 20 * HOUR, "failed")) }
+                continue
+            }
+            val parsed = raws.flatMap { raw -> runCatching { SportsFeeds.parseScoreboard(l, raw) }.getOrDefault(emptyList()) }
+                .filter { it.startMs in from until now - DAY && it.state != GameState.PRE }
+                .distinctBy { it.id }
+            aheadData.update { it + (SEASON_KEY + l.id to LeagueData(parsed, at, null)) }
         }
     }
 
@@ -2072,6 +2101,9 @@ internal object SportsRepository {
     const val DAYS_BACK = 7
     /** How far back followed leagues keep results (for leagues that play every few weeks). */
     const val LEAGUE_BACK_DAYS = 45
+    /** Event leagues (races, fight cards, tournaments) keep this many months of results. */
+    const val SEASON_MONTHS = 12
+    private const val SEASON_KEY = "s|"
     /** Between saved answers when a league was asked one day at a time. */
     private const val RAW_SEP = "\n\u0001\n"
     /** Starts a saved scores file holding ready-made games (nuvio-data's) instead of the feed's answers. */
