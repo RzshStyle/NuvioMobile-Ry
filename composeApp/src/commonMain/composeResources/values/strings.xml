@@ -2908,6 +2908,11 @@
     <string name="livetv_rec_manual_title">Title</string>
     <string name="livetv_rec_today">Today</string>
     <string name="livetv_rec_tomorrow">Tomorrow</string>
+    <string name="livetv_rec_tab_series">Series</string>
+    <string name="livetv_rec_failed_short">Couldn't be recorded</string>
+    <string name="livetv_rec_none_recorded">Nothing recorded yet. What you record shows here.</string>
+    <string name="livetv_rec_none_scheduled">Nothing scheduled. Open a show in the guide to record it.</string>
+    <string name="livetv_rec_none_series">No series set to record. Open a show in the guide and choose Record series.</string>
     <string name="livetv_rec_start_time_hint">Start time, like 20:30 or 8:30 pm</string>
     <string name="livetv_rec_padding_pre">Start early</string>
     <string name="livetv_rec_padding_pre_description">Recordings start this long before the show</string>
