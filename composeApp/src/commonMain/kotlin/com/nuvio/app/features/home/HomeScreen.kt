@@ -957,9 +957,13 @@ fun HomeScreen(
             resolvedBadgeInputs.value = inputs
         }
     }
-    val hasRenderableCollectionRows = remember(enabledHomeItems, collectionsMap) {
+    // Live TV hook: Live TV, Sports and On Demand rows added from Settings › Homescreen.
+    LaunchedEffect(Unit) { com.nuvio.app.features.livetv.home.HomeLiveRows.start() }
+    val emptyLiveRowIds by com.nuvio.app.features.livetv.home.HomeLiveRows.emptyRowIds.collectAsStateWithLifecycle()
+    val hasRenderableCollectionRows = remember(enabledHomeItems, collectionsMap, emptyLiveRowIds) {
         enabledHomeItems.any { item ->
-            item.isCollection && collectionsMap[item.key] != null
+            (item.isCollection && collectionsMap[item.key] != null) ||
+                (item.isLiveRow && com.nuvio.app.features.livetv.home.HomeLiveRow.idOf(item.key) !in emptyLiveRowIds)
         }
     }
     val hasRenderableHomeRows = homeUiState.sections.isNotEmpty() || hasRenderableCollectionRows
@@ -1202,7 +1206,17 @@ fun HomeScreen(
 
                     keyedEnabledHomeItems.forEach { keyedSettingsItem ->
                         val settingsItem = keyedSettingsItem.value
-                        if (settingsItem.isCollection) {
+                        if (settingsItem.isLiveRow) {
+                            if (com.nuvio.app.features.livetv.home.HomeLiveRow.idOf(settingsItem.key) !in emptyLiveRowIds) {
+                                item(key = keyedSettingsItem.lazyKey, contentType = "live_row") {
+                                    com.nuvio.app.features.livetv.home.HomeLiveRowSection(
+                                        rowKey = settingsItem.key,
+                                        sectionPadding = homeSectionPadding,
+                                        modifier = Modifier.padding(bottom = 12.dp),
+                                    )
+                                }
+                            }
+                        } else if (settingsItem.isCollection) {
                             val collection = collectionsMap[settingsItem.key]
                             if (collection != null) {
                                 item(key = keyedSettingsItem.lazyKey, contentType = "collection") {

@@ -122,7 +122,7 @@ internal fun LazyListScope.homescreenSettingsContent(
         }
     }
     item {
-        val catalogOnlyItems = items.filter { !it.isCollection }
+        val catalogOnlyItems = items.filter { !it.isCollection && !it.isLiveRow }
         if (heroEnabled && catalogOnlyItems.isNotEmpty()) {
             var heroSourcesExpanded by remember { mutableStateOf(false) }
             SettingsSection(
@@ -138,6 +138,10 @@ internal fun LazyListScope.homescreenSettingsContent(
                 )
             }
         }
+    }
+    // Live TV hook: Add a row (Live TV channels, Sports games, On Demand titles).
+    item {
+        com.nuvio.app.features.livetv.home.HomeRowAddButton(isTablet = isTablet)
     }
     item {
         if (isCatalogLoading && items.isEmpty()) {

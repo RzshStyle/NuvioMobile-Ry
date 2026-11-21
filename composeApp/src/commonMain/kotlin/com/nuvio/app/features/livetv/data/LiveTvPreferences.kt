@@ -238,6 +238,10 @@ internal object LiveTvKeys {
     const val sports = "sports"
     /** Sports: the teams, leagues and names you follow, and game reminders (per profile), as JSON. */
     const val sportsMine = "sports_mine"
+    /** Home: the Live TV, Sports and On Demand rows added to Home (per profile), as JSON. Same as the TV app's. */
+    const val homeRows = "home_live_rows"
+    /** Home rows from a playlist's group show the playlist's name in their title. */
+    const val homeRowPlaylistNames = "home_row_playlist_names"
 
     /** Separates the EPG source id from the channel id in a stored EPG assignment. */
     const val EPG_SEP = "\u0001"
@@ -641,7 +645,7 @@ internal open class LiveTvPreferencesStore {
     private val personalStringKeys: List<String> = listOf(
         LiveTvKeys.favorites, LiveTvKeys.recent, LiveTvKeys.lastChannel, LiveTvKeys.previousChannel, LiveTvKeys.lastGroup,
         LiveTvKeys.groupOrder, LiveTvKeys.customGroups, LiveTvKeys.channelOrder, LiveTvKeys.channelCopies, LiveTvKeys.reminders,
-        LiveTvKeys.vodGroupOrder, LiveTvKeys.vodSorts, LiveTvKeys.sportsMine
+        LiveTvKeys.vodGroupOrder, LiveTvKeys.vodSorts, LiveTvKeys.sportsMine, LiveTvKeys.homeRows
     )
     private val personalSetKeys: List<String> = listOf(
         LiveTvKeys.hiddenChannels, LiveTvKeys.hiddenGroups, LiveTvKeys.vodHiddenCategories
@@ -661,7 +665,7 @@ internal open class LiveTvPreferencesStore {
     /** The choices matched profiles share (the same list as the TV app). */
     private val matchedKeys: Set<String> = setOf(
         LiveTvKeys.favorites, LiveTvKeys.groupOrder, LiveTvKeys.customGroups, LiveTvKeys.channelOrder,
-        LiveTvKeys.channelCopies, LiveTvKeys.vodGroupOrder, LiveTvKeys.vodSorts, LiveTvKeys.sportsMine,
+        LiveTvKeys.channelCopies, LiveTvKeys.vodGroupOrder, LiveTvKeys.vodSorts, LiveTvKeys.sportsMine, LiveTvKeys.homeRows,
         LiveTvKeys.hiddenChannels, LiveTvKeys.hiddenGroups, LiveTvKeys.vodHiddenCategories,
         LiveTvKeys.calendarFollows, LiveTvKeys.calendarHiddenShows, LiveTvKeys.sideMenuHidden
     )
@@ -955,6 +959,7 @@ internal open class LiveTvPreferencesStore {
             calendarHideWatched = p.bool(LiveTvKeys.calendarHideWatched) ?: d.calendarHideWatched,
             calendarSports = p.bool(LiveTvKeys.calendarSports) ?: d.calendarSports,
             onDemandInStreams = p.bool(LiveTvKeys.onDemandInStreams) ?: d.onDemandInStreams,
+            homeRowPlaylistNames = p.bool(LiveTvKeys.homeRowPlaylistNames) ?: d.homeRowPlaylistNames,
             onDemandStreamsPosition = p.str(LiveTvKeys.onDemandStreamsPosition) ?: d.onDemandStreamsPosition,
             onDemandAutoPlay = p.bool(LiveTvKeys.onDemandAutoPlay) ?: d.onDemandAutoPlay,
             searchOrder = p.str(LiveTvKeys.searchOrder) ?: d.searchOrder,
@@ -1237,6 +1242,7 @@ internal open class LiveTvPreferencesStore {
         p[LiveTvKeys.calendarHideWatched] = s.calendarHideWatched
         p[LiveTvKeys.calendarSports] = s.calendarSports
         p[LiveTvKeys.onDemandInStreams] = s.onDemandInStreams
+        p[LiveTvKeys.homeRowPlaylistNames] = s.homeRowPlaylistNames
         p[LiveTvKeys.onDemandStreamsPosition] = s.onDemandStreamsPosition
         p[LiveTvKeys.onDemandAutoPlay] = s.onDemandAutoPlay
         p[LiveTvKeys.searchOrder] = s.searchOrder
@@ -1398,6 +1404,17 @@ internal open class LiveTvPreferencesStore {
     fun editSportsMine(transform: (String?) -> String) = edit { p ->
         val id = currentProfile
         p[my(LiveTvKeys.sportsMine, id)] = transform(profileView(p, id).str(LiveTvKeys.sportsMine))
+    }
+
+    // ---------- Home rows ----------
+
+    /** This profile's Live TV, Sports and On Demand rows on Home, as JSON (the TV app's format). */
+    val homeRowsJson: Flow<String?> = combine(_data, _profile) { p, id -> profileView(p, id).str(LiveTvKeys.homeRows) }
+        .distinctUntilChanged()
+
+    fun editHomeRows(transform: (String?) -> String) = edit { p ->
+        val id = currentProfile
+        p[my(LiveTvKeys.homeRows, id)] = transform(profileView(p, id).str(LiveTvKeys.homeRows))
     }
 
     // ---------- parental controls, reminders, quality, On Demand ----------

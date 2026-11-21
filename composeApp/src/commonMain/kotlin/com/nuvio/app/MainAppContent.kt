@@ -1040,6 +1040,19 @@ internal fun MainAppContent(
             onOpenMultiview = { openSportsMultiview() },
         )
 
+        // Live TV hook: what Home's Live TV, Sports and On Demand rows open.
+        androidx.compose.runtime.SideEffect {
+            com.nuvio.app.features.livetv.home.HomeLiveRowActions.apply {
+                playChannel = { channel, nowTitle -> openLiveChannel(channel, nowTitle) }
+                openGuide = { navController.navigate(LiveTvGuideRoute(liveTvGuideTitle)) }
+                openGame = { ev -> navController.navigate(LiveTvSportsGameRoute(eventId = ev.id, title = ev.title)) }
+                openMultiview = if (isMultiviewSupported) { key -> openSportsMultiview(key) } else null
+                openVodSeeAll = { kind, categoryUid, title ->
+                    navController.navigate(LiveTvOnDemandSeeAllRoute(kind = kind.key, categoryUid = categoryUid, title = title))
+                }
+            }
+        }
+
         fun openSportsRoot() = navController.openSportsRoot(
             showSportsTab = SportsRepository.settings.value.showInSidebar,
             useNativeNavigation = useNativeNavigation,

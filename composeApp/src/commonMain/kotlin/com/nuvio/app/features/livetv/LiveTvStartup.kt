@@ -28,6 +28,8 @@ internal object LiveTvStartup {
         LiveTvDriveSync.start()
         LiveTvCloudSync.start()
         OnDemandRepository.start()
+        // Home rows (Live TV, Sports, On Demand) in Home's row list and Settings › Homescreen.
+        com.nuvio.app.features.livetv.home.HomeLiveRows.start()
         LiveTvRecordingScheduler.start()
         LiveTvReminders.start()
         // Sports: scores for followed teams, game reminders and alerts (its own loop stops when Sports is off).

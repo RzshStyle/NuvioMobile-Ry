@@ -493,6 +493,8 @@ data class LiveTvSettings(
     val calendarHideWatched: Boolean = false,
     /** Offer "Watch On Demand" in Nuvio's stream list for movies and episodes. */
     val onDemandInStreams: Boolean = true,
+    /** Home rows from a playlist's group show which playlist it is ("UK: Entertainment - HBStrong"). */
+    val homeRowPlaylistNames: Boolean = true,
     /** Where the On Demand tab sits in the stream list: FIRST, AFTER_FIRST (the first addon) or LAST. */
     val onDemandStreamsPosition: String = "LAST",
     /** Auto-play may pick your provider's copy (only when its tab is first). */
