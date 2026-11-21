@@ -11,6 +11,9 @@ import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.addons.supportsResource
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.livetv.data.LiveTvPreferences
+import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
+import com.nuvio.app.features.livetv.ondemand.OnDemandStreams
 import com.nuvio.app.features.plugins.PluginRepository
 import com.nuvio.app.features.plugins.PluginsUiState
 import com.nuvio.app.features.servers.ServerRepository
@@ -34,7 +37,8 @@ internal class PlaybackAvailability(
     fun canStream(type: String, videoId: String): Boolean =
         hasCompatiblePlaybackSource(addons, plugins, type, videoId) ||
             MetaDetailsRepository.findEmbeddedStreams(videoId).isNotEmpty() ||
-            ServerStreams.canServe(type, videoId)
+            ServerStreams.canServe(type, videoId) ||
+            (!ServerStreams.isNativeRequest(videoId) && OnDemandStreams.mayServe(type))
 
     fun canPlay(
         type: String,
@@ -84,7 +88,11 @@ internal fun rememberPlaybackAvailability(): PlaybackAvailability {
         ServerRepository.ensureLoaded()
         ServerRepository.uiState
     }.collectAsStateWithLifecycle()
-    return remember(addons, plugins, downloads, servers.revision) {
+    // Playlist movies and series count too, so the check updates when they finish loading or are switched.
+    val onDemandHasContent by OnDemandRepository.hasContent.collectAsStateWithLifecycle()
+    val liveTvSettings by LiveTvPreferences.settings.collectAsStateWithLifecycle()
+    val onDemandOn = liveTvSettings.onDemandEnabled && liveTvSettings.onDemandInStreams
+    return remember(addons, plugins, downloads, servers.revision, onDemandHasContent, onDemandOn) {
         PlaybackAvailability(addons.addons, plugins)
     }
 }

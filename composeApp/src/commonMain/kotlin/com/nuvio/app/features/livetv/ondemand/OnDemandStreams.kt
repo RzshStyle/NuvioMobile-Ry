@@ -47,13 +47,18 @@ internal object OnDemandStreams {
         parentMetaId?.takeIf { it.isNotBlank() }
             ?: if (videoId.startsWith("tmdb:", true)) videoId.split(':').take(2).joinToString(":") else videoId.substringBefore(':')
 
+    /** True when On Demand can be asked for this kind of title (switched on, has content, movie or episode). No look-up. */
+    fun mayServe(type: String): Boolean {
+        val settings = LiveTvPreferences.currentSettings()
+        if (!(settings.onDemandInStreams && settings.onDemandEnabled)) return false
+        if (!OnDemandRepository.hasContent.value) return false
+        return type.equals("movie", true) || type.equals("series", true) || type.equals("tv", true)
+    }
+
     /** The On Demand source for a request, or nothing when it is off, empty, or the request isn't a movie or episode. */
     fun sources(type: String, videoId: String, parentMetaId: String?, season: Int?, episode: Int?): List<ServerStreamSource> {
-        val settings = LiveTvPreferences.currentSettings()
         // The TV's "Off the menu only" is a TV layout thing; only "Off" (or this switch) hides it here.
-        if (!(settings.onDemandInStreams && settings.onDemandEnabled)) return emptyList()
-        if (!OnDemandRepository.hasContent.value) return emptyList()
-        if (!type.equals("movie", true) && !type.equals("series", true) && !type.equals("tv", true)) return emptyList()
+        if (!mayServe(type)) return emptyList()
         return listOf(
             ServerStreamSource(
                 addonId = GROUP_ID,
