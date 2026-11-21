@@ -104,7 +104,11 @@ internal object SportsRepository {
     /** ESPN games from the day after tomorrow to a week ahead (updated a few times a day). */
     private val weekData = MutableStateFlow<Map<String, LeagueData>>(emptyMap())
     private val fixtureData = MutableStateFlow<Map<String, LeagueData>>(emptyMap())
-    /** Leagues you follow or show on My Sports: a week ahead to five weeks ahead. */
+    /**
+     * Leagues you follow or show on My Sports: a week ahead to five weeks ahead, and their last
+     * race or round within [LEAGUE_BACK_DAYS] days, so a league that doesn't play every week
+     * (Formula 1, the Champions League) still has its last results in its row.
+     */
     private val aheadData = MutableStateFlow<Map<String, LeagueData>>(emptyMap())
     /** Followed teams' whole seasons from ESPN, by followed team key. */
     private val scheduleData = MutableStateFlow<Map<String, LeagueData>>(emptyMap())
@@ -810,10 +814,13 @@ internal object SportsRepository {
             l.espnPath != null && now - (aheadData.value[l.id]?.fetchedAt ?: 0L) > (if (force) HOUR else 6 * HOUR)
         }
         if (due.isEmpty()) return
-        // ESPN takes a whole month ("202611") though not a range of days.
-        val wanted = listOf(now + (DAYS_AHEAD + 1) * DAY, now + 35 * DAY).map { SportsDates.monthKey(it) }.distinct()
+        // ESPN takes a whole month ("202611") though not a range of days: the months ahead, and
+        // the months the last [LEAGUE_BACK_DAYS] days touch, for their results.
+        val wanted = listOf(now - LEAGUE_BACK_DAYS * DAY, now, now + (DAYS_AHEAD + 1) * DAY, now + 35 * DAY).map { SportsDates.monthKey(it) }.distinct()
         val keepFrom = dayStart(DAYS_AHEAD + 1)
         val keepTo = now + 36 * DAY
+        val backFrom = now - LEAGUE_BACK_DAYS * DAY
+        val backTo = now - DAY
         for (l in due) {
             val raws = wanted.mapNotNull { m -> runCatching { feeds.scoreboardDayRaw(l, m) }.getOrNull() }
             val at = LiveTvClock.nowMs()
@@ -822,7 +829,14 @@ internal object SportsRepository {
                 continue
             }
             val parsed = raws.flatMap { raw -> runCatching { SportsFeeds.parseScoreboard(l, raw) }.getOrDefault(emptyList()) }
-                .filter { it.startMs in keepFrom until keepTo }.distinctBy { it.id }
+                .filter { it.startMs in keepFrom until keepTo || (it.startMs in backFrom until backTo && it.state != GameState.PRE) }
+                .distinctBy { it.id }
+                .let { list ->
+                    // Of the results, only the last race or round (a few days): a busy league
+                    // like the NBA would otherwise keep hundreds of games no row shows.
+                    val newest = list.filter { it.startMs < backTo }.maxOfOrNull { it.startMs } ?: 0L
+                    list.filter { it.startMs >= keepFrom || it.startMs >= newest - 4 * DAY }
+                }
             aheadData.update { it + (l.id to LeagueData(parsed, at, null)) }
         }
     }
@@ -2056,6 +2070,8 @@ internal object SportsRepository {
     /** The page's days run from this many days back to [DAYS_AHEAD] ahead. */
     const val DAYS_AHEAD = 7
     const val DAYS_BACK = 7
+    /** How far back followed leagues keep results (for leagues that play every few weeks). */
+    const val LEAGUE_BACK_DAYS = 45
     /** Between saved answers when a league was asked one day at a time. */
     private const val RAW_SEP = "\n\u0001\n"
     /** Starts a saved scores file holding ready-made games (nuvio-data's) instead of the feed's answers. */

@@ -186,6 +186,11 @@ internal class SportsVideos(
         val cached = ytList
         val root = if (cached != null && LiveTvClock.nowMs() - cached.first < YT_LIST_TTL) cached.second
         else JSONObject(dataGet(SportsFeeds.DATA_URL + "sportsdb/highlights.json")).also { ytList = LiveTvClock.nowMs() to it }
+        // An older game: its month(s) from the archive too (the file above only holds the last week).
+        val roots = listOf(root) + if (LiveTvClock.nowMs() - ev.startMs > ARCHIVE_AFTER_MS) {
+            listOf(utcDay(ev.startMs, -1), utcDay(maxOf(ev.endMs ?: ev.startMs, ev.startMs), 4))
+                .map { it.take(7) }.distinct().mapNotNull { archiveMonth(it) }
+        } else emptyList()
         val m = YtMatch.of(ev, SportsCatalog.league(ev.leagueId)?.sport)
         class Found(val video: Video, val rank: Int, val order: Int)
         val found = LinkedHashMap<String, Found>()
@@ -196,10 +201,11 @@ internal class SportsVideos(
             found[id] = Found(Video("yt:$id", title, kind, from, null, url), YtMatch.rank(title), order)
         }
         // TheSportsDB's list: by its game id, or by the game's name.
-        root.optJSONObject("days")?.let { days ->
+        run {
             val tsdbId = if (ev.id.startsWith("tsdb:")) ev.id.substringAfterLast(':') else null
             for (shift in listOf(0, -1, 1)) {
-                val rows = days.optJSONArray(utcDay(ev.startMs, shift)) ?: continue
+                val day = utcDay(ev.startMs, shift)
+                val rows = roots.firstNotNullOfOrNull { it.optJSONObject("days")?.optJSONArray(day) } ?: continue
                 val before = found.size
                 for (i in 0 until rows.length()) {
                     val r = rows.optJSONObject(i) ?: continue
@@ -214,7 +220,7 @@ internal class SportsVideos(
             }
         }
         // The sports' own channels.
-        root.optJSONArray("yt")?.let { arr ->
+        for (arr in roots.mapNotNull { it.optJSONArray("yt") }) {
             for (i in 0 until arr.length()) {
                 val r = arr.optJSONObject(i) ?: continue
                 val id = r.optString("v").takeIf { it.length == 11 } ?: continue
@@ -225,6 +231,29 @@ internal class SportsVideos(
             }
         }
         return found.values.sortedWith(compareBy<Found> { it.rank }.thenBy { it.order }).take(MAX_YOUTUBE).map { it.video }
+    }
+
+    /** One month of the highlights archive (sportsdb/highlights/<yyyy-MM>.json); null when it can't be read. */
+    private suspend fun archiveMonth(month: String): JSONObject? {
+        val now = LiveTvClock.nowMs()
+        // A month that's over hardly changes; the current one fills in through the day.
+        val ttl = if (month == utcDay(now, 0).take(7)) YT_LIST_TTL else ARCHIVE_TTL
+        synchronized(archiveLock) { archive[month]?.takeIf { now - it.first < ttl }?.let { return it.second } }
+        val read = try {
+            JSONObject(dataGet(SportsFeeds.DATA_URL + "sportsdb/highlights/$month.json"))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Not there (a month before the archive started): nothing for it.
+            if (e.message?.contains("404") == true) JSONObject() else return null
+        }
+        synchronized(archiveLock) {
+            archive.remove(month)
+            archive[month] = now to read
+            // A few months at most: each is a month of every sport's videos.
+            while (archive.size > 3) archive.remove(archive.keys.first())
+        }
+        return read
     }
 
     // ------------------------------------------------------------------ ESPN
@@ -291,6 +320,11 @@ internal class SportsVideos(
         private val POLICY_KEY = Regex("policyKey:\"([^\"]+)\"")
         private const val SAME_GAME_MS = 5 * 3600_000L
         private const val YT_LIST_TTL = 10 * 60_000L
+        /** Games older than this also look in the archive (highlights.json holds the last 7 days). */
+        private const val ARCHIVE_AFTER_MS = 5 * 86_400_000L
+        private const val ARCHIVE_TTL = 6 * 3600_000L
+        private val archive = LinkedHashMap<String, Pair<Long, JSONObject>>()
+        private val archiveLock = SynchronizedObject()
         private const val MAX_PLAYS = 30
         private const val MAX_YOUTUBE = 24
         private val FROM_ORDER = listOf("NHL", "MLB", "ESPN", "YouTube")
