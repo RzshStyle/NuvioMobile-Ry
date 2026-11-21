@@ -3026,6 +3026,9 @@
     <string name="livetv_parental_is_locked">is locked. Enter your PIN</string>
     <string name="livetv_parental_lock_adult">Lock adult content</string>
     <string name="livetv_parental_lock_adult_description">Groups and categories with adult names lock by themselves, and adult channels stay out of search and Recently watched</string>
+    <string name="livetv_parental_lock_logins">Lock playlist logins</string>
+    <string name="livetv_parental_lock_logins_description">Editing playlists and guides, and saving backup files, need the PIN. Passwords show as dots.</string>
+    <string name="livetv_parental_logins_pin">Enter your PIN to see playlist logins</string>
     <string name="livetv_parental_locked_groups">Locked groups</string>
     <string name="livetv_parental_locked_groups_description">Channel groups and On Demand categories that need the PIN</string>
     <string name="livetv_parental_locked_count">%1$d locked</string>

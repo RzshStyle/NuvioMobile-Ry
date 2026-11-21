@@ -297,6 +297,9 @@ import nuvio.composeapp.generated.resources.livetv_parental_new_pin
 import nuvio.composeapp.generated.resources.livetv_parental_current_pin
 import nuvio.composeapp.generated.resources.livetv_parental_lock_adult
 import nuvio.composeapp.generated.resources.livetv_parental_lock_adult_description
+import nuvio.composeapp.generated.resources.livetv_parental_lock_logins
+import nuvio.composeapp.generated.resources.livetv_parental_lock_logins_description
+import nuvio.composeapp.generated.resources.livetv_parental_logins_pin
 import nuvio.composeapp.generated.resources.livetv_parental_locked_groups
 import nuvio.composeapp.generated.resources.livetv_parental_locked_groups_description
 import nuvio.composeapp.generated.resources.livetv_parental_locked_count
@@ -433,6 +436,8 @@ private sealed interface LiveDialog {
     /** Asks the current PIN, then [then]. */
     data class ParentalAskPin(val then: LiveDialog?) : LiveDialog
     data object ParentalRemovePin : LiveDialog
+    /** The PIN before playlist logins are shown or handed out; [then] runs once it's right. */
+    data class LoginPin(val then: () -> Unit) : LiveDialog
     data object ParentalGroups : LiveDialog
     data object Reminders : LiveDialog
     data object ReminderLead : LiveDialog
@@ -461,6 +466,10 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
     val reminderLead by LiveTvPreferences.reminderLeadMinutes.collectAsStateWithLifecycle()
     val showInContinueWatching by LiveTvPreferences.showInContinueWatching.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<LiveDialog?>(null) }
+    /** Runs [go] now, or after the PIN when playlist logins are locked. */
+    fun withLogins(go: () -> Unit) {
+        if (ParentalControls.loginsLocked(settings)) dialog = LiveDialog.LoginPin(go) else go()
+    }
     var dnsChoice by remember { mutableStateOf(LiveTvDns.current()) }
     val scope = rememberCoroutineScope()
     var exactAlarms by remember { mutableStateOf(RecordingPlatform.canScheduleExact()) }
@@ -902,6 +911,16 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     onCheckedChange = { on -> update { it.copy(lockAdultContent = on) }; ParentalControls.relock() },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
+                // Turning it on is free; turning it off needs the PIN (unless already entered).
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_parental_lock_logins),
+                    description = stringResource(Res.string.livetv_parental_lock_logins_description),
+                    checked = settings.lockLogins,
+                    enabled = pinSet,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> if (on) update { it.copy(lockLogins = true) } else withLogins { update { it.copy(lockLogins = false) } } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
                 SettingsNavigationRow(
                     title = stringResource(Res.string.livetv_parental_locked_groups),
                     description = stringResource(Res.string.livetv_parental_locked_groups_description),
@@ -1079,7 +1098,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     icon = Icons.Filled.FileUpload,
                     isTablet = isTablet,
                     enabled = !fileBusy,
-                    onClick = { pickExportFile() },
+                    onClick = { withLogins { pickExportFile() } },
                 )
                 fileMessage?.let {
                     SettingsGroupDivider(isTablet = isTablet)
@@ -1199,7 +1218,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             subtitle = playlistStatus(d.source, accounts[d.source.id]),
             onDismiss = close,
             actions = listOfNotNull(
-                stringResource(Res.string.action_edit) to { dialog = LiveDialog.EditPlaylist(d.source) },
+                stringResource(Res.string.action_edit) to { withLogins { dialog = LiveDialog.EditPlaylist(d.source) } },
                 stringResource(Res.string.livetv_update_now) to {
                     LiveTvRepository.updatePlaylistNow(d.source.id)
                     // A login with TV channels off only has On Demand to update.
@@ -1283,7 +1302,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             subtitle = epgStatus(d.source),
             onDismiss = close,
             actions = listOf(
-                stringResource(Res.string.action_edit) to { dialog = LiveDialog.EditEpg(d.source) },
+                stringResource(Res.string.action_edit) to { withLogins { dialog = LiveDialog.EditEpg(d.source) } },
                 stringResource(Res.string.livetv_update_now) to { LiveTvRepository.updateEpg(d.source); close() },
                 stringResource(Res.string.livetv_epg_shift) + ": " + offsetLabel(d.source.shiftMinutes, stringResource(Res.string.livetv_catchup_shift_none)) to {
                     dialog = LiveDialog.EpgSourceShift(d.source)
@@ -1425,6 +1444,12 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             onDismiss = { if (dialog is LiveDialog.ParentalAskPin) dialog = null },
             confirmLabel = stringResource(Res.string.action_save),
             onPin = { pin -> ParentalControls.checkPin(pin, settings).also { ok -> if (ok) dialog = d.then } },
+        )
+        is LiveDialog.LoginPin -> ParentalPinDialog(
+            title = stringResource(Res.string.livetv_parental_logins_pin),
+            // A right PIN moves on to what was asked for; only a cancel closes everything.
+            onDismiss = { if (dialog is LiveDialog.LoginPin) dialog = null },
+            onPin = { pin -> ParentalControls.unlockLogins(pin, settings).also { ok -> if (ok) { dialog = null; d.then() } } },
         )
         LiveDialog.ParentalSetPin -> ParentalPinDialog(
             title = stringResource(Res.string.livetv_parental_new_pin),
@@ -1653,7 +1678,8 @@ private fun XtreamForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
         NuvioInputField(value = name, onValueChange = { name = it }, placeholder = stringResource(Res.string.livetv_field_name))
         NuvioInputField(value = server, onValueChange = { server = it }, placeholder = stringResource(Res.string.livetv_field_server))
         NuvioInputField(value = user, onValueChange = { user = it }, placeholder = stringResource(Res.string.livetv_field_username))
-        NuvioInputField(value = pass, onValueChange = { pass = it }, placeholder = stringResource(Res.string.livetv_field_password))
+        if (ParentalControls.hideLogins()) StalkerSecretField(pass, { pass = it }, stringResource(Res.string.livetv_field_password))
+        else NuvioInputField(value = pass, onValueChange = { pass = it }, placeholder = stringResource(Res.string.livetv_field_password))
         NuvioInputField(value = ua, onValueChange = { ua = it }, placeholder = stringResource(Res.string.livetv_field_user_agent))
         if (existing == null) NuvioInputField(value = guideLink, onValueChange = { guideLink = it }, placeholder = stringResource(Res.string.livetv_field_guide_link))
         SettingsSwitchRow(title = stringResource(Res.string.livetv_load_embedded_epg), checked = embedded, isTablet = false, horizontalPadding = 0.dp, onCheckedChange = { embedded = it })

@@ -116,6 +116,7 @@ internal object LiveTvKeys {
     const val catchupShift = "catchup_shift_minutes"
     const val parentalPin = "parental_pin"
     const val lockAdultContent = "lock_adult_content"
+    const val lockLogins = "lock_logins"
     const val showQualityBadges = "show_quality_badges"
     const val showFrameRate = "show_frame_rate"
     const val matchFrameRate = "match_frame_rate"
@@ -933,6 +934,7 @@ internal open class LiveTvPreferencesStore {
             catchupShiftMinutes = p.int(LiveTvKeys.catchupShift) ?: d.catchupShiftMinutes,
             parentalPin = p.str(LiveTvKeys.parentalPin) ?: d.parentalPin,
             lockAdultContent = p.bool(LiveTvKeys.lockAdultContent) ?: d.lockAdultContent,
+            lockLogins = p.bool(LiveTvKeys.lockLogins) ?: d.lockLogins,
             showQualityBadges = p.bool(LiveTvKeys.showQualityBadges) ?: d.showQualityBadges,
             showFrameRate = p.bool(LiveTvKeys.showFrameRate) ?: d.showFrameRate,
             // Before the three choices it was on or off; on worked like "On start/stop".
@@ -1214,6 +1216,7 @@ internal open class LiveTvPreferencesStore {
         p[LiveTvKeys.catchupShift] = s.catchupShiftMinutes
         p[LiveTvKeys.parentalPin] = s.parentalPin
         p[LiveTvKeys.lockAdultContent] = s.lockAdultContent
+        p[LiveTvKeys.lockLogins] = s.lockLogins
         p[LiveTvKeys.showQualityBadges] = s.showQualityBadges
         p[LiveTvKeys.showFrameRate] = s.showFrameRate
         p[LiveTvKeys.frameRateMode] = s.frameRateMode
