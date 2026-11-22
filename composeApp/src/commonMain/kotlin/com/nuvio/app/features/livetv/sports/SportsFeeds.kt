@@ -103,6 +103,9 @@ internal class SportsFeeds {
     /** Every game of the next week with its TV channels by country (TheSportsDB's TV listings, kept by the nuvio-data job). */
     suspend fun tvListingsRaw(): String = get(DATA_URL + "sportsdb/tv.json")
 
+    /** TheSportsDB's rugby games on now, with the match minute (the nuvio-data scores job, every few minutes). */
+    suspend fun rugbyLiveRaw(): String = get(DATA_URL + "sportsdb/rugby-live.json")
+
     /** Team colours from TheSportsDB for every team-sport league in nuvio-data (re-read weekly by its job). */
     suspend fun teamColorsRaw(): String = get(DATA_URL + "sportsdb/colors.json")
 

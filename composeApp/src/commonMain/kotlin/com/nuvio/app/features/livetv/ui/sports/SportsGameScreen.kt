@@ -361,7 +361,7 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions) {
             item(key = "plays-h") { Text(stringResource(Res.string.livetv_sports_latest_scoring), style = MaterialTheme.typography.titleSmall, color = tokens.colors.textPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = NuvioTokens.Space.s8)) }
             items(plays.asReversed().take(12)) { p -> PlayRow(p) }
         }
-        if (sides.size == 2 && showScore && sides.any { it.periods.isNotEmpty() }) {
+        if (sides.size == 2 && showScore && sides.any { it.periods.isNotEmpty() } && (sport != Sport.RUGBY || periodsAddUp(sides))) {
             item(key = "periods") { PeriodTable(sides, sport) }
         }
         if (ev.standings.isNotEmpty() && !hide) {
@@ -731,4 +731,14 @@ internal fun TeamSheet(team: TeamInfo, actions: SportsActions, onDismiss: () -> 
             }
         }
     }
+}
+
+/**
+ * Whether each side's scores by period add up to its score. ESPN's live rugby leaves them at 0
+ * all game, which showed 0-0 halves beside a 32-12 score: for rugby such a table is left out.
+ */
+private fun periodsAddUp(sides: List<Side>): Boolean = sides.all { s ->
+    val total = s.score?.toDoubleOrNull() ?: return@all true
+    val parts = s.periods.map { it.toDoubleOrNull() ?: return@all true }
+    parts.isEmpty() || kotlin.math.abs(parts.sum() - total) < 0.01
 }

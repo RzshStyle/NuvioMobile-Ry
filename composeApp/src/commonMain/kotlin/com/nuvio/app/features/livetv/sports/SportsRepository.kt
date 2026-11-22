@@ -129,8 +129,21 @@ internal object SportsRepository {
     private val tvCache = SportsTvListings.Cache()
     private val tvCountries = settings.map { SportsTvListings.countriesFor(it) }.distinctUntilChanged()
 
+    /** TheSportsDB's live rugby (match minute), read while a rugby game is on: see [RugbyLive]. */
+    private val rugbyLive = MutableStateFlow<RugbyLive.Snapshot?>(null)
+    private var rugbyLiveReadAt = 0L
+
+    private class EventInputs(
+        val l: Map<String, LeagueData>, val w: Map<String, LeagueData>,
+        val f: Map<String, LeagueData>, val g: Map<Long, List<SportsEvent>>, val t: Map<String, LeagueData>,
+    )
+
     /** Every game and event on the page's days (a week back to a week ahead), before the TV listings. */
-    private val plainEvents: StateFlow<List<SportsEvent>> = combine(leagueData, weekData, fixtureData, guideData, tsdbData) { l, w, f, g, t ->
+    private val plainEvents: StateFlow<List<SportsEvent>> = combine(
+        combine(leagueData, weekData, fixtureData, guideData, tsdbData) { l, w, f, g, t -> EventInputs(l, w, f, g, t) },
+        rugbyLive,
+    ) { inputs, rugby ->
+        val l = inputs.l; val w = inputs.w; val f = inputs.f; val g = inputs.g; val t = inputs.t
         val now = LiveTvClock.nowMs()
         val guide = mergeWrestlingAirings(g.values.flatten()).map { timed(it, now) }
         val from = dayStart(-DAYS_BACK - 1)
@@ -175,7 +188,8 @@ internal object SportsRepository {
                 }
             }
         }
-        val espn = l.values.flatMap { it.events } + w.values.flatMap { it.events }
+        // Rugby: ESPN's match minute stays at 1', so TheSportsDB's minute (or the half) instead.
+        val espn = RugbyLive.fixAll(l.values.flatMap { it.events } + w.values.flatMap { it.events }, rugby, now)
         // A match ESPN lists, found again in the guide (or a schedule file) under a guide-only
         // league of the same sport, shows once: the ESPN one, with its score.
         val espnBySport = (espn + tsdb).filter { it.away != null && it.home != null }
@@ -591,6 +605,7 @@ internal object SportsRepository {
             // Watching your teams' games in the background: only the scores, nothing else.
             val active = full || watching.value
             if (active) runCatching { updateOnce(LiveTvClock.nowMs()) }
+            if (active) runCatching { updateRugbyLive(LiveTvClock.nowMs()) }
             // Week, past and non-league requests can take minutes: the live-score round keeps its
             // own clock while they're still going.
             if (full && extrasJob?.isActive != true) extrasJob = scope.launch {
@@ -748,6 +763,26 @@ internal object SportsRepository {
     // ------------------------------------------------------------------ the week ahead, seasons
 
     /** ESPN games from the day after tomorrow to a week ahead: a few times a day. */
+    /**
+     * While a rugby game is on: TheSportsDB's live rugby file (its match minute), read every minute
+     * while Sports is open and every 3 minutes otherwise. Each reading moves the minute on, even
+     * when the file hasn't changed. Nothing is read when no rugby is on.
+     */
+    private suspend fun updateRugbyLive(now: Long) {
+        val on = (leagueData.value.values.asSequence() + weekData.value.values.asSequence())
+            .flatMap { it.events.asSequence() }.any(RugbyLive::applies)
+        if (!on) {
+            if (rugbyLive.value != null) rugbyLive.value = null
+            return
+        }
+        val every = if (viewers.value > 0) 60_000L else 3 * MINUTE
+        if (now - rugbyLiveReadAt < every) return
+        rugbyLiveReadAt = now
+        val raw = runCatching { feeds.rugbyLiveRaw() }.getOrNull()
+        // Not there (yet) or unreadable: the half is shown instead, from the last reading's age.
+        rugbyLive.value = raw?.let { RugbyLive.parse(it, now) } ?: rugbyLive.value?.let { RugbyLive.Snapshot(it.atMs, now, it.games) }
+    }
+
     private suspend fun updateWeek(now: Long, force: Boolean) {
         val s = settings.value
         val f = follows.value
@@ -1653,7 +1688,7 @@ internal object SportsRepository {
                 if (!chosen && !mine(side.team.id)) continue
                 val was = prev.sides.firstOrNull { it.team.id == side.team.id }?.score?.toDoubleOrNull() ?: continue
                 val nowScore = side.score?.toDoubleOrNull() ?: continue
-                if (nowScore > was) SportsLive.alert(SportsAlert(ev, side.team, league))
+                if (nowScore > was) SportsLive.alert(SportsAlert(RugbyLive.fix(ev, rugbyLive.value, LiveTvClock.nowMs()), side.team, league))
             }
         }
     }
