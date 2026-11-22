@@ -130,7 +130,9 @@ internal object LiveTvRepository {
             }
         }
         scope.launch {
-            runCatching { mutex.withLock { rebuildLocked() } }
+            // The channel list saved last time goes on screen first; only playlists that changed
+            // since are read again (quietly, the channels already showing).
+            runCatching { mutex.withLock { runCatching { loadSavedChannels() }; rebuildLocked() } }
             if (updateCheckDelayMs > 0) delay(updateCheckDelayMs)
             autoCheck()
             firstCheckDone = true
@@ -870,6 +872,69 @@ internal object LiveTvRepository {
         }
     }
 
+    // ---------------------------------------------------------------- saved channel list
+
+    /** What the saved channel list holds (its playlists' segments and channel count); null: nothing saved. */
+    @kotlin.concurrent.Volatile private var savedStamp: String? = null
+    private val saveMutex = Mutex()
+
+    private fun stampOf(segments: Map<String, String>, savedCount: Int): String =
+        segments.entries.sortedBy { it.key }.joinToString(",") { it.key + "=" + it.value } + "#" + savedCount
+
+    /**
+     * Start: the channel list saved last time, so channels show at once. Only playlists still on
+     * (and still downloaded) are taken; their channels are re-read straight after by
+     * [buildChannels] only if the playlist changed since. Provider portals aren't in it (they're
+     * read from their own saved copy, as before).
+     */
+    private suspend fun loadSavedChannels() = withContext(Dispatchers.Default) {
+        if (_channels.value.isNotEmpty()) return@withContext
+        val t0 = LiveTvClock.nowMs()
+        val on = prefs.currentPlaylists().filter { it.liveEnabled && !it.isStalker && LiveTvFiles.exists(LiveTvDirs.PLAYLISTS, playlistFile(it.id)) }
+            .mapTo(HashSet()) { it.id }
+        if (on.isEmpty()) return@withContext
+        val saved = LiveTvFiles.readChunks(LiveTvDirs.STATE, SavedChannels.FILE) { chunks -> SavedChannels.read(linesOf(chunks)) }
+        if (saved == null) {
+            if (LiveTvFiles.exists(LiveTvDirs.STATE, SavedChannels.FILE)) {
+                REPORT.add("Saved channel list couldn't be used: reading the playlists")
+                LiveTvFiles.delete(LiveTvDirs.STATE, SavedChannels.FILE)
+            }
+            return@withContext
+        }
+        savedStamp = stampOf(saved.segments, saved.channels.size)
+        val channels = saved.channels.filter { it.sourceId in on }
+        if (channels.isEmpty()) return@withContext
+        saved.epgUrls.forEach { (id, urls) -> if (id in on) embeddedEpgUrls[id] = urls }
+        builtSegments = saved.segments.filterKeys { it in on }
+        _channels.value = channels
+        REPORT.add("Start-up: ${channels.size} channels shown from the saved list in ${LiveTvClock.nowMs() - t0} ms")
+    }
+
+    /** Saves the channel list (in the background) when it's not what's saved already. */
+    private fun saveChannelsIfChanged(segments: Map<String, String>, list: List<LiveChannel>) {
+        val ids = segments.keys
+        val toSave = list.filter { it.sourceId in ids }
+        val stamp = stampOf(segments, toSave.size)
+        if (stamp == savedStamp) return
+        savedStamp = stamp
+        val urls = embeddedEpgUrls.filterKeys { it in ids }
+        scope.launch(Dispatchers.Default) {
+            saveMutex.withLock {
+                // Newer list made meanwhile: that one gets saved instead.
+                if (savedStamp != stamp) return@withLock
+                runCatching {
+                    if (toSave.isEmpty()) LiveTvFiles.delete(LiveTvDirs.STATE, SavedChannels.FILE)
+                    else LiveTvFiles.writeTextStream(LiveTvDirs.STATE, SavedChannels.FILE) { write ->
+                        SavedChannels.write(segments, urls, toSave, write)
+                    }
+                }.onFailure {
+                    savedStamp = null
+                    REPORT.add("Saving the channel list for a faster start failed: ${it.message ?: it::class.simpleName}")
+                }
+            }
+        }
+    }
+
     /** Each playlist's part of what the current channel list was read from (see [buildChannels]). */
     @kotlin.concurrent.Volatile private var builtSegments: Map<String, String> = emptyMap()
 
@@ -1004,6 +1069,7 @@ internal object LiveTvRepository {
         val stillOn = prefs.currentPlaylists().filter { it.liveEnabled }.mapTo(HashSet()) { it.id }
         val kept = if (out.all { it.sourceId in stillOn }) out else out.filter { it.sourceId in stillOn }
         _channels.value = kept
+        saveChannelsIfChanged(segments, kept)
         if (read < playlists.size) REPORT.add("Channel list: read $read playlist(s), kept ${playlists.size - read} unchanged")
         if (read > 0) REPORT.add("Channel list updated: ${kept.size} channels in ${LiveTvClock.nowMs() - t0} ms")
         carryOverRenamedChannels(before, kept)
