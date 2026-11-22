@@ -325,7 +325,10 @@ private fun VodRow(
 /** The TMDB match for a title (poster, proper name), looked up once and remembered. */
 @Composable
 internal fun rememberVodMatch(item: VodItem): VodMatch? {
-    val match by produceState<VodMatch?>(null, item.uid) {
+    // A Fix match pick (or going back to automatic) shows straight away.
+    val fixes by com.nuvio.app.features.livetv.data.TitleMatchFixes.fixes.collectAsStateWithLifecycle()
+    val pick = fixes[com.nuvio.app.features.livetv.data.TitleMatchFixes.vodKey(item.uid)]
+    val match by produceState<VodMatch?>(null, item.uid, pick) {
         value = runCatching { OnDemandRepository.match(item) }.getOrNull()
     }
     return match

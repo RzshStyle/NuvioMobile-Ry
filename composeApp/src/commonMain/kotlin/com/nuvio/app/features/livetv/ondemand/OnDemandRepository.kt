@@ -755,6 +755,10 @@ internal object OnDemandRepository {
      * again after a week. Null when TMDB is off (no key) or the lookup failed.
      */
     suspend fun match(item: VodItem): VodMatch? {
+        // Picked with Fix match (here or on a TV): that title.
+        com.nuvio.app.features.livetv.data.TitleMatchFixes.get(com.nuvio.app.features.livetv.data.TitleMatchFixes.vodKey(item.uid))?.let { p ->
+            return VodMatch(poster = p.poster.orEmpty(), title = p.name.ifBlank { null }, tmdbId = p.tmdbId, checkedMs = LiveTvClock.nowMs())
+        }
         matchCache[item.uid]?.let { return it }
         val cached = withContext(Dispatchers.Default) { runCatching { OnDemandStore.cachedMatch(item.uid) }.getOrNull() }
         val now = LiveTvClock.nowMs()

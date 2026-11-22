@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -62,6 +63,7 @@ import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.livetv.data.CivilTime
+import com.nuvio.app.features.livetv.data.TitleMatchFixes
 import com.nuvio.app.features.livetv.data.LiveTvTimeZones
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.model.LiveTvClock
@@ -79,6 +81,8 @@ import com.nuvio.app.features.livetv.record.RepeatRule
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.livetv_fix_match
+import nuvio.composeapp.generated.resources.livetv_fix_match_rec_scope
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.action_delete
 import nuvio.composeapp.generated.resources.action_play
@@ -148,6 +152,8 @@ internal fun RecordingsScreen(
     LaunchedEffect(Unit) { while (true) { NetworkLibrary.refresh(force = true); delay(180_000) } }
     val netAway = network.folderLabel != null && network.reachable == false
     var sheet by remember { mutableStateOf<Any?>(null) }
+    // Fix match: the show's name, and whether it's surely a show (null = don't know).
+    var fixFor by remember { mutableStateOf<Pair<String, Boolean?>?>(null) }
     LaunchedEffect(Unit) { LiveTvRecordingScheduler.fireOverdue() }
     LaunchedEffect(notice) { if (notice != null) { NuvioToastController.show(notice.orEmpty()); RecordingNotices.clear() } }
     val now by produceState(LiveTvClock.nowMs()) { while (true) { value = LiveTvClock.nowMs(); delay(15_000) } }
@@ -290,11 +296,22 @@ internal fun RecordingsScreen(
     }
 
     when (val s = sheet) {
-        is LiveTvRecording -> RecordingSheet(s, onDismiss = { sheet = null }, onPlay = { play(s) })
-        is RecordingSchedule -> ScheduleSheet(s, onDismiss = { sheet = null })
-        is SeriesRule -> SeriesSheet(s, onDismiss = { sheet = null })
+        is LiveTvRecording -> RecordingSheet(s, onDismiss = { sheet = null }, onPlay = { play(s) },
+            onFixMatch = { fixFor = s.title to (if (s.episode.isNullOrBlank()) null else true) })
+        is RecordingSchedule -> ScheduleSheet(s, onDismiss = { sheet = null }, onFixMatch = { fixFor = s.title to (if (s.episode.isNullOrBlank()) null else true) })
+        is SeriesRule -> SeriesSheet(s, onDismiss = { sheet = null }, onFixMatch = { fixFor = s.title to true })
         is RepeatRule -> RepeatSheet(s, onDismiss = { sheet = null })
         else -> Unit
+    }
+    fixFor?.let { (title, series) ->
+        FixMatchSheet(
+            title = title,
+            scopeNote = stringResource(Res.string.livetv_fix_match_rec_scope),
+            key = TitleMatchFixes.recordingKey(title),
+            initialQuery = title,
+            initialSeries = series,
+            onDismiss = { fixFor = null },
+        )
     }
 }
 
@@ -386,14 +403,21 @@ private fun dayStartOf(ms: Long): Long {
 private val SPORTS_CHANNEL = Regex("""(?i)sport|espn|dazn|bein|\bnfl\b|\bnba\b|\bnhl\b|\bmlb\b|\bufc\b|\bf1\b|ppv""")
 private val GAME_TITLE = Regex("""(?i)\s(vs?\.?|@)\s""")
 
+private fun isSportsRecording(title: String, channelName: String?): Boolean =
+    GAME_TITLE.containsMatchIn(title) || (channelName != null && SPORTS_CHANNEL.containsMatchIn(channelName))
+
 /** A show's poster (TMDB, as On Demand finds them), or null. Off when "Show posters" is off. */
 @Composable
 private fun rememberRecordingPoster(title: String, channelName: String?): String? {
     val settings by LiveTvPreferences.settings.collectAsStateWithLifecycle()
-    val wanted = settings.showPosters && title.isNotBlank() &&
-        !GAME_TITLE.containsMatchIn(title) && !(channelName != null && SPORTS_CHANNEL.containsMatchIn(channelName))
-    val poster by produceState<String?>(null, title, wanted) {
+    val wanted = settings.showPosters && title.isNotBlank() && !isSportsRecording(title, channelName)
+    // Fix match: your pick (here or on a TV) wins; then the channel's country picks between same-named shows.
+    val fixes by TitleMatchFixes.fixes.collectAsStateWithLifecycle()
+    val pick = fixes[TitleMatchFixes.recordingKey(title)]
+    val poster by produceState<String?>(null, title, wanted, pick) {
         if (!wanted) { value = null; return@produceState }
+        pick?.poster?.let { value = it; return@produceState }
+        TitleMatchFixes.posterByCountry(title, channelName)?.let { value = it; return@produceState }
         val key = title.trim().lowercase().replace(Regex("\\s+"), " ")
         val item = VodItem(
             playlistId = "rec", kind = VodKind.SERIES, id = key, name = title, icon = null, categoryId = "",
@@ -470,7 +494,7 @@ private fun Modifier.combinedClickableCompat(onClick: () -> Unit): Modifier = co
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: () -> Unit) {
+private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: () -> Unit, onFixMatch: () -> Unit) {
     val tokens = MaterialTheme.nuvio
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -487,6 +511,10 @@ private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: 
         NuvioBottomSheetDivider()
         if (rec.status != RecordingStatus.FAILED) {
             NuvioBottomSheetActionRow(title = stringResource(Res.string.action_play), icon = Icons.Filled.PlayArrow, onClick = { close(onPlay) })
+        }
+        // Wrong poster (a film instead of the show, the US version of a UK show): pick the right one.
+        if (!isSportsRecording(rec.title, rec.channelName)) {
+            NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_fix_match), icon = Icons.Filled.ImageSearch, onClick = { close(onFixMatch) })
         }
         if (NetworkLibrary.isNetwork(rec)) {
             // A TV's recording on the network folder: deleting it takes it off every TV too. Not while it records.
@@ -506,7 +534,7 @@ private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ScheduleSheet(s: RecordingSchedule, onDismiss: () -> Unit) {
+private fun ScheduleSheet(s: RecordingSchedule, onDismiss: () -> Unit, onFixMatch: () -> Unit) {
     val tokens = MaterialTheme.nuvio
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -521,6 +549,9 @@ private fun ScheduleSheet(s: RecordingSchedule, onDismiss: () -> Unit) {
             )
         }
         NuvioBottomSheetDivider()
+        if (!isSportsRecording(s.title, s.channel.name)) {
+            NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_fix_match), icon = Icons.Filled.ImageSearch, onClick = { close(onFixMatch) })
+        }
         NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_cancel), icon = Icons.Filled.Delete, onClick = { LiveTvRecordingScheduler.cancel(s.id); close() })
         Spacer(Modifier.height(NuvioTokens.Space.s12))
     }
@@ -530,7 +561,7 @@ private val KEEP_CHOICES = listOf(0, 1, 2, 3, 5, 10, 20)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SeriesSheet(r: SeriesRule, onDismiss: () -> Unit) {
+private fun SeriesSheet(r: SeriesRule, onDismiss: () -> Unit, onFixMatch: () -> Unit) {
     val tokens = MaterialTheme.nuvio
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -551,6 +582,9 @@ private fun SeriesSheet(r: SeriesRule, onDismiss: () -> Unit) {
             }
         }
         NuvioBottomSheetDivider()
+        if (!isSportsRecording(r.title, r.channel.name)) {
+            NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_fix_match), icon = Icons.Filled.ImageSearch, onClick = { close(onFixMatch) })
+        }
         NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_series_stop), icon = Icons.Filled.Delete, onClick = { LiveTvRecordingScheduler.removeSeries(r.id); close() })
         Spacer(Modifier.height(NuvioTokens.Space.s12))
     }

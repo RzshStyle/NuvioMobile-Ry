@@ -141,6 +141,8 @@ internal object LiveTvKeys {
     const val calendarFollows = "calendar_follows"
     const val calendarHiddenShows = "calendar_hidden_shows"
     const val calendarChannelPicks = "calendar_channel_picks"
+    /** "Fix match" picks for recordings and On Demand titles (JSON object, same as the TV app). */
+    const val titleMatchFixes = "title_match_fixes"
     const val calendarPlans = "calendar_plans"
     const val onDemandInStreams = "on_demand_in_streams"
     const val onDemandStreamsPosition = "on_demand_streams_position"
@@ -1168,6 +1170,10 @@ internal open class LiveTvPreferencesStore {
 
     val calendarChannelPicks: Flow<String> = _data.map { it.str(LiveTvKeys.calendarChannelPicks) ?: "" }.distinctUntilChanged()
     fun editCalendarChannelPicks(transform: (String) -> String) = edit { it[LiveTvKeys.calendarChannelPicks] = transform(it.str(LiveTvKeys.calendarChannelPicks) ?: "") }
+
+    val titleMatchFixes: Flow<String> = _data.map { it.str(LiveTvKeys.titleMatchFixes) ?: "" }.distinctUntilChanged()
+    fun titleMatchFixesNow(): String = _data.value.str(LiveTvKeys.titleMatchFixes) ?: ""
+    fun editTitleMatchFixes(transform: (String) -> String) = edit { it[LiveTvKeys.titleMatchFixes] = transform(it.str(LiveTvKeys.titleMatchFixes) ?: "") }
 
     val calendarPlans: Flow<String> = _data.map { it.str(LiveTvKeys.calendarPlans) ?: "" }.distinctUntilChanged()
     fun editCalendarPlans(transform: (String) -> String) = edit { it[LiveTvKeys.calendarPlans] = transform(it.str(LiveTvKeys.calendarPlans) ?: "") }

@@ -33,7 +33,7 @@ internal object SyncParts {
         LiveTvKeys.channelLogos, LiveTvKeys.channelNumbers, LiveTvKeys.groupNames, LiveTvKeys.groupOrder,
         LiveTvKeys.customGroups, LiveTvKeys.channelOrder, LiveTvKeys.channelCopies, LiveTvKeys.channelAudio,
         LiveTvKeys.pictureShapes, LiveTvKeys.lockedGroups, LiveTvKeys.favoriteGroups, LiveTvKeys.nameRemovals, LiveTvKeys.reminders,
-        LiveTvKeys.vodHiddenCategories, LiveTvKeys.vodGroupOrder, LiveTvKeys.vodGroupNames,
+        LiveTvKeys.vodHiddenCategories, LiveTvKeys.vodGroupOrder, LiveTvKeys.vodGroupNames, LiveTvKeys.titleMatchFixes,
     )
     private val SPORTS_KEYS = setOf(LiveTvKeys.sports, LiveTvKeys.sportsMine)
     /** Options that act the same on any device (not how the app looks), so phones and TVs share them. */
