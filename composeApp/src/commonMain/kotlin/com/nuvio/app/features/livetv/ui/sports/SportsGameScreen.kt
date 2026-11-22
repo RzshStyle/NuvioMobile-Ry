@@ -768,7 +768,7 @@ private fun PlayRow(p: ScoringPlay) {
 private fun PeriodTable(sides: List<Side>, sport: Sport) {
     val tokens = MaterialTheme.nuvio
     val n = sides.maxOf { it.periods.size }
-    val heading = when (sport) { Sport.BASEBALL -> "Innings"; Sport.HOCKEY -> "Periods"; Sport.FOOTBALL, Sport.RUGBY -> "Halves"; else -> "Quarters" }
+    val heading = when (sport) { Sport.BASEBALL -> "Innings"; Sport.HOCKEY -> "Periods"; Sport.FOOTBALL, Sport.RUGBY, Sport.HANDBALL -> "Halves"; else -> "Quarters" }
     Column(modifier = Modifier.fillMaxWidth().clip(tokens.shapes.card).background(tokens.colors.surface).padding(NuvioTokens.Space.s10), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4)) {
         Row {
             Text(heading, style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted, modifier = Modifier.weight(1f))

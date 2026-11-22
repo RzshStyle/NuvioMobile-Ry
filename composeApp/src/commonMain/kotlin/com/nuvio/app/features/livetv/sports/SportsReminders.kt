@@ -190,7 +190,7 @@ internal object SportsReminders {
             Sport.BASEBALL -> "RUN"
             else -> "SCORE"
         }
-        val heading = if (a.final) (if (sport == Sport.FOOTBALL) "FULL TIME" else "FINAL") else "$what · ${a.team.name}"
+        val heading = if (a.final) (if (sport == Sport.FOOTBALL || sport == Sport.HANDBALL) "FULL TIME" else "FINAL") else "$what · ${a.team.name}"
         val text = if (a.final) score else score + (ev.status?.let { " · $it" } ?: "")
         NuvioToastController.show("$heading  $text", durationMillis = 4_000L)
         RecordingPlatform.notifyReminder("sport-alert:${ev.id}", heading, text, LiveTvDeepLinks.sportsGameUrl(ev.id), important = false)
