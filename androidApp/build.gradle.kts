@@ -126,6 +126,14 @@ android {
         noCompress += "cvr"
     }
 
+    // Seek thumbnails' fast reader (libnuvioseekthumb): reads only the keyframes, with MPV's own FFmpeg.
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
     splits {
         abi {
             isEnable = buildsReleaseApks
