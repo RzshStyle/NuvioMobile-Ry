@@ -41,7 +41,28 @@ data class NetworkFolderConfig(
     /** How it's shown: \\192.168.1.20\Recordings\TV */
     val label: String get() = "\\\\" + host + "\\" + share + (if (path.isEmpty()) "" else "\\" + path.replace('/', '\\'))
 
+    /** What's typed in the Address box. */
+    val address: String get() = label
+
+    /** The synced value (the TV app's JSON). */
+    fun toJson(): String = buildJsonObject {
+        put("host", host); put("share", share); put("path", path)
+        put("username", username); put("password", password); put("domain", domain)
+    }.toString()
+
     companion object {
+        /**
+         * Reads an address typed any common way: \\host\share\folder, //host/share/folder,
+         * smb://host/share/folder or host/share/folder. Null when there's no shared folder name.
+         */
+        fun parseAddress(text: String): Triple<String, String, String>? {
+            var t = text.trim()
+            if (t.startsWith("smb://", ignoreCase = true)) t = t.substring(6)
+            val parts = t.replace('\\', '/').split('/').map { it.trim() }.filter { it.isNotEmpty() }
+            if (parts.size < 2) return null
+            return Triple(parts[0], parts[1], parts.drop(2).joinToString("/"))
+        }
+
         /** The synced value: null for none (never set up, or removed: an empty value). */
         fun fromJson(text: String?): NetworkFolderConfig? {
             if (text.isNullOrBlank()) return null
@@ -78,6 +99,13 @@ internal expect object NetworkLibraryPlatform {
 
     /** A problem reaching the folder, in plain words. */
     fun describe(e: Throwable, config: NetworkFolderConfig): String
+
+    /**
+     * Checks [config] works (connects, logs in, saves and removes a small test file). Null when
+     * it does, else why not in plain words. A Full app VPN lets the address through first
+     * ([onVpnWait] is called while it reconnects).
+     */
+    suspend fun test(config: NetworkFolderConfig, onVpnWait: () -> Unit): String?
 }
 
 /**
@@ -181,6 +209,20 @@ internal object NetworkLibrary {
         } catch (e: Throwable) {
             runCatching { NetworkLibraryPlatform.describe(e, c) }.getOrDefault("The network folder couldn't be reached")
         }
+    }
+
+    /**
+     * Saves the folder set up on this phone (null removes it). It goes to the TVs with Live TV
+     * sync, like a folder set up on a TV; each TV still picks where its own recordings go.
+     */
+    fun save(c: NetworkFolderConfig?) {
+        LiveTvPreferences.setNetworkFolderJson(c?.toJson() ?: "")
+        start()
+    }
+
+    /** The set-up screen closed without saving: the VPN goes back to the saved folder's address. */
+    fun restoreVpn() {
+        runCatching { NetworkLibraryPlatform.configChanged(NetworkFolderConfig.fromJson(LiveTvPreferences.currentNetworkFolderJson())) }
     }
 
     /** [delete] in the background (the sheet asking closes straight away), saying how it went. */

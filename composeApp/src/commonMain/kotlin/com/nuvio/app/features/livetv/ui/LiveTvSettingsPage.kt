@@ -65,6 +65,9 @@ import com.nuvio.app.features.livetv.model.PlaylistSource
 import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
 import com.nuvio.app.features.livetv.ondemand.VodSort
 import com.nuvio.app.features.livetv.record.LiveTvRecorder
+import com.nuvio.app.features.livetv.record.NetworkFolderConfig
+import com.nuvio.app.features.livetv.record.NetworkLibrary
+import com.nuvio.app.features.livetv.record.NetworkLibraryPlatform
 import com.nuvio.app.features.livetv.record.RecordingPlatform
 import com.nuvio.app.features.livetv.record.RecordingRules
 import com.nuvio.app.features.livetv.sports.SportsRepository
@@ -249,6 +252,23 @@ import nuvio.composeapp.generated.resources.livetv_rec_space_rule_stop
 import nuvio.composeapp.generated.resources.livetv_rec_storage
 import nuvio.composeapp.generated.resources.livetv_rec_storage_description
 import nuvio.composeapp.generated.resources.livetv_rec_this_device
+import nuvio.composeapp.generated.resources.livetv_rec_network_folder
+import nuvio.composeapp.generated.resources.livetv_rec_network_folder_description
+import nuvio.composeapp.generated.resources.livetv_rec_network_not_set_up
+import nuvio.composeapp.generated.resources.livetv_network_title
+import nuvio.composeapp.generated.resources.livetv_network_subtitle
+import nuvio.composeapp.generated.resources.livetv_network_address
+import nuvio.composeapp.generated.resources.livetv_network_username
+import nuvio.composeapp.generated.resources.livetv_network_password
+import nuvio.composeapp.generated.resources.livetv_network_tips
+import nuvio.composeapp.generated.resources.livetv_network_test_save
+import nuvio.composeapp.generated.resources.livetv_network_save_anyway
+import nuvio.composeapp.generated.resources.livetv_network_remove
+import nuvio.composeapp.generated.resources.livetv_network_checking
+import nuvio.composeapp.generated.resources.livetv_network_checking_vpn
+import nuvio.composeapp.generated.resources.livetv_network_bad_address
+import nuvio.composeapp.generated.resources.livetv_network_saved
+import nuvio.composeapp.generated.resources.livetv_network_removed
 import nuvio.composeapp.generated.resources.livetv_vod_default_sort
 import nuvio.composeapp.generated.resources.livetv_vod_default_sort_description
 import nuvio.composeapp.generated.resources.livetv_vod_autoplay
@@ -448,6 +468,7 @@ private sealed interface LiveDialog {
     data object ParentalRemovePin : LiveDialog
     /** The PIN before playlist logins are shown or handed out; [then] runs once it's right. */
     data class LoginPin(val then: () -> Unit) : LiveDialog
+    data object NetworkFolder : LiveDialog
     data object ParentalGroups : LiveDialog
     data object Reminders : LiveDialog
     data object ReminderLead : LiveDialog
@@ -472,6 +493,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
     val drive by remember { LiveTvDriveSync.start(); LiveTvDriveSync.state }.collectAsStateWithLifecycle()
     val vodStatus by remember { OnDemandRepository.start(); OnDemandRepository.status }.collectAsStateWithLifecycle()
     val sports by SportsRepository.settings.collectAsStateWithLifecycle()
+    val networkFolderJson by LiveTvPreferences.networkFolderJson.collectAsStateWithLifecycle(LiveTvPreferences.currentNetworkFolderJson())
     val userState by LiveTvPreferences.userState.collectAsStateWithLifecycle()
     val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
     val profiles = profileState.profiles
@@ -1064,6 +1086,19 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     trailingContent = { ValueLabel(stringResource(Res.string.livetv_rec_this_device) + " · " + RecordingRules.sizeLabel(LiveTvRecorder.freeBytes())) },
                     onClick = {},
                 )
+                // The network folder the TVs record to (synced): set up or changed here too.
+                if (NetworkLibraryPlatform.available) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.livetv_rec_network_folder),
+                        description = stringResource(Res.string.livetv_rec_network_folder_description),
+                        isTablet = isTablet,
+                        trailingContent = {
+                            ValueLabel(NetworkFolderConfig.fromJson(networkFolderJson)?.label ?: stringResource(Res.string.livetv_rec_network_not_set_up))
+                        },
+                        onClick = { withLogins { dialog = LiveDialog.NetworkFolder } },
+                    )
+                }
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsNavigationRow(
                     title = stringResource(Res.string.livetv_rec_space_rule),
@@ -1233,6 +1268,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             else -> M3uForm(d.source, onDismiss = close)
         }
         is LiveDialog.EditEpg -> EpgForm(d.source, onDismiss = close)
+        LiveDialog.NetworkFolder -> NetworkFolderForm(onDismiss = close)
         is LiveDialog.PlaylistActions -> ActionsDialog(
             title = d.source.name,
             subtitle = playlistStatus(d.source, accounts[d.source.id]),
@@ -1821,6 +1857,101 @@ private fun StalkerForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
                     OnDemandRepository.refreshSoon()
                     onDismiss()
                 })
+        }
+    }
+}
+
+/** How a network folder address is typed (shown as the example). */
+private const val NETWORK_ADDRESS_EXAMPLE = "\\\\192.168.1.20\\Recordings"
+
+/**
+ * Sets up the network folder (the one the TVs record to): address, username, password.
+ * "Test and save" connects and saves a small test file first; if that fails it says why, and
+ * "Save anyway" keeps it (a computer that's asleep right now). Saved here, it goes to the TVs
+ * with Live TV sync. The password always shows as dots, like on the TV.
+ */
+@Composable
+private fun NetworkFolderForm(onDismiss: () -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    val existing = remember { NetworkFolderConfig.fromJson(LiveTvPreferences.currentNetworkFolderJson()) }
+    var address by remember { mutableStateOf(existing?.address.orEmpty()) }
+    var username by remember { mutableStateOf(existing?.username.orEmpty()) }
+    var password by remember { mutableStateOf(existing?.password.orEmpty()) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var failed by remember { mutableStateOf(false) }
+    var checking by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val checkingText = stringResource(Res.string.livetv_network_checking)
+    val checkingVpnText = stringResource(Res.string.livetv_network_checking_vpn)
+    val badAddressText = stringResource(Res.string.livetv_network_bad_address, NETWORK_ADDRESS_EXAMPLE)
+    val savedText = stringResource(Res.string.livetv_network_saved)
+    val removedText = stringResource(Res.string.livetv_network_removed)
+
+    fun configOrNull(): NetworkFolderConfig? {
+        val (host, share, path) = NetworkFolderConfig.parseAddress(address) ?: return null
+        return NetworkFolderConfig(host = host, share = share, path = path, username = username.trim(), password = password,
+            domain = existing?.takeIf { it.host == host }?.domain.orEmpty())
+    }
+    fun save(c: NetworkFolderConfig) {
+        NetworkLibrary.save(c)
+        com.nuvio.app.core.ui.NuvioToastController.show(savedText)
+        onDismiss()
+    }
+    fun edited() { failed = false; status = null }
+
+    // Closed without saving: the VPN goes back to the saved folder's address.
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { NetworkLibrary.restoreVpn() } }
+
+    DialogSurface(
+        onDismissRequest = { if (!checking) onDismiss() },
+        title = stringResource(Res.string.livetv_network_title),
+        message = stringResource(Res.string.livetv_network_subtitle),
+    ) {
+        NuvioInputField(value = address, onValueChange = { address = it; edited() },
+            placeholder = stringResource(Res.string.livetv_network_address, NETWORK_ADDRESS_EXAMPLE))
+        NuvioInputField(value = username, onValueChange = { username = it; edited() },
+            placeholder = stringResource(Res.string.livetv_network_username))
+        StalkerSecretField(password, { password = it; edited() }, stringResource(Res.string.livetv_network_password))
+        Text(stringResource(Res.string.livetv_network_tips), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted)
+        status?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = if (failed) tokens.colors.danger else tokens.colors.textMuted)
+        }
+        DialogButtons {
+            DialogButton(text = stringResource(Res.string.action_cancel), onClick = onDismiss, enabled = !checking)
+            if (existing != null) DialogButton(
+                text = stringResource(Res.string.livetv_network_remove),
+                style = DialogButtonStyle.Destructive,
+                enabled = !checking,
+                onClick = {
+                    NetworkLibrary.save(null)
+                    com.nuvio.app.core.ui.NuvioToastController.show(removedText)
+                    onDismiss()
+                },
+            )
+            if (failed) DialogButton(
+                text = stringResource(Res.string.livetv_network_save_anyway),
+                enabled = !checking,
+                onClick = { configOrNull()?.let { save(it) } },
+            )
+            DialogButton(
+                text = stringResource(Res.string.livetv_network_test_save),
+                style = DialogButtonStyle.Primary,
+                loading = checking,
+                onClick = {
+                    val c = configOrNull()
+                    if (c == null) { failed = false; status = badAddressText; return@DialogButton }
+                    checking = true
+                    failed = false
+                    status = checkingText
+                    scope.launch {
+                        val problem = runCatching { NetworkLibraryPlatform.test(c) { status = checkingVpnText } }
+                            .getOrElse { it.message ?: "The network folder didn't work" }
+                        checking = false
+                        if (problem == null) save(c)
+                        else { failed = true; status = problem }
+                    }
+                },
+            )
         }
     }
 }

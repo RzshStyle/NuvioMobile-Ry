@@ -66,6 +66,24 @@ internal actual object NetworkLibraryPlatform {
 
     actual fun describe(e: Throwable, config: NetworkFolderConfig): String = SmbFolder.describe(e, config)
 
+    actual suspend fun test(config: NetworkFolderConfig, onVpnWait: () -> Unit): String? = withContext(Dispatchers.IO) {
+        val ctx = RecordingPlatform.context()
+        // VPN in Full app mode: let this address past it first (it reconnects), like the TV.
+        if (ctx != null) runCatching {
+            if (com.nuvio.vpn.android.VpnHomeBypass.fullAppOn(ctx)) {
+                withContext(Dispatchers.Main) { onVpnWait() }
+                val host = config.host.trim().let { h -> if (h.count { it == ':' } == 1) h.substringBefore(':') else h }
+                com.nuvio.vpn.android.VpnHomeBypass.set(ctx, listOf(host))
+                com.nuvio.vpn.android.VpnHomeBypass.awaitConnected(ctx, 20_000)
+            }
+        }
+        val result = runCatching { SmbFolder(config).use { it.test() } }
+        result.exceptionOrNull()?.let { e ->
+            val tip = ctx?.let { runCatching { com.nuvio.vpn.android.VpnHomeBypass.hint(it, config.host) }.getOrNull() }
+            SmbFolder.describe(e, config) + (tip?.let { "\n$it" } ?: "")
+        }
+    }
+
     /** A whole (small) file from the folder. */
     internal fun SmbFolder.readAll(rel: String): ByteArray {
         val size = size(rel) ?: throw NetworkFolderException("Not on the network folder")

@@ -1415,6 +1415,9 @@ internal open class LiveTvPreferencesStore {
 
     fun currentNetworkFolderJson(): String? = _data.value.str(LiveTvKeys.networkFolder)
 
+    /** [json] "" removes it (and tells the other devices so). */
+    fun setNetworkFolderJson(json: String) = edit { it[LiveTvKeys.networkFolder] = json }
+
     // ---------- Sports ----------
 
     val sportsSettingsJson: Flow<String?> = _data.map { it.str(LiveTvKeys.sports) }.distinctUntilChanged()
