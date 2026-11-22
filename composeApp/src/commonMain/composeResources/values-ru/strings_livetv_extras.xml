@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="livetv_add_favorite_group">Добавить в избранные группы</string>
+    <string name="livetv_remove_favorite_group">Убрать из избранных групп</string>
+    <string name="livetv_show_on_profiles">Показывать в профилях</string>
+    <string name="livetv_show_on_profiles_value">Показывать в профилях: %1$s</string>
+    <string name="livetv_show_on_profiles_all">Все</string>
+    <string name="livetv_show_on_profiles_count">%1$d из %2$d</string>
+    <string name="livetv_show_on_profiles_description">Профили, отключённые здесь, не получают каналы, On Demand и Sports из %1$s. Сам плейлист остаётся для всех</string>
+</resources>

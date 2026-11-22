@@ -143,6 +143,13 @@ import nuvio.composeapp.generated.resources.livetv_epg_shift
 import nuvio.composeapp.generated.resources.livetv_epg_shift_description
 import nuvio.composeapp.generated.resources.livetv_field_guide_link
 import nuvio.composeapp.generated.resources.livetv_guides
+import com.nuvio.app.features.profiles.NuvioProfile
+import com.nuvio.app.features.profiles.ProfileRepository
+import nuvio.composeapp.generated.resources.livetv_show_on_profiles
+import nuvio.composeapp.generated.resources.livetv_show_on_profiles_all
+import nuvio.composeapp.generated.resources.livetv_show_on_profiles_count
+import nuvio.composeapp.generated.resources.livetv_show_on_profiles_description
+import nuvio.composeapp.generated.resources.livetv_show_on_profiles_value
 import nuvio.composeapp.generated.resources.livetv_guides_all
 import nuvio.composeapp.generated.resources.livetv_guides_description
 import nuvio.composeapp.generated.resources.livetv_guides_none
@@ -419,6 +426,7 @@ private sealed interface LiveDialog {
     data class PlaylistGuideShift(val source: PlaylistSource) : LiveDialog
     data class PlaylistCatchupShift(val source: PlaylistSource) : LiveDialog
     data class PlaylistGuides(val source: PlaylistSource) : LiveDialog
+    data class PlaylistProfiles(val source: PlaylistSource) : LiveDialog
     data class EpgSourceShift(val source: EpgSource) : LiveDialog
     data object VodDefaultSort : LiveDialog
     data object VodTabPosition : LiveDialog
@@ -463,6 +471,8 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
     val vodStatus by remember { OnDemandRepository.start(); OnDemandRepository.status }.collectAsStateWithLifecycle()
     val sports by SportsRepository.settings.collectAsStateWithLifecycle()
     val userState by LiveTvPreferences.userState.collectAsStateWithLifecycle()
+    val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
+    val profiles = profileState.profiles
     val reminderLead by LiveTvPreferences.reminderLeadMinutes.collectAsStateWithLifecycle()
     val showInContinueWatching by LiveTvPreferences.showInContinueWatching.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<LiveDialog?>(null) }
@@ -1248,7 +1258,17 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                             }
                     }
                 },
-            ) else emptyList()) + listOf(
+            ) else emptyList()) + listOfNotNull(
+                // Which Nuvio profiles see this playlist (only with two or more profiles).
+                profiles.takeIf { it.size >= 2 }?.let { list ->
+                    val shownOn = list.count { d.source.id !in LiveTvPreferences.hiddenPlaylistsOf(it.profileIndex) }
+                    stringResource(
+                        Res.string.livetv_show_on_profiles_value,
+                        if (shownOn == list.size) stringResource(Res.string.livetv_show_on_profiles_all)
+                        else stringResource(Res.string.livetv_show_on_profiles_count, shownOn, list.size),
+                    ) to { dialog = LiveDialog.PlaylistProfiles(d.source) }
+                },
+            ) + listOf(
                 stringResource(if (d.source.enabled) Res.string.livetv_disable else Res.string.livetv_enable) to {
                     LiveTvRepository.setPlaylistEnabled(d.source.id, !d.source.enabled); close()
                 },
@@ -1267,6 +1287,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             ) { v -> LiveTvRepository.setPlaylistCatchupZone(d.source.id, v) }
         }
         is LiveDialog.PlaylistGuides -> PlaylistGuidesDialog(d.source.id, onDismiss = close)
+        is LiveDialog.PlaylistProfiles -> PlaylistProfilesDialog(d.source, profiles, onDismiss = close)
         is LiveDialog.PlaylistGuideShift -> {
             val none = stringResource(Res.string.livetv_catchup_shift_none)
             ChoiceDialog(
@@ -1607,6 +1628,27 @@ private fun guideChoices(pl: PlaylistSource, playlists: List<PlaylistSource>, ep
     return epgs.filter { it.url.isNotBlank() }.map { it.id to it.name } +
         playlists.filter { it.id != pl.id && it.liveEnabled && it.useEmbeddedEpg && it.id in own }
             .map { PlaylistSource.builtInGuideKey(it.id) to it.name + " (built-in)" }
+}
+
+/** "Show on Profiles": which Nuvio profiles get this playlist's channels, On Demand and Sports. */
+@Composable
+private fun PlaylistProfilesDialog(pl: PlaylistSource, profiles: List<NuvioProfile>, onDismiss: () -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    // Read again after each change (matched profiles change together).
+    var version by remember { mutableStateOf(0) }
+    val hidden = remember(version, profiles) { profiles.associate { it.profileIndex to (pl.id in LiveTvPreferences.hiddenPlaylistsOf(it.profileIndex)) } }
+    DialogSurface(onDismissRequest = onDismiss, title = stringResource(Res.string.livetv_show_on_profiles) + ": " + pl.name) {
+        Text(stringResource(Res.string.livetv_show_on_profiles_description, pl.name), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary)
+        Column(modifier = Modifier.weight(1f, fill = false).heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            profiles.forEach { prof ->
+                SettingsSwitchRow(
+                    title = prof.name.ifBlank { "Profile ${prof.profileIndex}" }, checked = hidden[prof.profileIndex] != true, isTablet = false, horizontalPadding = 0.dp,
+                    onCheckedChange = { on -> LiveTvPreferences.setPlaylistShownOn(pl.id, prof.profileIndex, on); version++ },
+                )
+            }
+        }
+        DialogButtons { DialogButton(text = stringResource(Res.string.action_close), onClick = onDismiss) }
+    }
 }
 
 @Composable

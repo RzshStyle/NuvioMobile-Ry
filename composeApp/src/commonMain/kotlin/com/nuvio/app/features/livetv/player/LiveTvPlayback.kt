@@ -449,7 +449,7 @@ internal object LiveTvPlayback {
         val hidden = LiveTvPreferences.currentUserState()
         return index[name].orEmpty().asSequence()
             .filter { it.key !in tried && it.key != failed.key }
-            .filter { it.key !in hidden.hiddenChannels && it.groupId !in hidden.hiddenGroups }
+            .filter { it.key !in hidden.hiddenChannels && it.groupId !in hidden.hiddenGroups && !hidden.hidesPlaylistOf(it) }
             // Local stations: "FOX (WNYW)" isn't a backup for "FOX (KTTV)".
             .filter { c -> val a = stationNote(failed.name); val b = stationNote(c.name); a == null || b == null || a == b }
             // Other playlists first.

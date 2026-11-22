@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="livetv_add_favorite_group">Tambahkan ke grup favorit</string>
+    <string name="livetv_remove_favorite_group">Hapus dari grup favorit</string>
+    <string name="livetv_show_on_profiles">Tampilkan di Profil</string>
+    <string name="livetv_show_on_profiles_value">Tampilkan di Profil: %1$s</string>
+    <string name="livetv_show_on_profiles_all">Semua</string>
+    <string name="livetv_show_on_profiles_count">%1$d dari %2$d</string>
+    <string name="livetv_show_on_profiles_description">Profil yang dimatikan di sini tidak mendapat saluran, On Demand, atau Sports dari %1$s. Playlist-nya tetap untuk semua orang</string>
+</resources>

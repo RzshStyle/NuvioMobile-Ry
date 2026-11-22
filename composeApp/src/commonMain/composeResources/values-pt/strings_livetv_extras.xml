@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="livetv_add_favorite_group">Adicionar aos grupos favoritos</string>
+    <string name="livetv_remove_favorite_group">Remover dos grupos favoritos</string>
+    <string name="livetv_show_on_profiles">Mostrar nos perfis</string>
+    <string name="livetv_show_on_profiles_value">Mostrar nos perfis: %1$s</string>
+    <string name="livetv_show_on_profiles_all">Todos</string>
+    <string name="livetv_show_on_profiles_count">%1$d de %2$d</string>
+    <string name="livetv_show_on_profiles_description">Os perfis desativados aqui não recebem canais, On Demand nem Sports de %1$s. A playlist continua para todos</string>
+</resources>

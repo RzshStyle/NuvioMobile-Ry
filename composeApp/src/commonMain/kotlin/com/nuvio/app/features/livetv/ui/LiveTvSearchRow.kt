@@ -1,5 +1,6 @@
 package com.nuvio.app.features.livetv.ui
 
+import com.nuvio.app.features.livetv.ondemand.vodHidden
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -230,13 +231,13 @@ internal fun OnDemandSearchRows(
 
     Column(modifier = modifier.fillMaxWidth()) {
         for (kind in listOf(VodKind.MOVIE, VodKind.SERIES)) {
-            val items by produceState(emptyList<VodItem>(), kind, q, version, user.vodHiddenCategories, unlocked) {
+            val items by produceState(emptyList<VodItem>(), kind, q, version, user.vodHiddenCategories, user.hiddenPlaylists, unlocked) {
                 delay(300)
                 val cats = OnDemandRepository.categories(kind)
                 val locked = cats.filter { c ->
                     ParentalControls.isLocked("vod:${c.uid}", c.name, settings, user.lockedGroups)
                 }.mapTo(HashSet()) { it.uid }
-                value = OnDemandRepository.search(kind, q, user.vodHiddenCategories + locked, limit = 40, merge = settings.vodMergeDuplicates)
+                value = OnDemandRepository.search(kind, q, user.vodHidden(cats) + locked, limit = 40, merge = settings.vodMergeDuplicates)
             }
             if (items.isNotEmpty()) {
                 Text(

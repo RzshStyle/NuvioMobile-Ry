@@ -671,7 +671,7 @@ internal object LiveTvDriveSync {
     private const val MODE_APPDATA = "appdata"
     private const val MODE_FILE = "file"
     private val SOURCE_LISTS = setOf("playlists", "epg_sources")
-    private val SET_ITEM_KEYS = setOf("hidden_channels", "hidden_groups", "vod_hidden_categories")
+    private val SET_ITEM_KEYS = setOf("hidden_channels", "hidden_groups", "vod_hidden_categories", "favorite_groups", "hidden_playlists")
     private val ITEM_KEYS = SET_ITEM_KEYS + setOf("favorites", "custom_groups", "channel_copies")
     private val PROFILE_SUFFIX = Regex("""_p\d+$""")
     private val SCOPE_ATTEMPTS = listOf(

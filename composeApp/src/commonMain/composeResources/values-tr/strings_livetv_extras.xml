@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="livetv_add_favorite_group">Favori gruplara ekle</string>
+    <string name="livetv_remove_favorite_group">Favori gruplardan çıkar</string>
+    <string name="livetv_show_on_profiles">Profillerde göster</string>
+    <string name="livetv_show_on_profiles_value">Profillerde göster: %1$s</string>
+    <string name="livetv_show_on_profiles_all">Tümü</string>
+    <string name="livetv_show_on_profiles_count">%1$d / %2$d</string>
+    <string name="livetv_show_on_profiles_description">Burada kapatılan profiller %1$s kaynağından kanal, On Demand veya Sports almaz. Listenin kendisi herkes için kalır</string>
+</resources>

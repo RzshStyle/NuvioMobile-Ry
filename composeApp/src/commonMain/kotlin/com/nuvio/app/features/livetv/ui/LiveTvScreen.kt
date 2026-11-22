@@ -206,6 +206,7 @@ fun LiveTvScreen(
     val expanded = remember { mutableStateOf(LiveTvListMemory.expanded) }
     var sheetChannel by remember { mutableStateOf<LiveChannel?>(null) }
     var pickFavoritesFor by remember { mutableStateOf<LiveGroupSection?>(null) }
+    var sheetGroup by remember { mutableStateOf<ChannelGroup?>(null) }
     var unlockGroup by remember { mutableStateOf<ChannelGroup?>(null) }
     var overflow by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
@@ -372,7 +373,10 @@ fun LiveTvScreen(
                     val isCollapsed = id !in expanded.value
                     item(key = "g:$id") {
                         GroupCard(section.group, section.channels, isCollapsed, playlistTag = if (playlistId == null && playlistChoices.size > 1) playlistNames[section.group.sourceId] else null,
-                            onPickFavorites = if (id != ChannelGroup.FAVORITES && id != ChannelGroup.RECENT && section.channels.isNotEmpty()) ({ pickFavoritesFor = section }) else null) {
+                            onPickFavorites = if (id != ChannelGroup.FAVORITES && id != ChannelGroup.RECENT && section.channels.isNotEmpty()) ({ pickFavoritesFor = section }) else null,
+                            onLongClick = if (section.group.special) null else ({
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress); sheetGroup = section.group
+                            })) {
                             if (section.group.locked) unlockGroup = section.group
                             else {
                                 expanded.value = if (isCollapsed) expanded.value + id else expanded.value - id
@@ -419,6 +423,10 @@ fun LiveTvScreen(
                 }
             }
         }
+    }
+
+    sheetGroup?.let { g ->
+        GroupActionsSheet(g, onDismiss = { sheetGroup = null })
     }
 
     pickFavoritesFor?.let { sec ->
@@ -469,6 +477,7 @@ private fun EmptyLiveTv(onOpenSettings: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GroupCard(
     group: ChannelGroup,
@@ -477,6 +486,8 @@ private fun GroupCard(
     playlistTag: String? = null,
     /** A small star that opens Pick favorites for this group (null: none). */
     onPickFavorites: (() -> Unit)? = null,
+    /** Hold: the group's options (favorite group). Null: none. */
+    onLongClick: (() -> Unit)? = null,
     onToggle: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -488,7 +499,7 @@ private fun GroupCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(NuvioTokens.Radius.xl))
             .background(tokens.colors.surface)
-            .clickable(onClick = onToggle)
+            .combinedClickable(onClick = onToggle, onLongClick = onLongClick)
             .padding(NuvioTokens.Space.s12),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
@@ -505,6 +516,10 @@ private fun GroupCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // A favorite group's star, beside its name.
+                if (group.favorite) {
+                    Icon(Icons.Filled.Star, contentDescription = null, tint = tokens.colors.accent, modifier = Modifier.size(16.dp))
+                }
                 if (playlistTag != null) {
                     Text(
                         text = playlistTag,

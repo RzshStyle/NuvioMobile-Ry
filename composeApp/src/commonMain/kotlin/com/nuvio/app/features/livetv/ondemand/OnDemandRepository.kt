@@ -537,7 +537,7 @@ internal object OnDemandRepository {
                 if (!source.enabled || !source.importVod) return@filter false
                 if (source.isStalker && item.stalker?.sourceIdentity != StalkerGateway.sourceIdentity(source)) return@filter false
                 val uid = "${item.kind.key}:${item.playlistId}:${item.categoryId}"
-                if (uid in user.vodHiddenCategories) return@filter false
+                if (user.hidesVodCategory(uid)) return@filter false
                 val name = runCatching { OnDemandStore.categoryNames(item.playlistId, item.kind)[item.categoryId] }.getOrNull().orEmpty()
                 !com.nuvio.app.features.livetv.parental.ParentalControls.isLocked("vod:$uid", name, settings, user.lockedGroups)
             }

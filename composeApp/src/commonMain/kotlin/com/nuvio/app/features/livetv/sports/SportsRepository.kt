@@ -91,7 +91,7 @@ internal object SportsRepository {
     ) { found, user, live ->
         found.mapValues { (_, list) ->
             list.filter { ch ->
-                ch.key !in user.hiddenChannels && ch.groupId !in user.hiddenGroups &&
+                ch.key !in user.hiddenChannels && ch.groupId !in user.hiddenGroups && !user.hidesPlaylistOf(ch) &&
                     !ParentalControls.isLocked(ch.groupId, ch.group, live, user.lockedGroups) &&
                     !(ParentalControls.enabled(live) && live.lockAdultContent && ParentalControls.isAdult(ch.name))
             }
@@ -1464,6 +1464,7 @@ internal object SportsRepository {
         val picked = SportsPickedChannels.keys(SportsPickedChannels.resolve(sp, all))
         val channels: List<LiveChannel> = all.filter { ch ->
             (ch.key in picked || (ch.key !in user.hiddenChannels && ch.groupId !in user.hiddenGroups)) &&
+                !user.hidesPlaylistOf(ch) &&
                 !ParentalControls.isLocked(ch.groupId, ch.group, live, user.lockedGroups) &&
                 !(ParentalControls.enabled(live) && live.lockAdultContent && ParentalControls.isAdult(ch.name))
         }

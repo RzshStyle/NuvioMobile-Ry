@@ -349,3 +349,11 @@ object VodTitles {
         return counts.filter { (seg, n) -> n >= threshold && seg.split(' ').size <= 4 }.keys
     }
 }
+
+/**
+ * The On Demand categories this profile hides: the ones hidden one by one, plus every category of
+ * a playlist it doesn't show ("Show on Profiles").
+ */
+internal fun com.nuvio.app.features.livetv.model.LiveUserState.vodHidden(categories: List<VodCategory>): Set<String> =
+    if (hiddenPlaylists.isEmpty()) vodHiddenCategories
+    else vodHiddenCategories + categories.filter { it.playlistId in hiddenPlaylists }.map { it.uid }

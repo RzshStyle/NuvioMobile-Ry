@@ -29,10 +29,10 @@ internal object SyncParts {
 
     private val LOGIN_KEYS = setOf(LiveTvKeys.playlists, LiveTvKeys.epgs, LiveTvKeys.playlistAccounts, LiveTvKeys.epgOverrides)
     private val FAVORITE_KEYS = setOf(
-        LiveTvKeys.favorites, LiveTvKeys.hiddenChannels, LiveTvKeys.hiddenGroups, LiveTvKeys.channelNames,
+        LiveTvKeys.favorites, LiveTvKeys.hiddenChannels, LiveTvKeys.hiddenGroups, LiveTvKeys.hiddenPlaylists, LiveTvKeys.channelNames,
         LiveTvKeys.channelLogos, LiveTvKeys.channelNumbers, LiveTvKeys.groupNames, LiveTvKeys.groupOrder,
         LiveTvKeys.customGroups, LiveTvKeys.channelOrder, LiveTvKeys.channelCopies, LiveTvKeys.channelAudio,
-        LiveTvKeys.pictureShapes, LiveTvKeys.lockedGroups, LiveTvKeys.nameRemovals, LiveTvKeys.reminders,
+        LiveTvKeys.pictureShapes, LiveTvKeys.lockedGroups, LiveTvKeys.favoriteGroups, LiveTvKeys.nameRemovals, LiveTvKeys.reminders,
         LiveTvKeys.vodHiddenCategories, LiveTvKeys.vodGroupOrder, LiveTvKeys.vodGroupNames,
     )
     private val SPORTS_KEYS = setOf(LiveTvKeys.sports, LiveTvKeys.sportsMine)

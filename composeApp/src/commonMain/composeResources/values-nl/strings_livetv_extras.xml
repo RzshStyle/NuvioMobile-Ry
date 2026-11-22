@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="livetv_add_favorite_group">Toevoegen aan favoriete groepen</string>
+    <string name="livetv_remove_favorite_group">Verwijderen uit favoriete groepen</string>
+    <string name="livetv_show_on_profiles">Tonen op profielen</string>
+    <string name="livetv_show_on_profiles_value">Tonen op profielen: %1$s</string>
+    <string name="livetv_show_on_profiles_all">Alle</string>
+    <string name="livetv_show_on_profiles_count">%1$d van %2$d</string>
+    <string name="livetv_show_on_profiles_description">Profielen die je hier uitzet krijgen geen zenders, On Demand of Sports van %1$s. De playlist zelf blijft voor iedereen</string>
+</resources>

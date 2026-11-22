@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="livetv_add_favorite_group">Thêm vào nhóm yêu thích</string>
+    <string name="livetv_remove_favorite_group">Xóa khỏi nhóm yêu thích</string>
+    <string name="livetv_show_on_profiles">Hiện trên hồ sơ</string>
+    <string name="livetv_show_on_profiles_value">Hiện trên hồ sơ: %1$s</string>
+    <string name="livetv_show_on_profiles_all">Tất cả</string>
+    <string name="livetv_show_on_profiles_count">%1$d/%2$d</string>
+    <string name="livetv_show_on_profiles_description">Hồ sơ bị tắt ở đây sẽ không có kênh, On Demand hay Sports từ %1$s. Bản thân danh sách vẫn giữ cho mọi người</string>
+</resources>

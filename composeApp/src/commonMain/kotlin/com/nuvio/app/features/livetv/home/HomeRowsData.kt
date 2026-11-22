@@ -1,5 +1,6 @@
 package com.nuvio.app.features.livetv.home
 
+import com.nuvio.app.features.livetv.ondemand.vodHidden
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.LiveTvRepository
 import com.nuvio.app.features.livetv.model.ChannelGroup
@@ -130,7 +131,7 @@ internal object HomeLiveRowsData {
                     val cats = OnDemandRepository.categories(VodKind.MOVIE) + OnDemandRepository.categories(VodKind.SERIES)
                     val locked = cats.filter { c -> ParentalControls.isLocked("vod:${c.uid}", c.name, settings, user.lockedGroups) }
                         .mapTo(HashSet()) { it.uid }
-                    val hidden = user.vodHiddenCategories + locked
+                    val hidden = user.vodHidden(cats) + locked
                     _vodItems.value = rows.associate { row ->
                         row.id to runCatching {
                             when (row.source) {

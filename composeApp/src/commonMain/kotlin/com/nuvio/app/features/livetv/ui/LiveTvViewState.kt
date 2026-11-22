@@ -55,7 +55,9 @@ internal object LiveTvViewState {
     }.stateIn(scope, SharingStarted.Eagerly, LiveTvListState())
 
     fun build(channels: List<LiveChannel>, user: LiveUserState, s: LiveTvSettings, hasSources: Boolean, unlocked: Set<String> = emptySet()): LiveTvListState {
-        val shown = channels.filter { it.key !in user.hiddenChannels && it.groupId !in user.hiddenGroups }
+        // A playlist this profile doesn't show ("Show on Profiles") supplies nothing, your own groups included.
+        val ownChannels = if (user.hiddenPlaylists.isEmpty()) channels else channels.filter { !user.hidesPlaylistOf(it) }
+        val shown = ownChannels.filter { it.key !in user.hiddenChannels && it.groupId !in user.hiddenGroups }
         // Parental controls: channels in locked groups stay out of every list until unlocked.
         val parental = ParentalControls.enabled(s)
         fun locked(id: String, name: String): Boolean =
@@ -70,9 +72,9 @@ internal object LiveTvViewState {
         // group only hides that group). Channels hidden one by one, or in a locked group, stay out.
         val customPool = run {
             val hiddenLocked = HashSet<String>()
-            channels.filter { it.groupId in user.hiddenGroups }.distinctBy { it.groupId }
+            ownChannels.filter { it.groupId in user.hiddenGroups }.distinctBy { it.groupId }
                 .forEach { c -> if (locked(c.groupId, c.group)) hiddenLocked += c.groupId }
-            byKey + channels
+            byKey + ownChannels
                 .filter { it.groupId in user.hiddenGroups && it.key !in user.hiddenChannels && it.groupId !in hiddenLocked }
                 .associateBy { it.key }
         }
@@ -160,7 +162,11 @@ internal object LiveTvViewState {
                 result
             }
         }
-        sections += orderedRegular
+        // Favorite groups (starred) go to the top, above every other group, in the same order.
+        sections += if (user.favoriteGroups.isEmpty()) orderedRegular else {
+            val (fav, rest) = orderedRegular.partition { it.group.id in user.favoriteGroups }
+            fav.map { it.copy(group = it.group.copy(favorite = true)) } + rest
+        }
         val numbered = if (s.sequentialNumbers) {
             sections.map { sec -> sec.copy(channels = sec.channels.mapIndexed { i, c -> c.copy(number = i + 1) }) }
         } else sections

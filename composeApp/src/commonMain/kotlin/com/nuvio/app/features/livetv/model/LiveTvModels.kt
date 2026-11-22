@@ -643,8 +643,20 @@ data class LiveUserState(
     val vodGroupOrder: List<String> = emptyList(),
     val vodGroupNames: Map<String, String> = emptyMap(),
     /** On Demand: the sort you picked for a category (category uid -> VodSort name). */
-    val vodSorts: Map<String, String> = emptyMap()
-)
+    val vodSorts: Map<String, String> = emptyMap(),
+    /** Playlists this profile doesn't show (their ids): no channels, On Demand or Sports from them. */
+    val hiddenPlaylists: Set<String> = emptySet(),
+    /** Groups you starred ("Add to favorite groups"): listed first. */
+    val favoriteGroups: Set<String> = emptySet(),
+) {
+    /** An On Demand category (uid "movie:<playlist>:<category>") hidden here, on its own or with its playlist. */
+    fun hidesVodCategory(uid: String): Boolean =
+        uid in vodHiddenCategories || (hiddenPlaylists.isNotEmpty() && uid.split(':').getOrNull(1) in hiddenPlaylists)
+
+    /** A channel from a playlist this profile doesn't show. */
+    fun hidesPlaylistOf(channel: LiveChannel): Boolean =
+        hiddenPlaylists.isNotEmpty() && channel.sourceId in hiddenPlaylists
+}
 
 /** "Remind me" on an upcoming show. */
 data class Reminder(
@@ -703,7 +715,9 @@ data class ChannelGroup(
     /** The playlist a playlist group comes from (null for special and your own groups). */
     val sourceId: String? = null,
     /** Needs the parental PIN (and its channels are kept out of other lists). */
-    val locked: Boolean = false
+    val locked: Boolean = false,
+    /** Starred as a favorite group: listed first. */
+    val favorite: Boolean = false,
 ) {
     companion object {
         const val ALL = "__all__"

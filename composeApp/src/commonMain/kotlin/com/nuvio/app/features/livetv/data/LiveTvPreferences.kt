@@ -220,6 +220,10 @@ internal object LiveTvKeys {
 
     const val hiddenChannels = "hidden_channels"
     const val hiddenGroups = "hidden_groups"
+    /** Groups starred with "Add to favorite groups": listed first. Per profile, like the TV app. */
+    const val favoriteGroups = "favorite_groups"
+    /** Playlists (their ids) a profile doesn't show ("Show on Profiles"); the playlists stay shared. */
+    const val hiddenPlaylists = "hidden_playlists"
     const val favorites = "favorites"
     const val recent = "recent"
     const val lastChannel = "last_channel"
@@ -651,7 +655,8 @@ internal open class LiveTvPreferencesStore {
         LiveTvKeys.vodGroupOrder, LiveTvKeys.vodSorts, LiveTvKeys.sportsMine, LiveTvKeys.homeRows
     )
     private val personalSetKeys: List<String> = listOf(
-        LiveTvKeys.hiddenChannels, LiveTvKeys.hiddenGroups, LiveTvKeys.vodHiddenCategories
+        LiveTvKeys.hiddenChannels, LiveTvKeys.hiddenGroups, LiveTvKeys.vodHiddenCategories,
+        LiveTvKeys.favoriteGroups, LiveTvKeys.hiddenPlaylists
     )
 
     /**
@@ -670,6 +675,7 @@ internal open class LiveTvPreferencesStore {
         LiveTvKeys.favorites, LiveTvKeys.groupOrder, LiveTvKeys.customGroups, LiveTvKeys.channelOrder,
         LiveTvKeys.channelCopies, LiveTvKeys.vodGroupOrder, LiveTvKeys.vodSorts, LiveTvKeys.sportsMine, LiveTvKeys.homeRows,
         LiveTvKeys.hiddenChannels, LiveTvKeys.hiddenGroups, LiveTvKeys.vodHiddenCategories,
+        LiveTvKeys.favoriteGroups, LiveTvKeys.hiddenPlaylists,
         LiveTvKeys.calendarFollows, LiveTvKeys.calendarHiddenShows, LiveTvKeys.sideMenuHidden
     )
 
@@ -796,8 +802,8 @@ internal open class LiveTvPreferencesStore {
                 if (value is PrefValue.StringSet) {
                     val dead: (String) -> Boolean = when (base) {
                         "hidden_channels" -> ::deadChannel
-                        "hidden_groups", "locked_groups" -> ::deadGroup
-                        "collapsed_playlists" -> ::deadOwner
+                        "hidden_groups", "locked_groups", "favorite_groups" -> ::deadGroup
+                        "collapsed_playlists", "hidden_playlists" -> ::deadOwner
                         else -> continue
                     }
                     val set = value.value.toList()
@@ -1057,6 +1063,8 @@ internal open class LiveTvPreferencesStore {
         return LiveUserState(
             hiddenChannels = p.strSet(LiveTvKeys.hiddenChannels) ?: emptySet(),
             hiddenGroups = p.strSet(LiveTvKeys.hiddenGroups) ?: emptySet(),
+            hiddenPlaylists = p.strSet(LiveTvKeys.hiddenPlaylists) ?: emptySet(),
+            favoriteGroups = p.strSet(LiveTvKeys.favoriteGroups) ?: emptySet(),
             favorites = LiveTvCodec.decodeStringList(p.str(LiveTvKeys.favorites)),
             recent = LiveTvCodec.decodeStringList(p.str(LiveTvKeys.recent)),
             lastChannelKey = p.str(LiveTvKeys.lastChannel),
@@ -1607,6 +1615,26 @@ internal open class LiveTvPreferencesStore {
     }
 
     fun clearHiddenGroups() = edit { it[my(LiveTvKeys.hiddenGroups)] = emptySet<String>() }
+
+    /** Playlists profile [profileId] doesn't show ("Show on Profiles"). */
+    fun hiddenPlaylistsOf(profileId: Int): Set<String> =
+        profileView(_data.value, profileId).strSet(LiveTvKeys.hiddenPlaylists) ?: emptySet()
+
+    /** Shows or hides playlist [playlistId] on profile [profileId] (profiles kept matched change together). */
+    fun setPlaylistShownOn(playlistId: String, profileId: Int, shown: Boolean) {
+        if (playlistId.isBlank()) return
+        if (profileId > 1) seedProfile(profileId)
+        edit { p ->
+            val cur = profileView(p, profileId).strSet(LiveTvKeys.hiddenPlaylists) ?: emptySet()
+            p[my(LiveTvKeys.hiddenPlaylists, profileId)] = if (shown) cur - playlistId else cur + playlistId
+        }
+    }
+
+    /** Stars a group (or takes the star off), for this profile. */
+    fun setGroupFavorite(groupId: String, favorite: Boolean) = edit { p ->
+        val cur = p.strSet(my(LiveTvKeys.favoriteGroups)) ?: emptySet()
+        p[my(LiveTvKeys.favoriteGroups)] = if (favorite) cur + groupId else cur - groupId
+    }
 
     fun toggleFavorite(key: String) = edit { p ->
         val cur = LiveTvCodec.decodeStringList(p.str(my(LiveTvKeys.favorites)))
