@@ -261,6 +261,8 @@ import nuvio.composeapp.generated.resources.livetv_vod_tab_position_description
 import nuvio.composeapp.generated.resources.livetv_vod_import
 import nuvio.composeapp.generated.resources.livetv_vod_import_description
 import nuvio.composeapp.generated.resources.livetv_vod_merge_duplicates
+import nuvio.composeapp.generated.resources.livetv_vod_hide_non_english
+import nuvio.composeapp.generated.resources.livetv_vod_hide_non_english_description
 import nuvio.composeapp.generated.resources.livetv_vod_merge_duplicates_description
 import nuvio.composeapp.generated.resources.livetv_vod_in_streams
 import nuvio.composeapp.generated.resources.livetv_vod_in_streams_description
@@ -815,6 +817,14 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     checked = settings.vodMergeDuplicates,
                     isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(vodMergeDuplicates = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_vod_hide_non_english),
+                    description = stringResource(Res.string.livetv_vod_hide_non_english_description),
+                    checked = settings.vodHideNonEnglish,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> update { it.copy(vodHideNonEnglish = on) } },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(

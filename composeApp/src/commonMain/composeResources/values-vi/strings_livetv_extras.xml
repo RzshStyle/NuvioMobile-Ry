@@ -7,4 +7,6 @@
     <string name="livetv_show_on_profiles_all">Tất cả</string>
     <string name="livetv_show_on_profiles_count">%1$d/%2$d</string>
     <string name="livetv_show_on_profiles_description">Hồ sơ bị tắt ở đây sẽ không có kênh, On Demand hay Sports từ %1$s. Bản thân danh sách vẫn giữ cho mọi người</string>
+    <string name="livetv_vod_hide_non_english">Ẩn phim không phải tiếng Anh</string>
+    <string name="livetv_vod_hide_non_english_description">Ẩn phim và series làm bằng ngôn ngữ khác (kiểm tra qua TMDB và các nhóm, nhãn ngôn ngữ của nhà cung cấp). Phim bị ẩn sẽ không bao giờ được tải hay tra cứu.</string>
 </resources>

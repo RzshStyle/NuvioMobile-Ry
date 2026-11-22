@@ -88,6 +88,25 @@ internal object OnDemandRepository {
             }
             refresh(force = false)
         }
+        // "Hide Non-English Titles": switched on, titles labelled as another language are set
+        // aside at once and the rest are checked in the background; either way, lists reload.
+        scope.launch {
+            var first = true
+            prefs.settings.map { it.vodHideNonEnglish }.distinctUntilChanged().collect { on ->
+                hideForeign = on
+                runCatching { OnDemandStore.setHideForeign(on) }
+                if (first) {
+                    first = false
+                    if (on) { delay(START_DELAY_MS); startLanguageCheck() }
+                    return@collect
+                }
+                if (on) {
+                    runCatching { withContext(Dispatchers.Default) { OnDemandStore.markForeignAll() } }
+                    startLanguageCheck()
+                } else OnDemandLanguages.stopSweep()
+                _version.value++
+            }
+        }
         // Adult titles never stay in Continue watching (also ones saved by older versions).
         scope.launch {
             delay(START_DELAY_MS)
@@ -187,8 +206,11 @@ internal object OnDemandRepository {
             // Success: next import in a day. Failure: try again in an hour, not on every start.
             prefs.setOnDemandImportTime(pl.id, if (p == null) LiveTvClock.nowMs() else LiveTvClock.nowMs() - REFRESH_MS + 60 * 60 * 1000L)
             runCatching { VodTitles.knownPrefixes = withContext(Dispatchers.Default) { OnDemandStore.learnPrefixes(pl.id) } }
+            // Titles in another language, marked again (an import writes changed titles afresh).
+            if (hideForeign) runCatching { withContext(Dispatchers.Default) { OnDemandStore.markForeign(pl.id) } }
             _version.value++
         }
+        if (hideForeign) startLanguageCheck()
         _hasContent.value = runCatching { withContext(Dispatchers.Default) { OnDemandStore.hasAny() } }.getOrDefault(_hasContent.value)
         problemByPlaylist.keys.retainAll(keep)
         quietImport = false
@@ -437,15 +459,38 @@ internal object OnDemandRepository {
         runCatching { OnDemandStore.categories(kind) }.getOrDefault(emptyList())
     }
 
+    /**
+     * A page of titles. With "Hide Non-English Titles" on, titles in another language are never
+     * in it: those already known are left out by the catalog itself, and titles on the page not
+     * checked yet are checked first (a short wait, once per title) and the page read again.
+     */
     suspend fun items(kind: VodKind, category: VodCategory?, hidden: Set<String>, limit: Int, offset: Int, sort: VodSort, merge: Boolean): List<VodItem> =
         withContext(Dispatchers.Default) {
-            runCatching { OnDemandStore.items(kind, category, hidden, limit, offset, sort, merge) }.getOrDefault(emptyList())
+            fun read() = runCatching { OnDemandStore.items(kind, category, hidden, limit, offset, sort, merge) }.getOrDefault(emptyList())
+            var page = read()
+            if (hideForeign && page.isNotEmpty()) {
+                repeat(2) {
+                    if (!OnDemandLanguages.check(page, PAGE_CHECK_MS)) return@withContext page
+                    page = read()
+                }
+            }
+            page
         }
 
     suspend fun search(kind: VodKind, text: String, hidden: Set<String>, limit: Int = 200, sort: VodSort = VodSort.DEFAULT, merge: Boolean = true): List<VodItem> =
         withContext(Dispatchers.Default) {
-            runCatching { OnDemandStore.search(kind, text, hidden, limit, sort, merge) }.getOrDefault(emptyList())
+            val found = runCatching { OnDemandStore.search(kind, text, hidden, limit, sort, merge) }.getOrDefault(emptyList())
+            if (hideForeign && found.isNotEmpty() && OnDemandLanguages.check(found.take(SEARCH_CHECK), PAGE_CHECK_MS)) {
+                runCatching { OnDemandStore.search(kind, text, hidden, limit, sort, merge) }.getOrDefault(found)
+            } else found
         }
+
+    /** "Hide Non-English Titles" is on (kept up to date from the settings). */
+    @kotlin.concurrent.Volatile private var hideForeign = false
+
+    private fun startLanguageCheck() {
+        OnDemandLanguages.startSweep(enabled = { hideForeign }, onMarked = { _version.value++ })
+    }
 
     /** One version of a title you can pick: where it's from and what it is. */
     data class Version(val item: VodItem, val label: String, val detail: String)
@@ -731,6 +776,7 @@ internal object OnDemandRepository {
         item.tmdbId?.toIntOrNull()?.takeIf { it > 0 }?.let { id ->
             val o = parse(httpGetText(buildTmdbUrl("$path/$id", apiKey)))
             if (o != null && o.optInt("id") == id) {
+                OnDemandLanguages.remember(item, o.optString("original_language"))
                 return VodMatch(poster = image(o.optString("poster_path")), title = o.optString(titleKey).ifBlank { null }, tmdbId = id.toString(), checkedMs = now)
             }
         }
@@ -745,6 +791,11 @@ internal object OnDemandRepository {
             query.remove("year"); query.remove("first_air_date_year")
             results = parse(httpGetText(buildTmdbUrl("search/$path", apiKey, query)))?.optJSONArray("results").orEmpty()
         }
+        // "Troll 2 2025": a year written after the name with just a space; tried without it.
+        if (results.isEmpty()) VodTitles.withoutTrailingYear(title)?.let { shorter ->
+            query["query"] = shorter.encodeURLParameter()
+            results = parse(httpGetText(buildTmdbUrl("search/$path", apiKey, query)))?.optJSONArray("results").orEmpty()
+        }
         val wanted = VodTitles.normalize(title)
         val best = results.mapNotNull { it as? JsonObject }
             .firstOrNull { r ->
@@ -752,6 +803,9 @@ internal object OnDemandRepository {
                 val ry = VodTitles.yearOf(r.optString(if (item.kind == VodKind.SERIES) "first_air_date" else "release_date"))
                 VodTitles.normalize(name) == wanted && (year == null || ry == null || kotlin.math.abs(ry - year) <= 1)
             } ?: results.mapNotNull { it as? JsonObject }.firstOrNull()
+        if (best != null && VodTitles.normalize(best.optString(titleKey).ifBlank { best.optString("original_$titleKey") }) == wanted) {
+            OnDemandLanguages.remember(item, best.optString("original_language"))
+        }
         return if (best == null) VodMatch("", null, null, now)
         else VodMatch(poster = image(best.optString("poster_path")), title = best.optString(titleKey).ifBlank { null }, tmdbId = best.optInt("id").takeIf { it > 0 }?.toString(), checkedMs = now)
     }
@@ -765,6 +819,10 @@ internal object OnDemandRepository {
     /** Series read from an M3U playlist's own entries: their id starts with this, then a key of the show. */
     private const val M3U_ID = "m3u:"
     private const val START_DELAY_MS = 20_000L
+    /** How long a list waits for its unchecked titles' languages before showing ("Hide Non-English Titles"). */
+    private const val PAGE_CHECK_MS = 2_500L
+    /** Search results checked before showing (the best matches; the rest are checked in the background). */
+    private const val SEARCH_CHECK = 40
     /** Re-import each provider once a day. */
     private const val REFRESH_MS = 24L * 60 * 60 * 1000
 }

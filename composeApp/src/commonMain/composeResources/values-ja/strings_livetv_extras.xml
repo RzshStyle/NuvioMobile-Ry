@@ -7,4 +7,6 @@
     <string name="livetv_show_on_profiles_all">すべて</string>
     <string name="livetv_show_on_profiles_count">%1$d / %2$d</string>
     <string name="livetv_show_on_profiles_description">ここでオフにしたプロフィールには、%1$sのチャンネル、On Demand、Sportsが表示されません。プレイリスト自体は全員に残ります</string>
+    <string name="livetv_vod_hide_non_english">英語以外の作品を非表示</string>
+    <string name="livetv_vod_hide_non_english_description">英語以外の言語で制作された映画やシリーズを除外します（TMDB とプロバイダーの言語グループ・ラベルで判定）。非表示の作品は読み込みも検索もされません。</string>
 </resources>

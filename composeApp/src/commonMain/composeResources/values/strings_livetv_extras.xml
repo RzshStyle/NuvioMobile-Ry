@@ -7,4 +7,6 @@
     <string name="livetv_show_on_profiles_all">All</string>
     <string name="livetv_show_on_profiles_count">%1$d of %2$d</string>
     <string name="livetv_show_on_profiles_description">Profiles switched off here get no channels, On Demand or Sports from %1$s. The playlist itself stays for everyone</string>
+    <string name="livetv_vod_hide_non_english">Hide Non-English Titles</string>
+    <string name="livetv_vod_hide_non_english_description">Leaves out movies and series made in another language (checked with TMDB, plus your provider’s own language groups and labels). Hidden titles are never loaded or looked up.</string>
 </resources>

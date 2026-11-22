@@ -164,6 +164,7 @@ internal object LiveTvKeys {
     const val audioPassthrough = "audio_passthrough"
     const val showPosters = "show_posters"
     const val vodMergeDuplicates = "vod_merge_duplicates"
+    const val vodHideNonEnglish = "vod_hide_non_english"
     const val vodDefaultSort = "vod_default_sort"
     const val recordingStorage = "recording_storage"
     const val recordingSpaceRule = "recording_space_rule"
@@ -984,6 +985,7 @@ internal open class LiveTvPreferencesStore {
             audioPassthrough = p.bool(LiveTvKeys.audioPassthrough) ?: d.audioPassthrough,
             showPosters = p.bool(LiveTvKeys.showPosters) ?: d.showPosters,
             vodMergeDuplicates = p.bool(LiveTvKeys.vodMergeDuplicates) ?: d.vodMergeDuplicates,
+            vodHideNonEnglish = p.bool(LiveTvKeys.vodHideNonEnglish) ?: d.vodHideNonEnglish,
             vodDefaultSort = p.str(LiveTvKeys.vodDefaultSort) ?: d.vodDefaultSort,
             recordingStorage = p.str(LiveTvKeys.recordingStorage) ?: d.recordingStorage,
             recordingSpaceRule = p.str(LiveTvKeys.recordingSpaceRule) ?: d.recordingSpaceRule,
@@ -1269,6 +1271,7 @@ internal open class LiveTvPreferencesStore {
         p[LiveTvKeys.audioPassthrough] = s.audioPassthrough
         p[LiveTvKeys.showPosters] = s.showPosters
         p[LiveTvKeys.vodMergeDuplicates] = s.vodMergeDuplicates
+        p[LiveTvKeys.vodHideNonEnglish] = s.vodHideNonEnglish
         p[LiveTvKeys.vodDefaultSort] = s.vodDefaultSort
         p[LiveTvKeys.recordingStorage] = s.recordingStorage
         p[LiveTvKeys.recordingSpaceRule] = s.recordingSpaceRule

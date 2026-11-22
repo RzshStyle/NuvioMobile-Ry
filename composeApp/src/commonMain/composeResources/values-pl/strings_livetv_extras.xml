@@ -7,4 +7,6 @@
     <string name="livetv_show_on_profiles_all">Wszystkie</string>
     <string name="livetv_show_on_profiles_count">%1$d z %2$d</string>
     <string name="livetv_show_on_profiles_description">Profile wyłączone tutaj nie dostają kanałów, On Demand ani Sports z %1$s. Sama playlista zostaje dla wszystkich</string>
+    <string name="livetv_vod_hide_non_english">Ukryj tytuły nieanglojęzyczne</string>
+    <string name="livetv_vod_hide_non_english_description">Pomija filmy i seriale nakręcone w innym języku (sprawdzane w TMDB oraz w grupach i oznaczeniach językowych dostawcy). Ukryte tytuły nigdy nie są wczytywane ani wyszukiwane.</string>
 </resources>

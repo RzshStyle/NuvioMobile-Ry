@@ -7,4 +7,6 @@
     <string name="livetv_show_on_profiles_all">Alle</string>
     <string name="livetv_show_on_profiles_count">%1$d von %2$d</string>
     <string name="livetv_show_on_profiles_description">Hier ausgeschaltete Profile bekommen keine Sender, kein On Demand und kein Sports aus %1$s. Die Playlist selbst bleibt für alle</string>
+    <string name="livetv_vod_hide_non_english">Nicht-englische Titel ausblenden</string>
+    <string name="livetv_vod_hide_non_english_description">Blendet Filme und Serien aus, die in einer anderen Sprache gedreht wurden (geprüft mit TMDB sowie den Sprachgruppen und -kennzeichnungen deines Anbieters). Ausgeblendete Titel werden nie geladen oder nachgeschlagen.</string>
 </resources>

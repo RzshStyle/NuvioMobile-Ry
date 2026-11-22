@@ -7,4 +7,6 @@
     <string name="livetv_show_on_profiles_all">Alle</string>
     <string name="livetv_show_on_profiles_count">%1$d van %2$d</string>
     <string name="livetv_show_on_profiles_description">Profielen die je hier uitzet krijgen geen zenders, On Demand of Sports van %1$s. De playlist zelf blijft voor iedereen</string>
+    <string name="livetv_vod_hide_non_english">Niet-Engelstalige titels verbergen</string>
+    <string name="livetv_vod_hide_non_english_description">Laat films en series weg die in een andere taal zijn gemaakt (gecontroleerd met TMDB en de taalgroepen en -labels van je provider). Verborgen titels worden nooit geladen of opgezocht.</string>
 </resources>

@@ -7,4 +7,6 @@
     <string name="livetv_show_on_profiles_all">全部</string>
     <string name="livetv_show_on_profiles_count">%1$d / %2$d</string>
     <string name="livetv_show_on_profiles_description">在这里关闭的用户不会看到来自 %1$s 的频道、On Demand 和 Sports。播放列表本身对所有人保留</string>
+    <string name="livetv_vod_hide_non_english">隐藏非英语影片</string>
+    <string name="livetv_vod_hide_non_english_description">不显示以其他语言制作的电影和剧集（通过 TMDB 以及提供商自己的语言分组和标签判断）。隐藏的影片不会被加载或查找。</string>
 </resources>

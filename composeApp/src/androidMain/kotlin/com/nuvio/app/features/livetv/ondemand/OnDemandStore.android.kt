@@ -9,7 +9,7 @@ import android.database.sqlite.SQLiteOpenHelper
 
 internal actual object OnDemandStore {
     private const val DB_NAME = "livetv_on_demand.db"
-    private const val DB_VERSION = 2
+    private const val DB_VERSION = 3
 
     private var helper: Helper? = null
 
@@ -30,6 +30,7 @@ internal actual object OnDemandStore {
                     name TEXT NOT NULL, norm TEXT NOT NULL, icon TEXT, cat TEXT NOT NULL,
                     ext TEXT, tmdb TEXT, year INTEGER, rating TEXT, added INTEGER NOT NULL DEFAULT 0,
                     genre TEXT, h INTEGER, url TEXT, stalker TEXT, stalker_variant TEXT, plot TEXT, duration INTEGER,
+                    fl INTEGER,
                     PRIMARY KEY (pl, kind, id))"""
             )
             createIndices(db)
@@ -40,6 +41,7 @@ internal actual object OnDemandStore {
             )
             db.execSQL("CREATE TABLE posters (uid TEXT PRIMARY KEY, poster TEXT, checked INTEGER NOT NULL, title TEXT, tmdb TEXT)")
             db.execSQL("CREATE TABLE prefixes (pl TEXT NOT NULL, prefix TEXT NOT NULL, PRIMARY KEY (pl, prefix))")
+            createLanguageTable(db)
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -49,8 +51,28 @@ internal actual object OnDemandStore {
                 db.execSQL("ALTER TABLE items ADD COLUMN plot TEXT")
                 db.execSQL("ALTER TABLE items ADD COLUMN duration INTEGER")
             }
+            // Version 3: each title's original language and a mark on titles in another language
+            // ("Hide Non-English Titles"). One new column and table: everything imported is kept.
+            if (oldVersion < 3) {
+                runCatching { db.execSQL("ALTER TABLE items ADD COLUMN fl INTEGER") }
+                // Titles are cleaned better now ("Elf 4K [4K]", "Barbie (Kor Sub)"): forget the
+                // old "no poster found" answers so they're looked up again.
+                runCatching { db.execSQL("DELETE FROM posters WHERE poster = '' AND (tmdb IS NULL OR tmdb = '')") }
+                createLanguageTable(db)
+            }
         }
     }
+
+    private fun createLanguageTable(db: SQLiteDatabase) {
+        // k: the title's key (VodTitles.languageKey); lang: "en", "fr"…, or "" when TMDB didn't know it.
+        db.execSQL("CREATE TABLE IF NOT EXISTS langs (k TEXT PRIMARY KEY, lang TEXT NOT NULL, checked INTEGER NOT NULL)")
+    }
+
+    private const val FL_SURE = 1
+    private const val FL_GUESS = 2
+
+    /** "Hide Non-English Titles" is on: lists leave marked titles out. */
+    @Volatile private var hideForeign = false
 
     private fun createIndices(db: SQLiteDatabase) {
         db.execSQL("CREATE INDEX IF NOT EXISTS items_cat ON items(kind, pl, cat)")
@@ -186,7 +208,7 @@ internal actual object OnDemandStore {
         val db = readable ?: return emptyList()
         val out = ArrayList<VodCategory>()
         db.rawQuery(
-            """SELECT c.pl, c.id, c.name, (SELECT COUNT(*) FROM items i WHERE i.pl = c.pl AND i.kind = c.kind AND i.cat = c.id)
+            """SELECT c.pl, c.id, c.name, (SELECT COUNT(*) FROM items i WHERE i.pl = c.pl AND i.kind = c.kind AND i.cat = c.id${if (hideForeign) " AND i.fl IS NULL" else ""})
                FROM categories c WHERE c.kind = ? ORDER BY c.pl, c.position""",
             arrayOf(kind.key)
         ).use { c ->
@@ -212,6 +234,7 @@ internal actual object OnDemandStore {
                 args += parts[1]; args += parts[2]
             }
         }
+        if (hideForeign) where.append(" AND fl IS NULL")
         val order = sort.orderBy("rowid")
         val group = if (merge) " GROUP BY $VOD_DUP_KEY" else ""
         val copies = if (merge) ", COUNT(*) AS copies" else ""
@@ -240,8 +263,9 @@ internal actual object OnDemandStore {
             val copies = if (merge) ", COUNT(*) AS copies" else ""
             // Best first: what you typed at the start of the name, then the shortest names.
             val first = if (sort == VodSort.DEFAULT && starts.isNotEmpty()) "(rowid IN (${starts.joinToString(",")})) DESC, " else ""
+            val foreign = if (hideForeign) " AND fl IS NULL" else ""
             query(
-                "SELECT *$copies FROM items WHERE rowid IN (${ids.joinToString(",")})$group ORDER BY $first${sort.orderBy("length(name)")} LIMIT $limit",
+                "SELECT *$copies FROM items WHERE rowid IN (${ids.joinToString(",")})$foreign$group ORDER BY $first${sort.orderBy("length(name)")} LIMIT $limit",
                 emptyList()
             )
         }.getOrElse {
@@ -249,6 +273,7 @@ internal actual object OnDemandStore {
             val where = StringBuilder("kind = ?")
             val args = arrayListOf(kind.key)
             words.forEach { w -> where.append(" AND norm LIKE ?"); args += "%$w%" }
+            if (hideForeign) where.append(" AND fl IS NULL")
             val group = if (merge) " GROUP BY $VOD_DUP_KEY" else ""
             val copies = if (merge) ", COUNT(*) AS copies" else ""
             query("SELECT *$copies FROM items WHERE $where$group ORDER BY ${sort.orderBy("length(name)")} LIMIT $limit", args)
@@ -328,6 +353,103 @@ internal actual object OnDemandStore {
             if (match.title != null) put("title", match.title) else putNull("title")
             if (match.tmdbId != null) put("tmdb", match.tmdbId) else putNull("tmdb")
         }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    actual fun setHideForeign(on: Boolean) { hideForeign = on }
+
+    actual fun needingLanguage(limit: Int, retryBefore: Long): List<VodItem> =
+        query(
+            "SELECT * FROM items WHERE (fl IS NULL OR fl = $FL_GUESS) AND NOT EXISTS (SELECT 1 FROM langs l WHERE l.k = items.kind || $VOD_DUP_KEY AND (l.lang != '' OR l.checked > ?)) " +
+                "GROUP BY items.kind || $VOD_DUP_KEY ORDER BY MAX(IFNULL(fl, 0)) DESC, MAX(added) DESC LIMIT $limit",
+            arrayListOf(retryBefore.toString()),
+        )
+
+    actual fun knownLanguages(keys: Collection<String>, retryBefore: Long): Set<String> {
+        val db = readable ?: return keys.toSet()
+        if (keys.isEmpty()) return emptySet()
+        val out = HashSet<String>()
+        keys.distinct().chunked(400).forEach { part ->
+            db.rawQuery(
+                "SELECT k FROM langs WHERE (lang != '' OR checked > ?) AND k IN (${part.joinToString(",") { "?" }})",
+                (listOf(retryBefore.toString()) + part).toTypedArray(),
+            ).use { c -> while (c.moveToNext()) out += c.getString(0) }
+        }
+        return out
+    }
+
+    actual fun saveLanguages(found: Map<String, String>): Int {
+        if (found.isEmpty()) return 0
+        val db = writable
+        val now = System.currentTimeMillis()
+        var changed = 0
+        tx(db) {
+            val put = db.compileStatement("INSERT OR REPLACE INTO langs (k, lang, checked) VALUES (?,?,?)")
+            // Another language: marked for sure (a guess becomes certain). English: a guess is undone.
+            val markTmdb = db.compileStatement("UPDATE items SET fl = $FL_SURE WHERE (fl IS NULL OR fl = $FL_GUESS) AND kind = ? AND tmdb = ?")
+            val markName = db.compileStatement("UPDATE items SET fl = $FL_SURE WHERE (fl IS NULL OR fl = $FL_GUESS) AND kind = ? AND norm = ? AND items.kind || $VOD_DUP_KEY = ?")
+            val backTmdb = db.compileStatement("UPDATE items SET fl = NULL WHERE fl = $FL_GUESS AND kind = ? AND tmdb = ?")
+            val backName = db.compileStatement("UPDATE items SET fl = NULL WHERE fl = $FL_GUESS AND kind = ? AND norm = ? AND items.kind || $VOD_DUP_KEY = ?")
+            for ((k, lang) in found) {
+                put.clearBindings(); put.bindString(1, k); put.bindString(2, lang); put.bindLong(3, now); put.executeInsert()
+                val foreign = VodTitles.isForeignLanguage(lang)
+                if (!foreign && !lang.equals("en", ignoreCase = true)) continue
+                val kind = if (k.startsWith(VodKind.SERIES.key)) VodKind.SERIES.key else VodKind.MOVIE.key
+                val rest = k.removePrefix(kind)
+                if (rest.startsWith("t")) {
+                    val stmt = if (foreign) markTmdb else backTmdb
+                    stmt.clearBindings(); stmt.bindString(1, kind); stmt.bindString(2, rest.substring(1))
+                    changed += stmt.executeUpdateDelete()
+                } else if (rest.startsWith("n")) {
+                    val norm = rest.substring(1).substringBeforeLast('|')
+                    val stmt = if (foreign) markName else backName
+                    stmt.clearBindings(); stmt.bindString(1, kind); stmt.bindString(2, norm); stmt.bindString(3, k)
+                    changed += stmt.executeUpdateDelete()
+                }
+            }
+        }
+        return changed
+    }
+
+    actual fun markForeign(playlistId: String) {
+        val db = writable
+        tx(db) {
+            db.execSQL(
+                "UPDATE items SET fl = $FL_SURE WHERE pl = ? AND (fl IS NULL OR fl = $FL_GUESS) AND items.kind || $VOD_DUP_KEY IN (SELECT k FROM langs WHERE lang != '' AND lang != 'en')",
+                arrayOf(playlistId),
+            )
+            val foreignGroups = ArrayList<Pair<String, String>>()
+            db.rawQuery("SELECT kind, id, name FROM categories WHERE pl = ?", arrayOf(playlistId)).use { c ->
+                while (c.moveToNext()) if (VodLanguageTags.groupIsForeign(c.getString(2))) foreignGroups += c.getString(0) to c.getString(1)
+            }
+            foreignGroups.forEach { (kind, cat) ->
+                // Only a guess: a group can hold the odd English title (an Australian film in "Netflix Asia").
+                db.execSQL("UPDATE items SET fl = $FL_GUESS WHERE pl = ? AND kind = ? AND cat = ? AND fl IS NULL", arrayOf(playlistId, kind, cat))
+            }
+            val rows = ArrayList<Pair<Long, Int>>()
+            db.rawQuery("SELECT rowid, name, fl FROM items WHERE pl = ? AND (fl IS NULL OR fl = $FL_GUESS)", arrayOf(playlistId)).use { c ->
+                while (c.moveToNext()) {
+                    val signal = VodLanguageTags.titleSignal(c.getString(1))
+                    val current = if (c.isNull(2)) 0 else c.getInt(2)
+                    if (signal == VodLanguageTags.SURE || (signal == VodLanguageTags.GUESS && current == 0)) rows += c.getLong(0) to signal
+                }
+            }
+            if (rows.isNotEmpty()) {
+                val stmt = db.compileStatement("UPDATE items SET fl = ? WHERE rowid = ?")
+                rows.forEach { (id, fl) -> stmt.clearBindings(); stmt.bindLong(1, fl.toLong()); stmt.bindLong(2, id); stmt.executeUpdateDelete() }
+            }
+            // Guesses TMDB has already said are English stay on the lists.
+            db.execSQL(
+                "UPDATE items SET fl = NULL WHERE pl = ? AND fl = $FL_GUESS AND items.kind || $VOD_DUP_KEY IN (SELECT k FROM langs WHERE lang = 'en')",
+                arrayOf(playlistId),
+            )
+        }
+    }
+
+    actual fun markForeignAll() {
+        val db = readable ?: return
+        val ids = ArrayList<String>()
+        db.rawQuery("SELECT DISTINCT pl FROM categories", null).use { c -> while (c.moveToNext()) ids += c.getString(0) }
+        ids.forEach { runCatching { markForeign(it) } }
     }
 
     actual fun compact() {

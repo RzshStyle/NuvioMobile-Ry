@@ -167,6 +167,10 @@ object VodTitles {
     private val EMOJI_FLAG = Regex("[\\x{1F1E6}-\\x{1F1FF}]")
     private val BRACKET_TAG = Regex("""[\[{(][^\[\]{}()]*[\]})]""")
     private val SHORT_CAPS = Regex("""[\[{(]\s*[A-Z]{2,4}\s*[\]})]""")
+    /** Words that make a bracket a release note, never part of the name ("(EN Subs)", "(CAM)"). */
+    private val BRACKET_RELEASE = Regex("""(?i)^[\[{(]\s*(?:[a-z]{2,3}\s*)?(?:subs?|subtitled|cam|telesync|ts|hdts|hdcam|screener|scr|v)\s*(?:[a-z]{2,3})?\s*[\]})]$""")
+    /** Arabic, Hebrew, Cyrillic, Greek, Devanagari, Thai, CJK and Hangul letters at the end of a name. */
+    private val TRAILING_OTHER_SCRIPT = Regex("""[\s(（]*[\u0370-\u03FF\u0400-\u04FF\u0590-\u05FF\u0600-\u06FF\u0900-\u097F\u0E00-\u0E7F\u3040-\u30FF\u3400-\u9FFF\uAC00-\uD7AF][\u0370-\u03FF\u0400-\u04FF\u0590-\u05FF\u0600-\u06FF\u0900-\u097F\u0E00-\u0E7F\u3040-\u30FF\u3400-\u9FFF\uAC00-\uD7AF\s\p{P})）]*$""")
     private val RELEASE_WORDS = Regex(
         "\\b(uhd|fhd|hevc|h\\.?265|h\\.?264|x265|x264|hdr10\\+?|hdr|dolby\\s+vision|atmos|" +
             "multi[- ]?subs?|multisub|dual[- ]?audio|remux|web[- ]?dl|webrip|bluray|blu-ray|bdrip|dvdrip|hdrip|" +
@@ -216,6 +220,8 @@ object VodTitles {
             if (seg.lowercase() in knownPrefixes || looksLikeTag(seg)) {
                 val rest = out.substring(m.range.last + 1).trim()
                 if (rest.isBlank()) return out
+                // Only a year left after it ("X-Men - (2000)", "W.E. - (2011)"): that was the title.
+                if (rest.replace(YEAR_IN_BRACKETS, " ").none { it.isLetterOrDigit() }) return out
                 out = rest
             } else return out
         }
@@ -257,8 +263,14 @@ object VodTitles {
         var t = stripTags(s).replace(PREFIX, "")
             .replace(YEAR_IN_BRACKETS_TRAIL, "")
             .replace(YEAR_AT_END, "")
-            .replace(QUALITY_AT_END, "")
+            // "(Kor Sub)", "(EN Subs)", "(CAM)", "(Telesync)": a whole bracket, before the
+            // quality tags below took just "Sub)" off and left "Barbie (Kor".
+            .replace(BRACKET_TAG) { m -> if (BRACKET_RELEASE.containsMatchIn(m.value)) " " else m.value }
             .trim()
+        // Quality tags at the end, several deep: "Elf 4K [4K]" (a provider writes both) is "Elf".
+        repeat(3) { t = t.replace(QUALITY_AT_END, "").trim() }
+        // A name in another script after the English one ("Honeymoonish شهر زي العسل"): the English one.
+        if (t.any { it in 'A'..'Z' || it in 'a'..'z' }) t = t.replace(TRAILING_OTHER_SCRIPT, "").trim().ifBlank { t }
         // More decorations: flags, tags in brackets ("[MULTI-SUB]", "(VOSTFR)"), release words
         // anywhere ("WEB-DL", "x265", "5.1"), and a capital language tag at the very end
         // ("Movie FR"). Never down to nothing.
@@ -286,6 +298,26 @@ object VodTitles {
             if (last in TRAILING_EXTRA || YEAR_WORD.matches(last)) words.removeAt(words.lastIndex) else break
         }
         return words.joinToString("")
+    }
+
+    /** A title's key for its original language: the same for every copy (as Merge duplicates, [VOD_DUP_KEY]). */
+    fun languageKey(item: VodItem): String =
+        item.kind.key + (item.tmdbId?.takeIf { it.isNotEmpty() }?.let { "t$it" } ?: ("n" + normalize(item.name) + "|" + (item.year?.toString() ?: "")))
+
+    /** Made in a language other than English ("" = not known: shown). */
+    fun isForeignLanguage(lang: String): Boolean = lang.isNotBlank() && !lang.equals("en", ignoreCase = true)
+
+    /**
+     * A cleaned title without the release year some providers put at the end with just a space
+     * ("Troll 2 2025" -> "Troll 2"), or null when it doesn't end with one. Only a second try when
+     * looking a title up: "Wonder Woman 1984" is a real name.
+     */
+    fun withoutTrailingYear(title: String): String? {
+        val m = TRAILING_YEAR.find(title.trim()) ?: return null
+        val year = m.groupValues[1].toIntOrNull() ?: return null
+        if (year > latestYear()) return null
+        val before = title.trim().substring(0, m.range.first).trim().trimEnd('-', '–', '—', '|', ':', ',', '.').trim()
+        return before.takeIf { b -> b.length >= 2 && b.any { it.isLetter() } }
     }
 
     /** A year in a provider title ("Big Brother UK 2023"), if any. */

@@ -7,4 +7,6 @@
     <string name="livetv_show_on_profiles_all">Todos</string>
     <string name="livetv_show_on_profiles_count">%1$d de %2$d</string>
     <string name="livetv_show_on_profiles_description">Os perfis desativados aqui não recebem canais, On Demand nem Sports de %1$s. A playlist continua para todos</string>
+    <string name="livetv_vod_hide_non_english">Ocultar títulos não ingleses</string>
+    <string name="livetv_vod_hide_non_english_description">Oculta filmes e séries feitos noutra língua (verificado com o TMDB e com os grupos e etiquetas de idioma do seu fornecedor). Os títulos ocultos nunca são carregados nem pesquisados.</string>
 </resources>
