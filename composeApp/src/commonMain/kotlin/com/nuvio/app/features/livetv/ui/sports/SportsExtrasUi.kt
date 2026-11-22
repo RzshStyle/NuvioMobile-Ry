@@ -197,6 +197,10 @@ private fun TablePanel(x: GameExtras) {
         x.tableHead.forEach { Text(it, style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted, modifier = Modifier.width(44.dp), textAlign = TextAlign.End) }
     }
     x.table.forEach { r ->
+        r.group?.let { g ->
+            Text(g.uppercase(), style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted, fontWeight = FontWeight.Black,
+                modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(r.pos, style = MaterialTheme.typography.labelMedium, color = tokens.colors.textMuted, modifier = Modifier.width(28.dp))
             Text(r.team, style = MaterialTheme.typography.bodyMedium, color = if (r.mine) tokens.colors.accent else tokens.colors.textPrimary, fontWeight = if (r.mine) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)

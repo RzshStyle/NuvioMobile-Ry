@@ -424,9 +424,11 @@ internal class AndroidMultiviewPlayer(
                     .build()
         }.setEnableDecoderFallback(true)
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(2_000, 8_000, 500, 1_000)
+            // Enough ahead to ride out a provider's small hiccups: with only 2 s kept, two or more
+            // streams sharing the connection made the tiles take turns stuttering.
+            .setBufferDurationsMs(12_000, 30_000, 1_500, 3_000)
             .setBackBuffer(0, false)
-            .setTargetBufferBytes((if (lowMemory) 4 else 8) * 1024 * 1024)
+            .setTargetBufferBytes((if (lowMemory) 6 else 16) * 1024 * 1024)
             .setPrioritizeTimeOverSizeThresholds(false)
             .build()
         return ExoPlayer.Builder(context, renderers)
