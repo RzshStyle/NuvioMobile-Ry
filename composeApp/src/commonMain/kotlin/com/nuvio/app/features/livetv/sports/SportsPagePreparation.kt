@@ -26,6 +26,19 @@ internal fun <I, Q, P> Flow<I>.prepareSportsPages(
     PreparedSportsPage(query, page)
 }.flowOn(Dispatchers.Default).buffer(0)
 
+/** All Events' sport row: "Pick Leagues" (the leagues ticked in [SportsSettings.pickedLeagues]) in place of one sport. */
+internal const val SPORT_PICKED = "picked"
+
+/** Pick Leagues' chip: "Pick Leagues" with none ticked, the league's name with one, "3 Leagues" with more. */
+internal fun pickedLeaguesLabel(settings: SportsSettings): String {
+    val ids = settings.pickedLeagues
+    return when (ids.size) {
+        0 -> "Pick Leagues"
+        1 -> SportsCatalog.league(ids.first())?.name ?: "1 League"
+        else -> "${ids.size} Leagues"
+    } + if (ids.isNotEmpty() && settings.pickedLiveOnly) " · Live" else ""
+}
+
 internal data class SportsDayQuery(
     val day: Int,
     val sport: String?,
@@ -125,7 +138,16 @@ internal suspend fun buildSportsDayPage(
     val order = SportsCatalog.sportsOrder(input.settings)
     val sports = dayEvents.mapNotNull { checkpoint(); SportsCatalog.league(it.leagueId)?.sport }
         .distinct().sortedBy { order.indexOf(it).let { i -> if (i < 0) 99 else i } }
-    val bySport = if (input.query.sport == null) dayEvents else dayEvents.filter {
+    val picked = input.settings.pickedLeagues
+    val bySport = if (input.query.sport == null) dayEvents
+    // Pick Leagues: the ticked leagues together (any sports); "Live only" on today.
+    else if (input.query.sport == SPORT_PICKED) {
+        if (picked.isEmpty()) dayEvents
+        else dayEvents.filter {
+            checkpoint()
+            it.leagueId in picked && (!input.settings.pickedLiveOnly || input.query.day != 0 || it.state == GameState.LIVE)
+        }
+    } else dayEvents.filter {
         checkpoint()
         SportsCatalog.league(it.leagueId)?.sport?.name == input.query.sport
     }
