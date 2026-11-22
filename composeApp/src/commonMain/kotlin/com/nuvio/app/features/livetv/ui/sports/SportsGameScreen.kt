@@ -3,6 +3,16 @@ package com.nuvio.app.features.livetv.ui.sports
 import com.nuvio.app.features.livetv.ui.liveTvSideInsets
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.ui.draw.rotate
+import com.nuvio.app.features.livetv.multiview.isMultiviewSupported
+import com.nuvio.app.features.livetv.sports.SportsDates
+import com.nuvio.app.features.livetv.sports.SportsFollows
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -137,7 +147,9 @@ fun SportsGameScreen(
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { repo.setViewing(false) } }
     val known by repo.known.collectAsStateWithLifecycle()
     val events by repo.events.collectAsStateWithLifecycle()
-    val ev = remember(events, known, eventId) { events.firstOrNull { it.id == eventId } ?: known.firstOrNull { it.id == eventId } }
+    // The row of the day's games at the top switches the page to another game (Back still leaves).
+    var shownId by remember(eventId) { mutableStateOf(eventId) }
+    val ev = remember(events, known, shownId) { events.firstOrNull { it.id == shownId } ?: known.firstOrNull { it.id == shownId } }
     Column(modifier = modifier.fillMaxSize().background(tokens.colors.background).statusBarsPadding().liveTvSideInsets()) {
         NuvioScreenHeader(
             title = ev?.let { SportsCatalog.league(it.leagueId)?.name } ?: "Sports",
@@ -148,21 +160,118 @@ fun SportsGameScreen(
         if (ev == null) {
             EmptyNote(stringResource(Res.string.livetv_sports_game_gone))
         } else {
-            GameBody(ev, actions)
+            androidx.compose.runtime.key(ev.id) { GameBody(ev, actions, onPickGame = { shownId = it.id }) }
         }
     }
     GameAlertsOffer()
 }
 
+// ------------------------------------------------------------------ what the guide says
+
+/** How sure we are, from the guide, that tuning in now shows the game (the TV app's guide lines). */
+private enum class GuideKind { NOW, LATER, OTHER, UNKNOWN, ENDED }
+
+/** One channel's guide line: a short [text] in its colour ([kind]) and, sometimes, what's on now ([detail]). */
+private class GuideLine(val kind: GuideKind, val text: String, val detail: String?)
+
+/**
+ * What [m]'s channel guide says about the game: on now, on later (and what's on until then),
+ * something else on while the game is live, or no listing. [onNow]: the channel's programme on now.
+ */
+private fun guideLine(ev: SportsEvent, m: ChannelMatch, onNow: EpgProgram?, now: Long, use24h: Boolean): GuideLine {
+    val p = m.program
+    val nowTitle = onNow?.title?.takeIf { it.isNotBlank() }
+    fun differs(a: EpgProgram?, b: EpgProgram?) = a == null || b == null || a.startMs != b.startMs || a.title != b.title
+    return when {
+        p != null && now >= p.startMs && now < p.stopMs -> GuideLine(GuideKind.NOW, "Showing it now", p.title.takeIf { it.isNotBlank() })
+        p != null && p.startMs > now -> {
+            val at = com.nuvio.app.features.livetv.sports.clockText(p.startMs, use24h)
+            val onNowTitle = nowTitle?.takeIf { differs(onNow, p) }
+            if (ev.state == GameState.LIVE && onNowTitle != null) GuideLine(GuideKind.OTHER, "Something else on now", "On now: $onNowTitle · the game is listed at $at")
+            else GuideLine(GuideKind.LATER, "Shows it at $at", onNowTitle?.let { "On now: $it" })
+        }
+        p != null -> GuideLine(GuideKind.ENDED, "Its listing has ended", nowTitle?.let { "On now: $it" })
+        nowTitle != null -> GuideLine(if (ev.state == GameState.LIVE) GuideKind.OTHER else GuideKind.UNKNOWN, "Not in this channel's guide", "On now: $nowTitle")
+        else -> GuideLine(GuideKind.UNKNOWN, "No guide info", null)
+    }
+}
+
+@Composable
+private fun guideColor(kind: GuideKind): Color = when (kind) {
+    GuideKind.NOW -> Color(0xFF5FD38D)
+    GuideKind.LATER -> MaterialTheme.nuvio.colors.accent
+    GuideKind.OTHER -> Color(0xFFF0C36A)
+    GuideKind.UNKNOWN, GuideKind.ENDED -> MaterialTheme.nuvio.colors.textMuted
+}
+
+// ------------------------------------------------------------------ the day's other games
+
+/** The day's games in the same league (or the same sport when the league has only this one), for the row at the top. */
+private fun stripGames(ev: SportsEvent, known: List<SportsEvent>): List<SportsEvent> {
+    val dayStart = SportsDates.dayOf(ev.startMs)
+    val dayEnd = dayStart + 24 * 3_600_000L
+    fun onDay(e: SportsEvent) = (e.startMs in dayStart until dayEnd) || e.id == ev.id
+    val league = known.filter { it.leagueId == ev.leagueId && onDay(it) }
+    val list = if (league.size >= 2) league else {
+        val sport = SportsCatalog.league(ev.leagueId)?.sport
+        known.filter { sport != null && SportsCatalog.league(it.leagueId)?.sport == sport && onDay(it) }
+    }
+    return list.distinctBy { it.id }.sortedWith(compareBy<SportsEvent> { it.startMs }.thenBy { it.id }).take(30)
+}
+
+/** The row of the day's games across the top of a game page: the open one outlined, tap another to switch to it. */
+@Composable
+private fun GamesStrip(games: List<SportsEvent>, currentId: String, use24h: Boolean, hideScores: Boolean, onPick: (SportsEvent) -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    val start = games.indexOfFirst { it.id == currentId }.coerceAtLeast(0)
+    androidx.compose.foundation.lazy.LazyRow(
+        state = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = (start - 1).coerceAtLeast(0)),
+        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
+    ) {
+        items(games, key = { "s:" + it.id }) { g ->
+            val current = g.id == currentId
+            val league = SportsCatalog.league(g.leagueId)
+            val sides = g.ordered(league?.sport ?: Sport.OTHER)
+            val showScore = g.hasScore && !hideScores
+            val top = if (sides.size == 2) {
+                val a = sides[0].team.abbr.ifBlank { sides[0].team.name.take(3).uppercase() }
+                val b = sides[1].team.abbr.ifBlank { sides[1].team.name.take(3).uppercase() }
+                if (showScore) "$a ${sides[0].score ?: "–"}–${sides[1].score ?: "–"} $b" else "$a v $b"
+            } else eventHeadline(g, league)
+            val bottom = when (g.state) {
+                GameState.LIVE -> if (showScore) "LIVE " + cornerStatus(g, use24h, hideScores) else "LIVE"
+                else -> cornerStatus(g, use24h, hideScores)
+            }
+            Column(
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .widthIn(max = 180.dp)
+                    .clip(tokens.shapes.compactCard)
+                    .background(if (current) tokens.colors.accent.copy(alpha = 0.2f) else tokens.colors.surface)
+                    .border(if (current) 1.5.dp else 0.dp, if (current) tokens.colors.accent else Color.Transparent, tokens.shapes.compactCard)
+                    .clickable(enabled = !current) { onPick(g) }
+                    .padding(horizontal = NuvioTokens.Space.s10, vertical = NuvioTokens.Space.s6),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(top, style = MaterialTheme.typography.labelLarge, color = tokens.colors.textPrimary, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(bottom, style = MaterialTheme.typography.labelSmall, maxLines = 1, color = when (g.state) { GameState.LIVE -> SportsLiveRed; GameState.PRE -> tokens.colors.accent; else -> tokens.colors.textMuted })
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------ the page
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun GameBody(ev: SportsEvent, actions: SportsActions) {
+private fun GameBody(ev: SportsEvent, actions: SportsActions, onPickGame: (SportsEvent) -> Unit) {
     val tokens = MaterialTheme.nuvio
     val repo = SportsRepository
     val settings by repo.settings.collectAsStateWithLifecycle()
     val follows by repo.follows.collectAsStateWithLifecycle()
     val allMatches by repo.matches.collectAsStateWithLifecycle()
     val matching by repo.matching.collectAsStateWithLifecycle()
+    val known by repo.known.collectAsStateWithLifecycle()
     val schedules by SportsRecordings.scheduled.collectAsStateWithLifecycle()
     val hasChannels = LiveTvRepository.channels.collectAsStateWithLifecycle().value.isNotEmpty()
     val use24h = use24h()
@@ -199,118 +308,151 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions) {
     var regionPick by remember { mutableStateOf(false) }
     var channelMenu by remember { mutableStateOf<ChannelMatch?>(null) }
     var teamSheet by remember { mutableStateOf<TeamInfo?>(null) }
+    var moreReplays by remember(ev.id) { mutableStateOf(false) }
+    var channelsOpen by remember(ev.id) { mutableStateOf(false) }
     val plays = rememberScoringPlays(ev, hide)
     val extras = rememberGameExtras(ev)
     val tables by repo.standings.collectAsStateWithLifecycle()
     LaunchedEffect(ev.leagueId, ev.state) {
-        if (ev.state == GameState.PRE && !hide && league != null && repo.mayHaveTable(league)) runCatching { repo.standings(ev.leagueId) }
+        if (!hide && league != null && repo.mayHaveTable(league)) runCatching { repo.standings(ev.leagueId) }
     }
     val grouped = remember(matches) { SportsMatcher.groupCopies(matches) }
+    val strip = remember(known, ev.id, ev.leagueId, ev.startMs) { stripGames(ev, known) }
+    // What each channel's guide has on now (for its guide line), checked again every minute.
+    val guideKeys = remember(grouped) { grouped.map { it.first().channel }.filter { it.sourceId != SportsAddonSource.SOURCE_ID }.map { it.key } }
+    val guideNow by produceState<Map<String, EpgProgram?>>(emptyMap(), guideKeys) {
+        while (true) {
+            value = runCatching { repo.nowAndNext(guideKeys).mapValues { it.value.now } }.getOrDefault(value)
+            delay(60_000)
+        }
+    }
+    fun playVideo(c: ChannelMatch) {
+        if (!SportsVideos.needsResolving(c.channel)) actions.onPlay(c.channel, ev.title)
+        else videoScope.launch {
+            // NHL's and YouTube's videos are worked out when picked (a moment).
+            NuvioToastController.show("Opening the video…")
+            val ch = runCatching { repo.playableVideo(c.channel) }.getOrNull()
+            if (ch != null) actions.onPlay(ch, ev.title)
+            else NuvioToastController.show("That video can't be played right now. Try another one.")
+        }
+    }
+    val overview: (@Composable () -> Unit)? = run {
+        val hasPeriods = sides.size == 2 && showScore && sides.any { it.periods.isNotEmpty() } && (sport != Sport.RUGBY || periodsAddUp(sides))
+        val hasResults = ev.standings.isNotEmpty() && !hide
+        if (plays.isEmpty() && !hasPeriods && !hasResults) null else {
+            @Composable {
+                Column(verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s10)) {
+                    if (plays.isNotEmpty()) {
+                        Text(stringResource(Res.string.livetv_sports_latest_scoring), style = MaterialTheme.typography.titleSmall, color = tokens.colors.textPrimary, fontWeight = FontWeight.Bold)
+                        plays.asReversed().take(12).forEach { p -> PlayRow(p) }
+                    }
+                    if (hasPeriods) PeriodTable(sides, sport)
+                    if (hasResults) {
+                        Text(
+                            when (sport) { Sport.TENNIS -> "Matches"; Sport.FIGHTING -> "Fight card"; Sport.GOLF -> "Leaderboard"; else -> "Results" },
+                            style = MaterialTheme.typography.titleSmall, color = tokens.colors.textPrimary, fontWeight = FontWeight.Bold,
+                        )
+                        ev.standings.forEach { st ->
+                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = NuvioTokens.Space.s2), verticalAlignment = Alignment.CenterVertically) {
+                                Text(st.pos, style = MaterialTheme.typography.labelMedium, color = if (st.pos == "LIVE") SportsLiveRed else tokens.colors.textMuted, modifier = Modifier.width(44.dp))
+                                Text(st.name, style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                st.detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    val tabs = listOfNotNull(overview?.let { GameTab("Overview", it) }) + (extras?.let { gameExtrasTabs(ev, it, sides, hide) } ?: emptyList())
+    var tabName by remember(ev.id) { mutableStateOf<String?>(null) }
+    val tab = tabs.firstOrNull { it.title == tabName } ?: tabs.firstOrNull()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = NuvioTokens.Space.s16, end = NuvioTokens.Space.s16, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s24)),
         verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s10),
     ) {
-        // ---- the score strip
+        // ---- the day's games in this league
+        if (strip.size >= 2) {
+            item(key = "strip") { GamesStrip(strip, ev.id, use24h, hide, onPickGame) }
+        }
+        // ---- the scoreboard, in the teams' colours
         item(key = "head") {
-            Column(
-                modifier = Modifier.fillMaxWidth().clip(tokens.shapes.card).background(tokens.colors.surface).padding(NuvioTokens.Space.s12),
-                verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
-                    LeagueMark(league, 20.dp)
-                    Text(
-                        listOfNotNull(league?.name, ev.subtitle).joinToString(" · "),
-                        style = MaterialTheme.typography.labelMedium, color = tokens.colors.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-                    )
-                    StateBadge(ev, use24h)
+            Scoreboard(ev, sides, follows, tables, extras, matches, now, use24h, hide, onTeam = { teamSheet = it })
+        }
+        // ---- Watch (or play the replay), Multiview, and the game's other actions
+        item(key = "actions") {
+            Column(verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
+                val firstChannel = grouped.firstOrNull()?.first()
+                val firstReplay = replays.firstOrNull()
+                val main: Pair<String, () -> Unit>? = when {
+                    ev.state == GameState.POST && firstReplay != null -> (if (firstReplay.how.startsWith("Full game") || firstReplay.how.startsWith(SportsVideos.Kind.REPLAY.label)) "Play full replay" else "Play " + firstReplay.how.substringBefore(" · ").lowercase()) to { playVideo(firstReplay) }
+                    ev.state != GameState.POST && firstChannel != null -> "Watch" to { actions.onPlay(firstChannel.channel, ev.title) }
+                    else -> null
                 }
-                if (sides.size == 2) {
-                    val table = tables[ev.leagueId]
-                    sides.forEach { s ->
-                        TeamBand(
-                            side = s, showScore = showScore, winner = ev.state == GameState.POST && s.winner,
-                            followed = follows.followsTeam(ev.leagueId, s.team.id),
-                            pre = if (ev.state == GameState.PRE && !hide) preGameLine(s, table, extras) else null,
-                            onClick = { teamSheet = s.team },
+                if (main != null || (isMultiviewSupported && ev.state == GameState.LIVE)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8), verticalAlignment = Alignment.CenterVertically) {
+                        if (main != null) {
+                            Row(
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp).clip(tokens.shapes.compactCard).background(tokens.colors.accent).clickable(onClick = main.second),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = tokens.colors.onAccent, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(NuvioTokens.Space.s6))
+                                Text(main.first, style = MaterialTheme.typography.titleSmall, color = tokens.colors.onAccent, fontWeight = FontWeight.Bold)
+                            }
+                        } else Spacer(Modifier.weight(1f))
+                        if (isMultiviewSupported && ev.state == GameState.LIVE) {
+                            Box(
+                                modifier = Modifier.size(48.dp).clip(tokens.shapes.compactCard).background(tokens.colors.surface).clickable(onClickLabel = "Open Multiview", onClick = actions.onOpenMultiview),
+                                contentAlignment = Alignment.Center,
+                            ) { Icon(Icons.Filled.GridView, contentDescription = "Open Multiview", tint = tokens.colors.textPrimary) }
+                        }
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
+                    if (ev.state != GameState.POST && ev.hasTime) {
+                        Chip(label = stringResource(if (reminded) Res.string.livetv_sports_reminded else Res.string.livetv_sports_remind), selected = reminded, onClick = { repo.toggleReminder(ev) })
+                    }
+                    // Score alerts for just this game (its scores and the final result), when its teams aren't followed.
+                    if ((ev.state == GameState.PRE || ev.state == GameState.LIVE) && ev.sides.size == 2 && !hide && !repo.alertsFromFollows(ev, follows)) {
+                        val alertsOn = follows.alertGames.any { it.eventId == ev.id }
+                        Chip(label = if (alertsOn) "📣 Score alerts on" else "📣 Score alerts", selected = alertsOn, onClick = {
+                            repo.toggleGameAlerts(ev)
+                            NuvioToastController.show(if (alertsOn) "Score alerts off for this game" else "You'll get this game's scores and the final result")
+                        })
+                    }
+                    if (ev.state != GameState.POST && ev.hasTime && hasChannels && ownChannels.isNotEmpty()) {
+                        Chip(
+                            label = if (recording != null) "● Recording set" else stringResource(Res.string.livetv_sports_record),
+                            selected = recording != null,
+                            onClick = { if (recording != null) SportsRecordings.cancel(ev) else askRecord = true },
                         )
                     }
-                } else {
-                    Text(eventHeadline(ev, league), style = MaterialTheme.typography.titleLarge, color = tokens.colors.textPrimary, fontWeight = FontWeight.Bold)
-                    ev.about?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary, maxLines = 4, overflow = TextOverflow.Ellipsis) }
-                }
-                if (ev.state == GameState.LIVE) NuvioProgressBar(progress = progressOf(ev, now), height = NuvioTokens.Space.s3)
-                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
-                    Text(
-                        text = when (ev.state) {
-                            GameState.LIVE -> cornerStatus(ev, use24h, hide)
-                            GameState.PRE -> if (ev.hasTime) dayWord(ev.startMs, now) + " " + sportsClock(ev.startMs) + " · " + countdownLabel(ev.startMs, now) else (ev.note ?: startLabel(ev, use24h))
-                            GameState.POST -> (ev.status ?: "Final") + " · " + dayWord(ev.startMs, now)
-                            GameState.OFF -> ev.status ?: "Postponed"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (ev.state == GameState.LIVE) SportsLiveRed else tokens.colors.textSecondary,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    // The channel of yours the game is on first (before it starts), then the TV networks.
-                    val shownNetworks = (listOfNotNull(matches.firstOrNull()?.channel?.name?.takeIf { it.isNotBlank() && ev.state == GameState.PRE }) + ev.broadcasts).distinct().take(3)
-                    if (shownNetworks.isNotEmpty()) Text(shownNetworks.joinToString(", "), style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted, modifier = Modifier.fillMaxWidth())
-                }
-                ev.situation?.takeIf { !hide }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary) }
-            }
-        }
-        // ---- actions
-        item(key = "actions") {
-            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
-                if (ev.state != GameState.POST && ev.hasTime) {
-                    Chip(label = stringResource(if (reminded) Res.string.livetv_sports_reminded else Res.string.livetv_sports_remind), selected = reminded, onClick = { repo.toggleReminder(ev) })
-                }
-                // Score alerts for just this game (its scores and the final result), when its teams aren't followed.
-                if ((ev.state == GameState.PRE || ev.state == GameState.LIVE) && ev.sides.size == 2 && !hide && !repo.alertsFromFollows(ev, follows)) {
-                    val alertsOn = follows.alertGames.any { it.eventId == ev.id }
-                    Chip(label = if (alertsOn) "📣 Score alerts on" else "📣 Score alerts", selected = alertsOn, onClick = {
-                        repo.toggleGameAlerts(ev)
-                        NuvioToastController.show(if (alertsOn) "Score alerts off for this game" else "You'll get this game's scores and the final result")
-                    })
-                }
-                if (ev.state != GameState.POST && ev.hasTime && hasChannels && ownChannels.isNotEmpty()) {
-                    Chip(
-                        label = if (recording != null) "● Recording set" else stringResource(Res.string.livetv_sports_record),
-                        selected = recording != null,
-                        onClick = { if (recording != null) SportsRecordings.cancel(ev) else askRecord = true },
-                    )
-                }
-                if (hasChannels) Chip(label = stringResource(Res.string.livetv_sports_fix_channel), selected = false, onClick = { fixing = true })
-                if (league != null && repo.mayHaveTable(league)) Chip(label = "Table", selected = false, onClick = { actions.onOpenLeague(league) })
-                if (matches.size > 1) {
-                    Chip(label = "🌐 " + ChannelRegions.shortName(settings.channelRegion), selected = settings.channelRegion.isNotBlank(), onClick = { regionPick = true })
+                    if (hasChannels) Chip(label = stringResource(Res.string.livetv_sports_fix_channel), selected = false, onClick = { fixing = true })
+                    if (league != null && repo.mayHaveTable(league)) Chip(label = "Table", selected = false, onClick = { actions.onOpenLeague(league) })
+                    if (matches.size > 1) {
+                        Chip(label = "🌐 " + ChannelRegions.shortName(settings.channelRegion), selected = settings.channelRegion.isNotBlank(), onClick = { regionPick = true })
+                    }
                 }
             }
         }
-        // ---- replays and highlights (finished games): from your sports addons and the leagues' own
-        // videos, so this list goes first and says where they come from when there are none.
+        // ---- a finished game: replays and highlights first (your channels aren't showing it any more)
         if (ev.state == GameState.POST) {
-            item(key = "replays-h") {
-                Text("Replays & highlights", style = MaterialTheme.typography.titleSmall, color = tokens.colors.textPrimary, fontWeight = FontWeight.Bold)
-            }
+            item(key = "replays-h") { SectionHeading("Replays & highlights", if (replays.isNotEmpty()) replays.size.toString() else null) }
             if (replays.isNotEmpty()) {
-                items(replays, key = { "r:" + it.channel.key }) { m ->
-                    SportsChannelRow(
-                        m = m, copies = 1, ev = ev, use24h = use24h,
-                        onPlay = { c ->
-                            if (!SportsVideos.needsResolving(c.channel)) actions.onPlay(c.channel, ev.title)
-                            else videoScope.launch {
-                                // NHL's and YouTube's videos are worked out when picked (a moment).
-                                NuvioToastController.show("Opening the video…")
-                                val ch = runCatching { repo.playableVideo(c.channel) }.getOrNull()
-                                if (ch != null) actions.onPlay(ch, ev.title)
-                                else NuvioToastController.show("That video can't be played right now. Try another one.")
-                            }
-                        },
-                        onLongPress = {},
-                    )
+                val shown = if (moreReplays) replays else replays.take(4)
+                items(shown, key = { "r:" + it.channel.key }) { m -> ReplayRow(m, sides, onPlay = { playVideo(m) }) }
+                if (replays.size > 4 && !moreReplays) {
+                    item(key = "replays-more") {
+                        Text(
+                            "Show ${replays.size - 4} more",
+                            style = MaterialTheme.typography.labelLarge, color = tokens.colors.accent, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(NuvioTokens.Radius.sm)).clickable { moreReplays = true }.padding(horizontal = NuvioTokens.Space.s4, vertical = NuvioTokens.Space.s10),
+                        )
+                    }
                 }
             } else {
                 item(key = "replays-none") {
@@ -328,59 +470,85 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions) {
                     )
                 }
             }
-        }
-        // ---- channels
-        item(key = "channels-h") {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(Res.string.livetv_sports_watch_on), style = MaterialTheme.typography.titleSmall, color = tokens.colors.textPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                if (matching) NuvioLoadingIndicator(size = NuvioTokens.Space.s16)
-            }
-        }
-        if (grouped.isEmpty()) {
-            item(key = "channels-none") {
-                Text(
-                    if (!hasChannels) "Add a playlist in Live TV settings to watch games." else if (matching) "Looking through your channels…" else stringResource(Res.string.livetv_sports_no_channels),
-                    style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textMuted,
-                )
-            }
-        }
-        items(grouped, key = { "c:" + it.first().channel.key }) { copies ->
-            val m = copies.first()
-            SportsChannelRow(
-                m = m, copies = copies.size, ev = ev, use24h = use24h,
-                onPlay = { c -> actions.onPlay(c.channel, ev.title) },
-                onLongPress = { c ->
-                    if (c.channel.sourceId != SportsAddonSource.SOURCE_ID) {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress); channelMenu = c
+            // Your channels, folded into one line (open it for Watch from start).
+            if (grouped.isNotEmpty()) {
+                item(key = "channels-fold") {
+                    val fromStart = grouped.count { g -> g.any { it.catchup } }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(tokens.shapes.card).background(tokens.colors.surface)
+                            .clickable(onClickLabel = if (channelsOpen) "Close" else "Open") { channelsOpen = !channelsOpen }
+                            .padding(horizontal = NuvioTokens.Space.s12, vertical = NuvioTokens.Space.s8),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+                    ) {
+                        Icon(Icons.Filled.LiveTv, contentDescription = null, tint = tokens.colors.textMuted, modifier = Modifier.size(20.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Shown on ${grouped.size} of your channel${if (grouped.size == 1) "" else "s"}", style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (fromStart > 0) "$fromStart can play it from the start · hold a channel for Watch from start" else "Hold a channel for more",
+                                style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted,
+                            )
+                        }
+                        Icon(Icons.Filled.ExpandMore, contentDescription = null, tint = tokens.colors.textMuted, modifier = Modifier.rotate(if (channelsOpen) 180f else 0f))
                     }
-                },
-            )
-        }
-        // ---- latest scoring
-        if (plays.isNotEmpty()) {
-            item(key = "plays-h") { Text(stringResource(Res.string.livetv_sports_latest_scoring), style = MaterialTheme.typography.titleSmall, color = tokens.colors.textPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = NuvioTokens.Space.s8)) }
-            items(plays.asReversed().take(12)) { p -> PlayRow(p) }
-        }
-        if (sides.size == 2 && showScore && sides.any { it.periods.isNotEmpty() } && (sport != Sport.RUGBY || periodsAddUp(sides))) {
-            item(key = "periods") { PeriodTable(sides, sport) }
-        }
-        if (ev.standings.isNotEmpty() && !hide) {
-            item(key = "standings-h") {
-                Text(
-                    when (sport) { Sport.TENNIS -> "Matches"; Sport.FIGHTING -> "Fight card"; Sport.GOLF -> "Leaderboard"; else -> "Results" },
-                    style = MaterialTheme.typography.titleSmall, color = tokens.colors.textPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = NuvioTokens.Space.s8),
-                )
+                }
             }
-            items(ev.standings) { st ->
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = NuvioTokens.Space.s2), verticalAlignment = Alignment.CenterVertically) {
-                    Text(st.pos, style = MaterialTheme.typography.labelMedium, color = if (st.pos == "LIVE") SportsLiveRed else tokens.colors.textMuted, modifier = Modifier.width(44.dp))
-                    Text(st.name, style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    st.detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary) }
+        } else {
+            // ---- live or coming up: your channels, each with what its guide says
+            item(key = "channels-h") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SectionHeading(stringResource(Res.string.livetv_sports_watch_on).uppercase(), null, modifier = Modifier.weight(1f))
+                    if (matching) NuvioLoadingIndicator(size = NuvioTokens.Space.s16)
+                }
+            }
+            if (grouped.isEmpty()) {
+                item(key = "channels-none") {
+                    Text(
+                        if (!hasChannels) "Add a playlist in Live TV settings to watch games." else if (matching) "Looking through your channels…" else stringResource(Res.string.livetv_sports_no_channels),
+                        style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textMuted,
+                    )
                 }
             }
         }
-        // ---- more about the game
-        extras?.let { x -> gameExtrasItems(ev, x, sides, hide) }
+        if (ev.state != GameState.POST || channelsOpen) {
+            items(grouped, key = { "c:" + it.first().channel.key }) { copies ->
+                val m = copies.first()
+                val guide = if (m.channel.sourceId == SportsAddonSource.SOURCE_ID || ev.state == GameState.POST) null else guideLine(ev, m, guideNow[m.channel.key], now, use24h)
+                SportsChannelRow(
+                    m = m, copies = copies.size, ev = ev, use24h = use24h, guide = guide,
+                    onPlay = { c -> actions.onPlay(c.channel, ev.title) },
+                    onLongPress = { c ->
+                        if (c.channel.sourceId != SportsAddonSource.SOURCE_ID) {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress); channelMenu = c
+                        }
+                    },
+                )
+            }
+        }
+        // ---- tabs: Overview (scoring, periods, results) and the feed's extras
+        if (tabs.isNotEmpty() && tab != null) {
+            item(key = "tabs") {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = NuvioTokens.Space.s8).horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
+                ) {
+                    tabs.forEach { t ->
+                        val selected = t.title == tab.title
+                        Column(
+                            modifier = Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(NuvioTokens.Radius.sm)).clickable { tabName = t.title }
+                                .padding(horizontal = NuvioTokens.Space.s10),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            Text(t.title, style = MaterialTheme.typography.titleSmall, color = if (selected) tokens.colors.textPrimary else tokens.colors.textMuted, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, maxLines = 1)
+                            Spacer(Modifier.height(NuvioTokens.Space.s6))
+                            Box(Modifier.width(28.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(if (selected) tokens.colors.accent else Color.Transparent))
+                        }
+                    }
+                }
+            }
+            item(key = "tab:" + tab.title) { tab.content() }
+        }
     }
 
     if (askRecord) {
@@ -395,32 +563,138 @@ private fun GameBody(ev: SportsEvent, actions: SportsActions) {
 }
 
 @Composable
-private fun TeamBand(side: Side, showScore: Boolean, winner: Boolean, followed: Boolean, pre: String?, onClick: () -> Unit) {
+private fun SectionHeading(text: String, count: String?, modifier: Modifier = Modifier) {
     val tokens = MaterialTheme.nuvio
-    val c = bandColor(bandBase(side.team))
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(tokens.shapes.compactCard)
-            .clickable(onClick = onClick)
-            .background(
-                Brush.horizontalGradient(
-                    0f to c.copy(alpha = 0.92f),
-                    0.7f to c.copy(alpha = 0.28f),
-                    1f to c.copy(alpha = 0.05f),
-                ),
-            )
-            .padding(horizontal = NuvioTokens.Space.s10, vertical = NuvioTokens.Space.s8),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s10),
+    Row(modifier = modifier.padding(top = NuvioTokens.Space.s8), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)) {
+        Text(text, style = MaterialTheme.typography.labelLarge, color = tokens.colors.textSecondary, fontWeight = FontWeight.Bold)
+        count?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = tokens.colors.textMuted) }
+    }
+}
+
+/**
+ * The scoreboard: the two teams either side in their colours (tap one for its card), the score or
+ * the start time in the middle with the state under it, then when it is and the TV networks.
+ */
+@Composable
+private fun Scoreboard(
+    ev: SportsEvent,
+    sides: List<Side>,
+    follows: SportsFollows,
+    tables: Map<String, Standings>,
+    extras: GameExtras?,
+    matches: List<ChannelMatch>,
+    now: Long,
+    use24h: Boolean,
+    hide: Boolean,
+    onTeam: (TeamInfo) -> Unit,
+) {
+    val league = SportsCatalog.league(ev.leagueId)
+    val showScore = ev.hasScore && !hide
+    Column(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(NuvioTokens.Radius.xl)).background(featuredBrush(sides, league))
+            .background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.35f)))
+            .padding(horizontal = NuvioTokens.Space.s10, vertical = NuvioTokens.Space.s14),
+        verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s10),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        TeamLogo(side.team, 36.dp)
-        Column(modifier = Modifier.weight(1f)) {
-            Text(side.team.name + (if (followed) " ★" else ""), style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = if (winner) FontWeight.Black else FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val sub = listOfNotNull(side.record, pre).joinToString(" · ")
-            if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (sides.size == 2) {
+            val table = tables[ev.leagueId]
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                sides.forEachIndexed { i, s ->
+                    if (i == 1) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = NuvioTokens.Space.s4)) {
+                            if (showScore) {
+                                Text("${sides[0].score ?: "–"} – ${sides[1].score ?: "–"}", style = MaterialTheme.typography.displaySmall, color = Color.White, fontWeight = FontWeight.Black, maxLines = 1)
+                            } else {
+                                Text(if (ev.state == GameState.PRE && ev.hasTime) startLabel(ev, use24h) else if (sport(ev).homeFirst) "v" else "at", style = MaterialTheme.typography.headlineSmall, color = Color.White, fontWeight = FontWeight.Black, maxLines = 1)
+                            }
+                            Spacer(Modifier.height(NuvioTokens.Space.s4))
+                            when (ev.state) {
+                                GameState.LIVE -> SportsBadge(if (showScore) "LIVE " + cornerStatus(ev, use24h, hide) else "LIVE", SportsLiveRed)
+                                GameState.PRE -> SportsBadge(if (ev.hasTime) countdownLabel(ev.startMs, now) else ev.note ?: startLabel(ev, use24h), Color.Black.copy(alpha = 0.35f))
+                                else -> SportsBadge(cornerStatus(ev, use24h, hide), Color.Black.copy(alpha = 0.35f))
+                            }
+                        }
+                    }
+                    val followed = follows.followsTeam(ev.leagueId, s.team.id)
+                    val sub = when {
+                        ev.state == GameState.PRE && !hide -> preGameLine(s, table, extras)
+                        !hide -> table?.placeText(s.team.id)?.substringBefore(" in ")?.let { listOfNotNull(it, s.record).joinToString(" · ") } ?: s.record
+                        else -> null
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f).clip(RoundedCornerShape(NuvioTokens.Radius.md)).clickable(onClickLabel = s.team.name) { onTeam(s.team) }.padding(vertical = NuvioTokens.Space.s4),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
+                    ) {
+                        TeamLogo(s.team, 56.dp)
+                        Text(
+                            s.team.name + (if (followed) " ★" else ""),
+                            style = MaterialTheme.typography.titleSmall, color = Color.White,
+                            fontWeight = if (ev.state == GameState.POST && s.winner) FontWeight.Black else FontWeight.Bold,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                        )
+                        sub?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) }
+                    }
+                }
+            }
+        } else {
+            Text(eventHeadline(ev, league), style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            ev.about?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.85f), maxLines = 4, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) }
+            when (ev.state) {
+                GameState.LIVE -> SportsBadge("LIVE", SportsLiveRed)
+                else -> SportsBadge(cornerStatus(ev, use24h, hide), Color.Black.copy(alpha = 0.35f))
+            }
         }
-        if (showScore) Text(side.score ?: "–", style = MaterialTheme.typography.headlineMedium, color = Color.White, fontWeight = FontWeight.Black)
+        if (ev.state == GameState.LIVE) NuvioProgressBar(progress = progressOf(ev, now), height = NuvioTokens.Space.s3, modifier = Modifier.padding(horizontal = NuvioTokens.Space.s8))
+        val whenText = when (ev.state) {
+            GameState.LIVE -> null
+            GameState.PRE -> if (ev.hasTime) dayWord(ev.startMs, now) + " " + startLabel(ev, use24h) else ev.note
+            GameState.POST -> dayWord(ev.startMs, now)
+            GameState.OFF -> ev.status ?: "Postponed"
+        }
+        // The channel of yours the game is on first (before it starts), then the TV networks.
+        val shownNetworks = (listOfNotNull(matches.firstOrNull()?.channel?.name?.takeIf { it.isNotBlank() && ev.state == GameState.PRE }) + ev.broadcasts).distinct().take(3)
+        val line = listOfNotNull(whenText, ev.subtitle?.takeIf { sides.size == 2 }, shownNetworks.joinToString(", ").ifBlank { null }).joinToString(" · ")
+        if (line.isNotBlank()) Text(line, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.9f), textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        ev.situation?.takeIf { !hide }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.9f), textAlign = TextAlign.Center) }
+    }
+}
+
+private fun sport(ev: SportsEvent): Sport = SportsCatalog.league(ev.leagueId)?.sport ?: Sport.OTHER
+
+/** A replay or highlight: a tile in the teams' colours, its name, where it's from and how long, and a tag. */
+@Composable
+private fun ReplayRow(m: ChannelMatch, sides: List<Side>, onPlay: () -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    val how = m.how
+    val tag = when {
+        how.startsWith("Full game") || how.startsWith(SportsVideos.Kind.REPLAY.label) -> "Full game"
+        how.startsWith("Condensed") -> "Condensed"
+        m.channel.sourceId == SportsVideos.SOURCE_ID -> "Official"
+        else -> null
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().clip(tokens.shapes.card).background(tokens.colors.surface).clickable(onClickLabel = "Play", onClick = onPlay)
+            .padding(NuvioTokens.Space.s10),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+    ) {
+        Box(
+            modifier = Modifier.width(88.dp).height(50.dp).clip(RoundedCornerShape(NuvioTokens.Radius.md)).background(featuredBrush(sides, null)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(28.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+            }
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
+            Text(m.channel.name, style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(listOfNotNull(how, m.quality).joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            tag?.let {
+                SportsBadge(it, if (it == "Full game") tokens.colors.accent.copy(alpha = 0.22f) else tokens.colors.surfaceElevated, if (it == "Full game") tokens.colors.accent else tokens.colors.textSecondary)
+            }
+        }
     }
 }
 
@@ -435,11 +709,12 @@ private fun preGameLine(s: Side, table: Standings?, x: GameExtras?): String? {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SportsChannelRow(m: ChannelMatch, copies: Int, ev: SportsEvent, use24h: Boolean, onPlay: (ChannelMatch) -> Unit, onLongPress: (ChannelMatch) -> Unit) {
+private fun SportsChannelRow(m: ChannelMatch, copies: Int, ev: SportsEvent, use24h: Boolean, guide: GuideLine? = null, onPlay: (ChannelMatch) -> Unit, onLongPress: (ChannelMatch) -> Unit) {
     val tokens = MaterialTheme.nuvio
     Row(
         modifier = Modifier.fillMaxWidth().clip(tokens.shapes.card).background(tokens.colors.surface)
             .combinedClickable(onClick = { onPlay(m) }, onLongClick = { onLongPress(m) })
+            .heightIn(min = 60.dp)
             .padding(horizontal = NuvioTokens.Space.s12, vertical = NuvioTokens.Space.s8),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
@@ -451,17 +726,30 @@ private fun SportsChannelRow(m: ChannelMatch, copies: Int, ev: SportsEvent, use2
                 m.quality?.let { SportsBadge(it, tokens.colors.surfaceElevated, tokens.colors.textSecondary) }
                 if (copies > 1) Text("+${copies - 1}", style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted)
             }
+            // What the channel's guide says (green: showing it now; amber: something else on), then where it's from.
+            if (guide != null) {
+                val c = guideColor(guide.kind)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6)) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(c))
+                    Text(guide.text, style = MaterialTheme.typography.labelMedium, color = c, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
             Text(
-                text = listOfNotNull(m.channel.sourceName.takeIf { it.isNotBlank() }, m.program?.let { p -> "${sportsClock(p.startMs)} ${com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(p.title)}" } ?: m.how).joinToString(" · "),
+                text = listOfNotNull(
+                    m.channel.sourceName.takeIf { it.isNotBlank() },
+                    guide?.takeIf { it.kind != GuideKind.NOW }?.detail
+                        ?: m.program?.let { p -> "${sportsClock(p.startMs)} ${com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(p.title)}" } ?: m.how,
+                ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
         when {
             m.score >= 150 -> SportsBadge(stringResource(Res.string.livetv_sports_your_pick), tokens.colors.accent, tokens.colors.onAccent)
-            m.sure -> SportsBadge(stringResource(Res.string.livetv_sports_showing_it), Color(0xFF2E9E5B))
-            else -> SportsBadge(stringResource(Res.string.livetv_sports_maybe), tokens.colors.surfaceElevated, tokens.colors.textSecondary)
+            // The guide line says it already; only "maybe" stays next to it.
+            m.sure && guide == null -> SportsBadge(stringResource(Res.string.livetv_sports_showing_it), Color(0xFF2E9E5B))
+            !m.sure -> SportsBadge(stringResource(Res.string.livetv_sports_maybe), tokens.colors.surfaceElevated, tokens.colors.textSecondary)
         }
-        Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = tokens.colors.textPrimary)
+        Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = tokens.colors.textPrimary)
     }
 }
 

@@ -110,10 +110,10 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 
 /** Search: leagues by name, teams from the games we know and the leagues' team lists, names to follow. */
 @Composable
-internal fun SportsSearchTab(known: List<SportsEvent>, follows: SportsFollows, actions: SportsActions) {
+internal fun SportsSearchTab(known: List<SportsEvent>, follows: SportsFollows, actions: SportsActions, query: String) {
     val tokens = MaterialTheme.nuvio
     val repo = SportsRepository
-    var query by rememberSaveable { mutableStateOf("") }
+    val currentQuery by androidx.compose.runtime.rememberUpdatedState(query)
     var pickingLeague by remember { mutableStateOf<League?>(null) }
     val q = query.trim()
     val leagues = remember(q) {
@@ -123,15 +123,11 @@ internal fun SportsSearchTab(known: List<SportsEvent>, follows: SportsFollows, a
     }
     var teamResult by remember(known) { mutableStateOf<FollowTeamSearchResult?>(null) }
     LaunchedEffect(known) {
-        knownTeamSearchResults(known, snapshotFlow { query }).collect { teamResult = it }
+        knownTeamSearchResults(known, snapshotFlow { currentQuery }).collect { teamResult = it }
     }
     val teams = teamResult?.forQuery(query).orEmpty()
+    // The query comes from the search bar at the top of the Sports page.
     Column(modifier = Modifier.fillMaxSize()) {
-        NuvioInputField(
-            value = query, onValueChange = { query = it },
-            placeholder = stringResource(Res.string.livetv_sports_search_hint),
-            modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s6),
-        )
         val leaguesTitle = stringResource(Res.string.livetv_sports_leagues)
         val teamsTitle = stringResource(Res.string.livetv_sports_teams)
         val nameTitle = stringResource(Res.string.livetv_sports_add_name)

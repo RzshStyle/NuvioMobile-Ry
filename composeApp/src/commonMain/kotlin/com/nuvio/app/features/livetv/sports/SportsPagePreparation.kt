@@ -34,6 +34,8 @@ internal data class SportsDayQuery(
     val active: Set<String>,
     val filterToChannels: Boolean,
     val follows: SportsFollows,
+    /** A league picked from the league row (only with a sport picked); null: every league. */
+    val leaguePick: String? = null,
 )
 
 internal class MySportsInputs(val known: List<SportsEvent>, val follows: SportsFollows, val now: Long)
@@ -80,7 +82,16 @@ internal class SportsDaySections(
     val finished: List<SportsEvent> = emptyList(),
 )
 
-internal class SportsDayPage(val sports: List<Sport>, val sections: SportsDaySections)
+/**
+ * [nextDay]: a picked league with no games on the day shows its next match day instead (the
+ * day's offset, like the day row's); [noneAhead]: it has none in the week ahead either.
+ */
+internal class SportsDayPage(
+    val sports: List<Sport>,
+    val sections: SportsDaySections,
+    val nextDay: Int? = null,
+    val noneAhead: Boolean = false,
+)
 
 /** The phone's existing day membership, filtering and stable sort rules, prepared on a worker. */
 internal suspend fun buildSportsDayPage(
@@ -95,26 +106,46 @@ internal suspend fun buildSportsDayPage(
     val follows = input.follows
     val dayStart = input.dayStart
     val dayEnd = input.dayEnd
+    fun onDay(ev: SportsEvent, dayStart: Long, dayEnd: Long): Boolean = when {
+        ev.state == GameState.POST -> {
+            val finished = if (ev.hasTime) ev.startMs else minOf(ev.endMs ?: ev.startMs, now)
+            finished in dayStart until dayEnd
+        }
+        ev.hasTime -> ev.startMs in dayStart until dayEnd
+        ev.state == GameState.PRE -> ev.startMs in dayStart until dayEnd
+        else -> dayEnd > now && ev.startMs < dayEnd && (ev.endMs ?: (ev.startMs + 1)) >= dayStart
+    }
+    fun wanted(ev: SportsEvent): Boolean =
+        ev.leagueId in input.active &&
+            (!input.filterToChannels || ev.state == GameState.POST || isMine(ev, follows) || matches[ev.id]?.isNotEmpty() == true)
     val dayEvents = input.events.filter { ev ->
         checkpoint()
-        val onDay = when {
-            ev.state == GameState.POST -> {
-                val finished = if (ev.hasTime) ev.startMs else minOf(ev.endMs ?: ev.startMs, now)
-                finished in dayStart until dayEnd
-            }
-            ev.hasTime -> ev.startMs in dayStart until dayEnd
-            ev.state == GameState.PRE -> ev.startMs in dayStart until dayEnd
-            else -> dayEnd > now && ev.startMs < dayEnd && (ev.endMs ?: (ev.startMs + 1)) >= dayStart
-        }
-        ev.leagueId in input.active && onDay &&
-            (!input.filterToChannels || ev.state == GameState.POST || isMine(ev, follows) || matches[ev.id]?.isNotEmpty() == true)
+        onDay(ev, dayStart, dayEnd) && wanted(ev)
     }
     val order = SportsCatalog.sportsOrder(input.settings)
     val sports = dayEvents.mapNotNull { checkpoint(); SportsCatalog.league(it.leagueId)?.sport }
         .distinct().sortedBy { order.indexOf(it).let { i -> if (i < 0) 99 else i } }
-    val shown = if (input.query.sport == null) dayEvents else dayEvents.filter {
+    val bySport = if (input.query.sport == null) dayEvents else dayEvents.filter {
         checkpoint()
         SportsCatalog.league(it.leagueId)?.sport?.name == input.query.sport
+    }
+    // A league picked from the league row: its games that day, or on its next match day in the week ahead.
+    val pick = input.query.leaguePick
+    var nextDay: Int? = null
+    var noneAhead = false
+    val shown = if (pick == null) bySport else bySport.filter { it.leagueId == pick }.ifEmpty {
+        val league = input.events.filter { checkpoint(); it.leagueId == pick && wanted(it) }
+        var found: List<SportsEvent> = emptyList()
+        for (d in 1..SportsRepository.DAYS_AHEAD) {
+            val offset = input.query.day + d
+            if (offset > SportsRepository.DAYS_AHEAD) break
+            val from = SportsDates.dayStart(offset)
+            val to = SportsDates.dayStart(offset + 1)
+            found = league.filter { checkpoint(); onDay(it, from, to) }
+            if (found.isNotEmpty()) { nextDay = offset; break }
+        }
+        if (found.isEmpty()) noneAhead = true
+        found
     }
     val leagueRank = SportsCatalog.ordered(input.settings).mapIndexed { i, l -> l.id to i }.toMap()
     fun rank(ev: SportsEvent): Int { checkpoint(); return leagueRank[ev.leagueId] ?: 999 }
@@ -132,5 +163,5 @@ internal suspend fun buildSportsDayPage(
     val finished = shown.filter { checkpoint(); it.state == GameState.POST }
         .sortedWith(compareByDescending<SportsEvent> { it.startMs }.thenBy { rank(it) })
     context.ensureActive()
-    return SportsDayPage(sports, SportsDaySections(weekLong, live, upcoming, finished))
+    return SportsDayPage(sports, SportsDaySections(weekLong, live, upcoming, finished), nextDay, noneAhead)
 }
