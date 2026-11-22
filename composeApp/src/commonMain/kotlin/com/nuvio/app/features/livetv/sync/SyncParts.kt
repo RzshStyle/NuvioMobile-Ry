@@ -27,13 +27,13 @@ internal object SyncParts {
     private val store = LiveTvDriveHttp
     private val PROFILE_SUFFIX = Regex("""_p\d+$""")
 
-    private val LOGIN_KEYS = setOf(LiveTvKeys.playlists, LiveTvKeys.epgs, LiveTvKeys.playlistAccounts, LiveTvKeys.epgOverrides)
+    private val LOGIN_KEYS = setOf(LiveTvKeys.playlists, LiveTvKeys.epgs, LiveTvKeys.playlistAccounts, LiveTvKeys.epgOverrides, LiveTvKeys.networkFolder)
     private val FAVORITE_KEYS = setOf(
-        LiveTvKeys.favorites, LiveTvKeys.hiddenChannels, LiveTvKeys.hiddenGroups, LiveTvKeys.channelNames,
+        LiveTvKeys.favorites, LiveTvKeys.hiddenChannels, LiveTvKeys.hiddenGroups, LiveTvKeys.hiddenPlaylists, LiveTvKeys.channelNames,
         LiveTvKeys.channelLogos, LiveTvKeys.channelNumbers, LiveTvKeys.groupNames, LiveTvKeys.groupOrder,
         LiveTvKeys.customGroups, LiveTvKeys.channelOrder, LiveTvKeys.channelCopies, LiveTvKeys.channelAudio,
-        LiveTvKeys.pictureShapes, LiveTvKeys.lockedGroups, LiveTvKeys.nameRemovals, LiveTvKeys.reminders,
-        LiveTvKeys.vodHiddenCategories, LiveTvKeys.vodGroupOrder, LiveTvKeys.vodGroupNames,
+        LiveTvKeys.pictureShapes, LiveTvKeys.lockedGroups, LiveTvKeys.favoriteGroups, LiveTvKeys.nameRemovals, LiveTvKeys.reminders,
+        LiveTvKeys.vodHiddenCategories, LiveTvKeys.vodGroupOrder, LiveTvKeys.vodGroupNames, LiveTvKeys.titleMatchFixes,
     )
     private val SPORTS_KEYS = setOf(LiveTvKeys.sports, LiveTvKeys.sportsMine)
     /** Options that act the same on any device (not how the app looks), so phones and TVs share them. */
@@ -42,7 +42,7 @@ internal object SyncParts {
         "record_pre_minutes", "record_post_minutes", "recording_space_rule", "record_series_keep", "reminder_lead_minutes",
         "catchup_prefer_hls", "catchup_cache", "catchup_shift_minutes", "timeshift_enabled", "timeshift_minutes",
         "auto_reconnect", "auto_backup_channel", "hide_stray_entries", "captions_by_default",
-        "channel_sort", "group_sort", "vod_default_sort", "vod_sorts", "vod_merge_duplicates",
+        "channel_sort", "group_sort", "vod_default_sort", "vod_sorts", "vod_merge_duplicates", "vod_hide_non_english",
         "calendar_hide_spoilers", "calendar_hide_watched", "calendar_skip_news_talk", "calendar_sports", "calendar_new_episode_cards",
         "guide_search_catalog", "guide_search_live", "guide_search_ondemand",
         "vod_search_catalog", "vod_search_live", "vod_search_ondemand", "search_order", "logo_sources_off",
@@ -56,7 +56,7 @@ internal object SyncParts {
     )
 
     /** Always synced, whatever is switched off: the parental lock and the profile set-up marker. */
-    private val ALWAYS_KEYS = setOf(LiveTvKeys.parentalPin, LiveTvKeys.lockAdultContent, "profile_seeded", LiveTvKeys.profileMatch)
+    private val ALWAYS_KEYS = setOf(LiveTvKeys.parentalPin, LiveTvKeys.lockAdultContent, LiveTvKeys.lockLogins, "profile_seeded", LiveTvKeys.profileMatch)
 
     init {
         // Behavior and options became their own part: the first time, take the saved copy's values for it.

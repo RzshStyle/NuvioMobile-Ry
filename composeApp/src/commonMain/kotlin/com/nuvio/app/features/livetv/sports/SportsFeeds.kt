@@ -103,6 +103,9 @@ internal class SportsFeeds {
     /** Every game of the next week with its TV channels by country (TheSportsDB's TV listings, kept by the nuvio-data job). */
     suspend fun tvListingsRaw(): String = get(DATA_URL + "sportsdb/tv.json")
 
+    /** TheSportsDB's rugby games on now, with the match minute (the nuvio-data scores job, every few minutes). */
+    suspend fun rugbyLiveRaw(): String = get(DATA_URL + "sportsdb/rugby-live.json")
+
     /** Team colours from TheSportsDB for every team-sport league in nuvio-data (re-read weekly by its job). */
     suspend fun teamColorsRaw(): String = get(DATA_URL + "sportsdb/colors.json")
 
@@ -222,6 +225,8 @@ internal class SportsFeeds {
         private const val ESPN = "https://site.api.espn.com/apis/site/v2/sports/"
         const val DATA_URL = "https://raw.githubusercontent.com/homelessbrian/nuvio-data/main/"
         const val WRESTLING_URL = DATA_URL + "wrestling.json"
+        /** An event with a date only counts as over this long after that day began (the day and a late night). */
+        private const val DATE_ONLY_OVER_MS = 30 * 3_600_000L
 
         /** A league id as the shared ESPN cache file is named ("football/nfl" -> "football_nfl"). */
         fun safeFileId(id: String): String = id.replace(Regex("[^a-zA-Z0-9]+"), "_")
@@ -331,7 +336,8 @@ internal class SportsFeeds {
                         startMs = start,
                         hasTime = hasTime,
                         state = when {
-                            !hasTime -> GameState.PRE
+                            // A date only (Zuffa Boxing's cards): over once that day is.
+                            !hasTime -> if (now >= start + DATE_ONLY_OVER_MS) GameState.POST else GameState.PRE
                             now >= end -> GameState.POST
                             now >= start -> GameState.LIVE
                             else -> GameState.PRE
@@ -342,7 +348,7 @@ internal class SportsFeeds {
                         away = null, home = null,
                         source = EventSource.FIXTURES,
                         endMs = end,
-                        note = if (!hasTime) "Time to be confirmed" else listOfNotNull(e.str("venue"), e.str("city")).joinToString(" · ").ifBlank { null },
+                        note = if (!hasTime && now < start + DATE_ONLY_OVER_MS) "Time to be confirmed" else listOfNotNull(e.str("venue"), e.str("city")).joinToString(" · ").ifBlank { null },
                         about = e.str("about"),
                         // A race's finishing order (or a fight card's results), once it's in.
                         standings = e.optJSONArray("results")?.let { r ->
@@ -508,7 +514,7 @@ internal class SportsFeeds {
                     startMs = start,
                     hasTime = hasTime,
                     state = when {
-                        !hasTime -> GameState.PRE
+                        !hasTime -> if (now >= start + DATE_ONLY_OVER_MS) GameState.POST else GameState.PRE
                         now >= end -> GameState.POST
                         now >= start -> GameState.LIVE
                         else -> GameState.PRE
@@ -519,7 +525,7 @@ internal class SportsFeeds {
                     away = null, home = null,
                     source = EventSource.FIXTURES,
                     endMs = end,
-                    note = if (!hasTime) "Time to be confirmed" else listOfNotNull(e.str("venue"), e.str("city")).joinToString(" · ").ifBlank { null },
+                    note = if (!hasTime && now < start + DATE_ONLY_OVER_MS) "Time to be confirmed" else listOfNotNull(e.str("venue"), e.str("city")).joinToString(" · ").ifBlank { null },
                     about = e.str("about")
                 )
             }

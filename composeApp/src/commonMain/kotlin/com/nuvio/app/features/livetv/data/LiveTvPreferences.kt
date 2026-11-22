@@ -116,6 +116,9 @@ internal object LiveTvKeys {
     const val catchupShift = "catchup_shift_minutes"
     const val parentalPin = "parental_pin"
     const val lockAdultContent = "lock_adult_content"
+    const val lockLogins = "lock_logins"
+    /** The network folder (NAS / shared folder) set up on a TV for recordings, synced so the phone can watch them. */
+    const val networkFolder = "network_folder"
     const val showQualityBadges = "show_quality_badges"
     const val showFrameRate = "show_frame_rate"
     const val matchFrameRate = "match_frame_rate"
@@ -138,6 +141,8 @@ internal object LiveTvKeys {
     const val calendarFollows = "calendar_follows"
     const val calendarHiddenShows = "calendar_hidden_shows"
     const val calendarChannelPicks = "calendar_channel_picks"
+    /** "Fix match" picks for recordings and On Demand titles (JSON object, same as the TV app). */
+    const val titleMatchFixes = "title_match_fixes"
     const val calendarPlans = "calendar_plans"
     const val onDemandInStreams = "on_demand_in_streams"
     const val onDemandStreamsPosition = "on_demand_streams_position"
@@ -163,6 +168,7 @@ internal object LiveTvKeys {
     const val audioPassthrough = "audio_passthrough"
     const val showPosters = "show_posters"
     const val vodMergeDuplicates = "vod_merge_duplicates"
+    const val vodHideNonEnglish = "vod_hide_non_english"
     const val vodDefaultSort = "vod_default_sort"
     const val recordingStorage = "recording_storage"
     const val recordingSpaceRule = "recording_space_rule"
@@ -219,6 +225,10 @@ internal object LiveTvKeys {
 
     const val hiddenChannels = "hidden_channels"
     const val hiddenGroups = "hidden_groups"
+    /** Groups starred with "Add to favorite groups": listed first. Per profile, like the TV app. */
+    const val favoriteGroups = "favorite_groups"
+    /** Playlists (their ids) a profile doesn't show ("Show on Profiles"); the playlists stay shared. */
+    const val hiddenPlaylists = "hidden_playlists"
     const val favorites = "favorites"
     const val recent = "recent"
     const val lastChannel = "last_channel"
@@ -237,6 +247,10 @@ internal object LiveTvKeys {
     const val sports = "sports"
     /** Sports: the teams, leagues and names you follow, and game reminders (per profile), as JSON. */
     const val sportsMine = "sports_mine"
+    /** Home: the Live TV, Sports and On Demand rows added to Home (per profile), as JSON. Same as the TV app's. */
+    const val homeRows = "home_live_rows"
+    /** Home rows from a playlist's group show the playlist's name in their title. */
+    const val homeRowPlaylistNames = "home_row_playlist_names"
 
     /** Separates the EPG source id from the channel id in a stored EPG assignment. */
     const val EPG_SEP = "\u0001"
@@ -373,7 +387,8 @@ internal object LiveTvCodec {
                     linkServer = o.optString("linkServer"),
                     linkUsername = o.optString("linkUsername"),
                     linkPassword = o.optString("linkPassword"),
-                    vodInPlaylist = o.optBoolean("vodInPlaylist", false)
+                    vodInPlaylist = o.optBoolean("vodInPlaylist", false),
+                    vodSwitchSet = o.optBoolean("vodSwitchSet", false)
                 )
             }
         }.getOrDefault(emptyList())
@@ -391,6 +406,7 @@ internal object LiveTvCodec {
                 if (s.guidesOff.isNotEmpty()) put("guidesOff", buildJsonArray { s.guidesOff.sorted().forEach { add(it) } })
                 put("linkServer", s.linkServer); put("linkUsername", s.linkUsername)
                 put("linkPassword", s.linkPassword); put("vodInPlaylist", s.vodInPlaylist)
+                put("vodSwitchSet", s.vodSwitchSet)
                 put("lastUpdatedMs", s.lastUpdatedMs); put("lastError", s.lastError ?: "")
                 put("channelCount", s.channelCount)
                 put("importVod", s.importVod)
@@ -421,7 +437,9 @@ internal object LiveTvCodec {
                     lastUpdatedMs = o.optLong("lastUpdatedMs"),
                     lastError = o.optString("lastError").ifBlank { null },
                     programCount = o.optInt("programCount"),
-                    shiftMinutes = o.optInt("shiftMinutes")
+                    shiftMinutes = o.optInt("shiftMinutes"),
+                    userAgent = o.optString("userAgent"),
+                    fallbackUserAgent = o.optString("fallbackUserAgent")
                 )
             }
         }.getOrDefault(emptyList())
@@ -434,6 +452,7 @@ internal object LiveTvCodec {
                 put("enabled", s.enabled); put("lastUpdatedMs", s.lastUpdatedMs)
                 put("lastError", s.lastError ?: ""); put("programCount", s.programCount)
                 put("shiftMinutes", s.shiftMinutes)
+                put("userAgent", s.userAgent); put("fallbackUserAgent", s.fallbackUserAgent)
             })
         }
     }.toString()
@@ -640,10 +659,11 @@ internal open class LiveTvPreferencesStore {
     private val personalStringKeys: List<String> = listOf(
         LiveTvKeys.favorites, LiveTvKeys.recent, LiveTvKeys.lastChannel, LiveTvKeys.previousChannel, LiveTvKeys.lastGroup,
         LiveTvKeys.groupOrder, LiveTvKeys.customGroups, LiveTvKeys.channelOrder, LiveTvKeys.channelCopies, LiveTvKeys.reminders,
-        LiveTvKeys.vodGroupOrder, LiveTvKeys.vodSorts, LiveTvKeys.sportsMine
+        LiveTvKeys.vodGroupOrder, LiveTvKeys.vodSorts, LiveTvKeys.sportsMine, LiveTvKeys.homeRows
     )
     private val personalSetKeys: List<String> = listOf(
-        LiveTvKeys.hiddenChannels, LiveTvKeys.hiddenGroups, LiveTvKeys.vodHiddenCategories
+        LiveTvKeys.hiddenChannels, LiveTvKeys.hiddenGroups, LiveTvKeys.vodHiddenCategories,
+        LiveTvKeys.favoriteGroups, LiveTvKeys.hiddenPlaylists
     )
 
     /**
@@ -660,8 +680,9 @@ internal open class LiveTvPreferencesStore {
     /** The choices matched profiles share (the same list as the TV app). */
     private val matchedKeys: Set<String> = setOf(
         LiveTvKeys.favorites, LiveTvKeys.groupOrder, LiveTvKeys.customGroups, LiveTvKeys.channelOrder,
-        LiveTvKeys.channelCopies, LiveTvKeys.vodGroupOrder, LiveTvKeys.vodSorts, LiveTvKeys.sportsMine,
+        LiveTvKeys.channelCopies, LiveTvKeys.vodGroupOrder, LiveTvKeys.vodSorts, LiveTvKeys.sportsMine, LiveTvKeys.homeRows,
         LiveTvKeys.hiddenChannels, LiveTvKeys.hiddenGroups, LiveTvKeys.vodHiddenCategories,
+        LiveTvKeys.favoriteGroups, LiveTvKeys.hiddenPlaylists,
         LiveTvKeys.calendarFollows, LiveTvKeys.calendarHiddenShows, LiveTvKeys.sideMenuHidden
     )
 
@@ -788,8 +809,8 @@ internal open class LiveTvPreferencesStore {
                 if (value is PrefValue.StringSet) {
                     val dead: (String) -> Boolean = when (base) {
                         "hidden_channels" -> ::deadChannel
-                        "hidden_groups", "locked_groups" -> ::deadGroup
-                        "collapsed_playlists" -> ::deadOwner
+                        "hidden_groups", "locked_groups", "favorite_groups" -> ::deadGroup
+                        "collapsed_playlists", "hidden_playlists" -> ::deadOwner
                         else -> continue
                     }
                     val set = value.value.toList()
@@ -933,6 +954,7 @@ internal open class LiveTvPreferencesStore {
             catchupShiftMinutes = p.int(LiveTvKeys.catchupShift) ?: d.catchupShiftMinutes,
             parentalPin = p.str(LiveTvKeys.parentalPin) ?: d.parentalPin,
             lockAdultContent = p.bool(LiveTvKeys.lockAdultContent) ?: d.lockAdultContent,
+            lockLogins = p.bool(LiveTvKeys.lockLogins) ?: d.lockLogins,
             showQualityBadges = p.bool(LiveTvKeys.showQualityBadges) ?: d.showQualityBadges,
             showFrameRate = p.bool(LiveTvKeys.showFrameRate) ?: d.showFrameRate,
             // Before the three choices it was on or off; on worked like "On start/stop".
@@ -953,6 +975,7 @@ internal open class LiveTvPreferencesStore {
             calendarHideWatched = p.bool(LiveTvKeys.calendarHideWatched) ?: d.calendarHideWatched,
             calendarSports = p.bool(LiveTvKeys.calendarSports) ?: d.calendarSports,
             onDemandInStreams = p.bool(LiveTvKeys.onDemandInStreams) ?: d.onDemandInStreams,
+            homeRowPlaylistNames = p.bool(LiveTvKeys.homeRowPlaylistNames) ?: d.homeRowPlaylistNames,
             onDemandStreamsPosition = p.str(LiveTvKeys.onDemandStreamsPosition) ?: d.onDemandStreamsPosition,
             onDemandAutoPlay = p.bool(LiveTvKeys.onDemandAutoPlay) ?: d.onDemandAutoPlay,
             searchOrder = p.str(LiveTvKeys.searchOrder) ?: d.searchOrder,
@@ -968,6 +991,7 @@ internal open class LiveTvPreferencesStore {
             audioPassthrough = p.bool(LiveTvKeys.audioPassthrough) ?: d.audioPassthrough,
             showPosters = p.bool(LiveTvKeys.showPosters) ?: d.showPosters,
             vodMergeDuplicates = p.bool(LiveTvKeys.vodMergeDuplicates) ?: d.vodMergeDuplicates,
+            vodHideNonEnglish = p.bool(LiveTvKeys.vodHideNonEnglish) ?: d.vodHideNonEnglish,
             vodDefaultSort = p.str(LiveTvKeys.vodDefaultSort) ?: d.vodDefaultSort,
             recordingStorage = p.str(LiveTvKeys.recordingStorage) ?: d.recordingStorage,
             recordingSpaceRule = p.str(LiveTvKeys.recordingSpaceRule) ?: d.recordingSpaceRule,
@@ -1047,6 +1071,8 @@ internal open class LiveTvPreferencesStore {
         return LiveUserState(
             hiddenChannels = p.strSet(LiveTvKeys.hiddenChannels) ?: emptySet(),
             hiddenGroups = p.strSet(LiveTvKeys.hiddenGroups) ?: emptySet(),
+            hiddenPlaylists = p.strSet(LiveTvKeys.hiddenPlaylists) ?: emptySet(),
+            favoriteGroups = p.strSet(LiveTvKeys.favoriteGroups) ?: emptySet(),
             favorites = LiveTvCodec.decodeStringList(p.str(LiveTvKeys.favorites)),
             recent = LiveTvCodec.decodeStringList(p.str(LiveTvKeys.recent)),
             lastChannelKey = p.str(LiveTvKeys.lastChannel),
@@ -1147,6 +1173,10 @@ internal open class LiveTvPreferencesStore {
     val calendarChannelPicks: Flow<String> = _data.map { it.str(LiveTvKeys.calendarChannelPicks) ?: "" }.distinctUntilChanged()
     fun editCalendarChannelPicks(transform: (String) -> String) = edit { it[LiveTvKeys.calendarChannelPicks] = transform(it.str(LiveTvKeys.calendarChannelPicks) ?: "") }
 
+    val titleMatchFixes: Flow<String> = _data.map { it.str(LiveTvKeys.titleMatchFixes) ?: "" }.distinctUntilChanged()
+    fun titleMatchFixesNow(): String = _data.value.str(LiveTvKeys.titleMatchFixes) ?: ""
+    fun editTitleMatchFixes(transform: (String) -> String) = edit { it[LiveTvKeys.titleMatchFixes] = transform(it.str(LiveTvKeys.titleMatchFixes) ?: "") }
+
     val calendarPlans: Flow<String> = _data.map { it.str(LiveTvKeys.calendarPlans) ?: "" }.distinctUntilChanged()
     fun editCalendarPlans(transform: (String) -> String) = edit { it[LiveTvKeys.calendarPlans] = transform(it.str(LiveTvKeys.calendarPlans) ?: "") }
 
@@ -1214,6 +1244,7 @@ internal open class LiveTvPreferencesStore {
         p[LiveTvKeys.catchupShift] = s.catchupShiftMinutes
         p[LiveTvKeys.parentalPin] = s.parentalPin
         p[LiveTvKeys.lockAdultContent] = s.lockAdultContent
+        p[LiveTvKeys.lockLogins] = s.lockLogins
         p[LiveTvKeys.showQualityBadges] = s.showQualityBadges
         p[LiveTvKeys.showFrameRate] = s.showFrameRate
         p[LiveTvKeys.frameRateMode] = s.frameRateMode
@@ -1234,6 +1265,7 @@ internal open class LiveTvPreferencesStore {
         p[LiveTvKeys.calendarHideWatched] = s.calendarHideWatched
         p[LiveTvKeys.calendarSports] = s.calendarSports
         p[LiveTvKeys.onDemandInStreams] = s.onDemandInStreams
+        p[LiveTvKeys.homeRowPlaylistNames] = s.homeRowPlaylistNames
         p[LiveTvKeys.onDemandStreamsPosition] = s.onDemandStreamsPosition
         p[LiveTvKeys.onDemandAutoPlay] = s.onDemandAutoPlay
         p[LiveTvKeys.searchOrder] = s.searchOrder
@@ -1249,6 +1281,7 @@ internal open class LiveTvPreferencesStore {
         p[LiveTvKeys.audioPassthrough] = s.audioPassthrough
         p[LiveTvKeys.showPosters] = s.showPosters
         p[LiveTvKeys.vodMergeDuplicates] = s.vodMergeDuplicates
+        p[LiveTvKeys.vodHideNonEnglish] = s.vodHideNonEnglish
         p[LiveTvKeys.vodDefaultSort] = s.vodDefaultSort
         p[LiveTvKeys.recordingStorage] = s.recordingStorage
         p[LiveTvKeys.recordingSpaceRule] = s.recordingSpaceRule
@@ -1383,6 +1416,16 @@ internal open class LiveTvPreferencesStore {
         if (shapeName == "AUTO") m.remove(key) else m[key] = shapeName
     }
 
+    // ---------- Network folder (set up on a TV, for recordings) ----------
+
+    /** The network folder as JSON (the TV app's format); "" when it was removed; null when never set up. */
+    val networkFolderJson: Flow<String?> = _data.map { it.str(LiveTvKeys.networkFolder) }.distinctUntilChanged()
+
+    fun currentNetworkFolderJson(): String? = _data.value.str(LiveTvKeys.networkFolder)
+
+    /** [json] "" removes it (and tells the other devices so). */
+    fun setNetworkFolderJson(json: String) = edit { it[LiveTvKeys.networkFolder] = json }
+
     // ---------- Sports ----------
 
     val sportsSettingsJson: Flow<String?> = _data.map { it.str(LiveTvKeys.sports) }.distinctUntilChanged()
@@ -1395,6 +1438,17 @@ internal open class LiveTvPreferencesStore {
     fun editSportsMine(transform: (String?) -> String) = edit { p ->
         val id = currentProfile
         p[my(LiveTvKeys.sportsMine, id)] = transform(profileView(p, id).str(LiveTvKeys.sportsMine))
+    }
+
+    // ---------- Home rows ----------
+
+    /** This profile's Live TV, Sports and On Demand rows on Home, as JSON (the TV app's format). */
+    val homeRowsJson: Flow<String?> = combine(_data, _profile) { p, id -> profileView(p, id).str(LiveTvKeys.homeRows) }
+        .distinctUntilChanged()
+
+    fun editHomeRows(transform: (String?) -> String) = edit { p ->
+        val id = currentProfile
+        p[my(LiveTvKeys.homeRows, id)] = transform(profileView(p, id).str(LiveTvKeys.homeRows))
     }
 
     // ---------- parental controls, reminders, quality, On Demand ----------
@@ -1584,6 +1638,26 @@ internal open class LiveTvPreferencesStore {
     }
 
     fun clearHiddenGroups() = edit { it[my(LiveTvKeys.hiddenGroups)] = emptySet<String>() }
+
+    /** Playlists profile [profileId] doesn't show ("Show on Profiles"). */
+    fun hiddenPlaylistsOf(profileId: Int): Set<String> =
+        profileView(_data.value, profileId).strSet(LiveTvKeys.hiddenPlaylists) ?: emptySet()
+
+    /** Shows or hides playlist [playlistId] on profile [profileId] (profiles kept matched change together). */
+    fun setPlaylistShownOn(playlistId: String, profileId: Int, shown: Boolean) {
+        if (playlistId.isBlank()) return
+        if (profileId > 1) seedProfile(profileId)
+        edit { p ->
+            val cur = profileView(p, profileId).strSet(LiveTvKeys.hiddenPlaylists) ?: emptySet()
+            p[my(LiveTvKeys.hiddenPlaylists, profileId)] = if (shown) cur - playlistId else cur + playlistId
+        }
+    }
+
+    /** Stars a group (or takes the star off), for this profile. */
+    fun setGroupFavorite(groupId: String, favorite: Boolean) = edit { p ->
+        val cur = p.strSet(my(LiveTvKeys.favoriteGroups)) ?: emptySet()
+        p[my(LiveTvKeys.favoriteGroups)] = if (favorite) cur + groupId else cur - groupId
+    }
 
     fun toggleFavorite(key: String) = edit { p ->
         val cur = LiveTvCodec.decodeStringList(p.str(my(LiveTvKeys.favorites)))

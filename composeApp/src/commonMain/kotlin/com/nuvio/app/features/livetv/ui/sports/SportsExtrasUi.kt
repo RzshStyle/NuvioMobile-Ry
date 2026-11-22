@@ -55,6 +55,38 @@ internal fun LazyListScope.gameExtrasItems(ev: SportsEvent, x: GameExtras, sides
     if (x.hasMatchInfo) item(key = "x:info") { Panel("Match info") { InfoPanel(x) } }
 }
 
+/** One tab on a game's page: its name and what it shows. */
+internal class GameTab(val title: String, val content: @Composable () -> Unit)
+
+/**
+ * The game page's tabs from the feed's extras (only those with something in them). Before kick-off:
+ * head to head and form, the table, chances, match info, line-ups. Once it's on: stats (with the
+ * top performers), line-ups, the table, win chance, match info, head to head.
+ */
+internal fun gameExtrasTabs(ev: SportsEvent, x: GameExtras, sides: List<Side>, hideScores: Boolean): List<GameTab> {
+    val pre = ev.state == GameState.PRE
+    val away = sides.firstOrNull { !it.home }
+    val home = sides.firstOrNull { it.home }
+    val stats = if (!pre && !hideScores && (x.stats.isNotEmpty() || x.performers.isNotEmpty())) GameTab("Stats") {
+        Column(verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s10)) {
+            if (x.stats.isNotEmpty()) Panel("Team stats") { StatsPanel(x, away, home) }
+            if (x.performers.isNotEmpty()) Panel("Top performers") { LeadersPanel(x, away, home) }
+        }
+    } else null
+    val lineups = if (x.lineups.isNotEmpty()) GameTab("Line-ups") { Panel("Line-ups") { LineupsPanel(x) } } else null
+    val h2h = if (x.form.isNotEmpty() || x.meetings.isNotEmpty()) GameTab(if (x.meetings.isNotEmpty()) "Head to Head" else "Form") {
+        Column(verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s10)) {
+            if (x.form.isNotEmpty()) Panel("Form") { FormPanel(x) }
+            if (x.meetings.isNotEmpty()) Panel("Earlier meetings") { MeetingsPanel(x) }
+        }
+    } else null
+    val chance = if (x.hasOdds && !hideScores) GameTab(if (pre) "Chances" else "Win Chance") { Panel(if (pre) "Chances" else "Win probability") { ChancePanel(x, away, home) } } else null
+    val table = if (x.table.isNotEmpty()) GameTab("Table") { Panel(x.tableTitle ?: "Table") { TablePanel(x) } } else null
+    val info = if (x.hasMatchInfo) GameTab("Match Info") { Panel("Match info") { InfoPanel(x) } } else null
+    return if (pre) listOfNotNull(h2h, table, chance, info, lineups)
+    else listOfNotNull(stats, lineups, table, chance, info, h2h)
+}
+
 @Composable
 private fun Panel(title: String, content: @Composable () -> Unit) {
     val tokens = MaterialTheme.nuvio
@@ -197,6 +229,10 @@ private fun TablePanel(x: GameExtras) {
         x.tableHead.forEach { Text(it, style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted, modifier = Modifier.width(44.dp), textAlign = TextAlign.End) }
     }
     x.table.forEach { r ->
+        r.group?.let { g ->
+            Text(g.uppercase(), style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted, fontWeight = FontWeight.Black,
+                modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(r.pos, style = MaterialTheme.typography.labelMedium, color = tokens.colors.textMuted, modifier = Modifier.width(28.dp))
             Text(r.team, style = MaterialTheme.typography.bodyMedium, color = if (r.mine) tokens.colors.accent else tokens.colors.textPrimary, fontWeight = if (r.mine) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)

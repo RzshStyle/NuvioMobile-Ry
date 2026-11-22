@@ -202,10 +202,13 @@ fun LiveTvScreen(
     }
     var query by rememberSaveable { mutableStateOf("") }
     var searching by rememberSaveable { mutableStateOf(false) }
+    // Back from search: closes it, back to the group you were in (not out of Live TV).
+    com.nuvio.app.core.ui.PlatformBackHandler(enabled = searching) { searching = false; query = "" }
     // Groups start collapsed; tapping a header opens it. Kept across the trip to the player.
     val expanded = remember { mutableStateOf(LiveTvListMemory.expanded) }
     var sheetChannel by remember { mutableStateOf<LiveChannel?>(null) }
     var pickFavoritesFor by remember { mutableStateOf<LiveGroupSection?>(null) }
+    var sheetGroup by remember { mutableStateOf<ChannelGroup?>(null) }
     var unlockGroup by remember { mutableStateOf<ChannelGroup?>(null) }
     var overflow by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
@@ -372,7 +375,10 @@ fun LiveTvScreen(
                     val isCollapsed = id !in expanded.value
                     item(key = "g:$id") {
                         GroupCard(section.group, section.channels, isCollapsed, playlistTag = if (playlistId == null && playlistChoices.size > 1) playlistNames[section.group.sourceId] else null,
-                            onPickFavorites = if (id != ChannelGroup.FAVORITES && id != ChannelGroup.RECENT && section.channels.isNotEmpty()) ({ pickFavoritesFor = section }) else null) {
+                            onPickFavorites = if (id != ChannelGroup.FAVORITES && id != ChannelGroup.RECENT && section.channels.isNotEmpty()) ({ pickFavoritesFor = section }) else null,
+                            onLongClick = if (section.group.special) null else ({
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress); sheetGroup = section.group
+                            })) {
                             if (section.group.locked) unlockGroup = section.group
                             else {
                                 expanded.value = if (isCollapsed) expanded.value + id else expanded.value - id
@@ -419,6 +425,10 @@ fun LiveTvScreen(
                 }
             }
         }
+    }
+
+    sheetGroup?.let { g ->
+        GroupActionsSheet(g, onDismiss = { sheetGroup = null })
     }
 
     pickFavoritesFor?.let { sec ->
@@ -469,6 +479,7 @@ private fun EmptyLiveTv(onOpenSettings: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GroupCard(
     group: ChannelGroup,
@@ -477,6 +488,8 @@ private fun GroupCard(
     playlistTag: String? = null,
     /** A small star that opens Pick favorites for this group (null: none). */
     onPickFavorites: (() -> Unit)? = null,
+    /** Hold: the group's options (favorite group). Null: none. */
+    onLongClick: (() -> Unit)? = null,
     onToggle: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -488,7 +501,7 @@ private fun GroupCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(NuvioTokens.Radius.xl))
             .background(tokens.colors.surface)
-            .clickable(onClick = onToggle)
+            .combinedClickable(onClick = onToggle, onLongClick = onLongClick)
             .padding(NuvioTokens.Space.s12),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
@@ -505,6 +518,10 @@ private fun GroupCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // A favorite group's star, beside its name.
+                if (group.favorite) {
+                    Icon(Icons.Filled.Star, contentDescription = null, tint = tokens.colors.accent, modifier = Modifier.size(16.dp))
+                }
                 if (playlistTag != null) {
                     Text(
                         text = playlistTag,
@@ -721,7 +738,7 @@ internal fun ChannelRow(
             }
             if (current != null) {
                 Text(
-                    text = current.title + (current.episode?.let { "  ·  $it" } ?: ""),
+                    text = com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(current.title) + (current.episode?.let { "  ·  $it" } ?: ""),
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (showName) tokens.colors.textSecondary else tokens.colors.textPrimary,
                     fontWeight = if (showName) FontWeight.Normal else FontWeight.Medium,
@@ -731,7 +748,7 @@ internal fun ChannelRow(
                 NuvioProgressBar(progress = current.progress(nowMs), height = NuvioTokens.Space.s3, fillColor = tokens.colors.accent)
                 nowNext.next?.let { next ->
                     Text(
-                        text = formatClock(next.startMs) + "  " + next.title,
+                        text = formatClock(next.startMs) + "  " + com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(next.title),
                         style = MaterialTheme.typography.bodySmall,
                         color = tokens.colors.textMuted,
                         maxLines = 1,

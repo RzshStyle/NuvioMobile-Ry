@@ -38,6 +38,8 @@ actual object SeekThumbsPlatform {
     private const val APP_HEADROOM_BYTES = 24L * MB
     private const val SEEK_ACTIVE_MS = 8_000L
     private const val FOUR_K = "4k|"
+    /** Every COARSE-th picture is made first, so the whole bar soon has pictures to show. */
+    private const val COARSE = 6
 
     // ------------------------------------------------------------------ settings
 
@@ -229,6 +231,11 @@ actual object SeekThumbsPlatform {
         @Volatile private var target = -1
         @Volatile private var lastSeekAt = 0L
         private var retriever: MediaMetadataRetriever? = null
+        /** The fast reader (NativeThumbs); dropped for Android's reader if it can't read this video. */
+        @Volatile private var native: NativeThumbs.Reader? = null
+        private var nativeOff = !NativeThumbs.available
+        private var nativeMade = 0
+        private var nativeMisses = 0
         private var hls: SeekThumbsHls? = null
         private var made = 0
         private var misses = 0
@@ -240,6 +247,7 @@ actual object SeekThumbsPlatform {
 
         fun stop() {
             alive = false
+            native?.abort()
             synchronized(waiter) { waiter.notifyAll() }
         }
 
@@ -262,7 +270,12 @@ actual object SeekThumbsPlatform {
             val i = index(positionMs)
             memory.get(memKey(i))?.let { return memKey(i) to it }
             if (state[i] == 1.toByte()) load(i)
-            for (d in 1..2) {
+            // Nearby pictures stand in until this one is made (the first pass makes one in every COARSE).
+            for (d in 1..4) {
+                if (d <= 2) {
+                    if (i - d >= 0 && state[i - d] == 1.toByte()) load(i - d)
+                    if (i + d < count && state[i + d] == 1.toByte()) load(i + d)
+                }
                 memory.get(memKey(i - d))?.let { return memKey(i - d) to it }
                 memory.get(memKey(i + d))?.let { return memKey(i + d) to it }
             }
@@ -313,6 +326,9 @@ actual object SeekThumbsPlatform {
                 val r = retriever
                 retriever = null
                 runCatching { r?.release() }
+                val n = native
+                native = null
+                runCatching { n?.close() }
                 if (made > 0) runCatching { trim(context, dir) }
             }
         }
@@ -340,6 +356,15 @@ actual object SeekThumbsPlatform {
                 return -1
             }
             val from = if (seeking() && t >= 0) t else index(p.positionMs())
+            // Outwards from where you are, nearer first: first one in every COARSE (so the whole bar
+            // soon has something near), then the rest.
+            for (d in 0 until count) {
+                val a = from + d
+                val b = from - d
+                if (a < count && a % COARSE == 0 && state[a] == 0.toByte()) return a
+                if (d > 0 && b >= 0 && b % COARSE == 0 && state[b] == 0.toByte()) return b
+                if (a >= count && b < 0) break
+            }
             for (d in 0 until count) {
                 val a = from + d
                 val b = from - d
@@ -367,8 +392,8 @@ actual object SeekThumbsPlatform {
             val atMs = (i * intervalMs).coerceAtMost((durationMs - 1_000L).coerceAtLeast(0L)).coerceAtLeast(if (i == 0) 1_000L else 0L)
             val bmp = try {
                 when (val s = source) {
-                    is SeekThumbSource.Remote -> fileFrame(atMs) { it.setDataSource(s.url, s.headers) }
-                    is SeekThumbSource.Local -> fileFrame(atMs) { it.setDataSource(s.path) }
+                    is SeekThumbSource.Remote -> nativeFrame(s.url, s.headers, atMs) ?: if (nativeOff && alive) fileFrame(atMs) { it.setDataSource(s.url, s.headers) } else null
+                    is SeekThumbSource.Local -> nativeFrame(s.path, emptyMap(), atMs) ?: if (nativeOff && alive) fileFrame(atMs) { it.setDataSource(s.path) } else null
                     is SeekThumbSource.Hls -> hlsFrame(s, atMs)
                 }
             } catch (e: RuntimeException) {
@@ -422,6 +447,57 @@ actual object SeekThumbsPlatform {
                 r.getFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
             }
 
+        /**
+         * A picture from the fast reader (only the keyframe's bytes are fetched, decoded on the CPU).
+         * Null with [nativeOff] set when it can't open this video or got nothing from its first tries:
+         * Android's reader takes over then.
+         */
+        private fun nativeFrame(url: String, headers: Map<String, String>, atMs: Long): Bitmap? {
+            if (nativeOff) return null
+            val reader = native ?: NativeThumbs.Reader.open(url, headers)?.also { r ->
+                native = r
+                if (!include4k && (r.height > 1088 || r.width > 1920)) {
+                    fail(SeekThumbMessages.FOUR_K_OFF, FOUR_K + source.key)
+                    return null
+                }
+            }
+            if (reader == null) {
+                if (alive) { nativeOff = true; Log.i(TAG, "fast reader couldn't open this video, using Android's") }
+                return null
+            }
+            val bmp = reader.frameAt(atMs, THUMB_W, THUMB_H)
+            if (bmp != null) { nativeMade++; return bmp }
+            if (!alive) return null
+            nativeMisses++
+            if (nativeMade == 0 && nativeMisses >= 3) {
+                nativeOff = true
+                native = null
+                runCatching { reader.close() }
+                Log.i(TAG, "fast reader got no pictures from this video, using Android's")
+            }
+            return null
+        }
+
+        /** A picture from one saved HLS piece: the fast reader first (CPU), then Android's. */
+        private fun pieceFrame(file: File, withinMs: Long): Bitmap? {
+            if (NativeThumbs.available) {
+                NativeThumbs.Reader.open(file.path)?.let { reader ->
+                    try {
+                        (reader.frameAt(withinMs, THUMB_W, THUMB_H) ?: reader.frameAt(0L, THUMB_W, THUMB_H))?.let { return it }
+                    } finally {
+                        reader.close()
+                    }
+                }
+            }
+            val r = MediaMetadataRetriever()
+            return try {
+                r.setDataSource(file.path)
+                grab(r, withinMs * 1000L) ?: grab(r, 0L) ?: r.frameAtTime
+            } finally {
+                runCatching { r.release() }
+            }
+        }
+
         private fun fileFrame(atMs: Long, open: (MediaMetadataRetriever) -> Unit): Bitmap? {
             val r = retriever ?: try {
                 MediaMetadataRetriever().also(open).also { retriever = it }
@@ -452,13 +528,7 @@ actual object SeekThumbsPlatform {
             val tmp = File(dir, "piece.tmp")
             return try {
                 val within = reader.pieceAt(atMs, tmp) ?: return null
-                val r = MediaMetadataRetriever()
-                try {
-                    r.setDataSource(tmp.path)
-                    grab(r, within.coerceAtLeast(0L) * 1000L) ?: grab(r, 0L) ?: r.frameAtTime
-                } finally {
-                    runCatching { r.release() }
-                }
+                pieceFrame(tmp, within.coerceAtLeast(0L))
             } catch (e: SeekThumbsHls.Unsupported) {
                 fail(e.message ?: SeekThumbMessages.PROTECTED)
                 null

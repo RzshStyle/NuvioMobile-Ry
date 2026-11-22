@@ -1,5 +1,7 @@
 package com.nuvio.app.features.livetv.ui
 
+import com.nuvio.app.features.livetv.model.descriptionText
+import com.nuvio.app.features.livetv.model.subTitle
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.size
@@ -150,6 +152,8 @@ fun LiveTvGuideScreen(
     val selected = sections.firstOrNull { it.group.id == selectedGroupId } ?: sections.firstOrNull()
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
+    // Back from search: closes it, back to the group you were in (not out of Live TV).
+    com.nuvio.app.core.ui.PlatformBackHandler(enabled = searching) { searching = false; query = "" }
     val playlistChannels = state.visible.filter { playlistId == null || it.sourceId == playlistId }
     val channels = when {
         searching && query.isNotBlank() -> remember(playlistChannels, query) { LiveTvViewState.search(playlistChannels, query) }
@@ -404,7 +408,7 @@ private fun GuideRow(
                                     Icon(Icons.Filled.Replay, contentDescription = null, tint = tokens.colors.textMuted, modifier = Modifier.width(12.dp).height(12.dp))
                                 }
                                 Text(
-                                    text = p.title,
+                                    text = com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(p.title),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = tokens.colors.textPrimary,
                                     fontWeight = if (live) FontWeight.SemiBold else FontWeight.Medium,
@@ -576,7 +580,7 @@ internal fun ProgramDetailsDialog(
     val bellOn = bellShow?.let { b -> bellFollows.any { it.id == b.imdb || it.imdbId == b.imdb } } == true
     // Record: a show still to come or on now; a past show too when the channel keeps it in catch-up.
     val recordable = !LiveTvRepository.isPlaceholderTitle(program.title) && (program.stopMs > now || LiveTvCatchup.isReplayable(channel, program, now))
-    DialogSurface(onDismissRequest = onDismiss, title = full.title) {
+    DialogSurface(onDismissRequest = onDismiss, title = com.nuvio.app.features.livetv.model.guideTitleWithSub(com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(full.title), full.subTitle)) {
         Text(
             text = channel.name + "  ·  " + formatClock(full.startMs) + " – " + formatClock(full.stopMs) + (full.episode?.let { "  ·  $it" } ?: ""),
             style = MaterialTheme.typography.bodyMedium,
@@ -635,7 +639,7 @@ internal fun ProgramDetailsDialog(
             }
         }
         full.category?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = tokens.colors.textMuted) }
-        full.description?.takeIf { it.isNotBlank() }?.let {
+        full.descriptionText?.takeIf { it.isNotBlank() }?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary, maxLines = 12, overflow = TextOverflow.Ellipsis)
         }
         if (full.people.isNotEmpty()) {

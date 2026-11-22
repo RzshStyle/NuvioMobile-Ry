@@ -1,5 +1,7 @@
 package com.nuvio.app.features.livetv.player
 
+import com.nuvio.app.features.livetv.model.descriptionText
+import com.nuvio.app.features.livetv.model.subTitle
 import com.nuvio.app.features.livetv.data.CatchupUrlBuilder
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.LiveTvRepository
@@ -177,7 +179,9 @@ internal object LiveTvPlayback {
      */
     suspend fun switchTo(channel: LiveChannel): LivePlayRequest {
         val req = requestFor(channel)
-        LiveTvPreferences.recordWatched(channel.key, addToRecent = !com.nuvio.app.features.livetv.parental.ParentalControls.isAdultChannel(channel))
+        // A sports add-on's stream (from the Backups list) isn't one of your channels: not kept as Recent or last channel.
+        if (channel.sourceId != com.nuvio.app.features.livetv.sports.SportsAddonSource.SOURCE_ID)
+            LiveTvPreferences.recordWatched(channel.key, addToRecent = !com.nuvio.app.features.livetv.parental.ParentalControls.isAdultChannel(channel))
         synchronized(lock) {
             backupTried.clear()
             portalRetried.clear()
@@ -206,6 +210,19 @@ internal object LiveTvPlayback {
 
     /** Whether this provider id is Live TV's (the player asks before trying a fallback). */
     fun owns(providerAddonId: String?): Boolean = providerAddonId == PROVIDER_ID
+
+    /** Recordings handed to the player (their captions are inside the video too). */
+    private val recordings = HashSet<String>()
+
+    fun noteRecording(url: String) { synchronized(lock) { recordings += url } }
+
+    /**
+     * Whether the player should look for closed captions hidden inside the video: live channels,
+     * catch-up and recordings (not Sports highlight clips).
+     */
+    fun looksForCaptions(url: String): Boolean = synchronized(lock) {
+        url in recordings || (playing[url]?.let { it.sourceId != com.nuvio.app.features.livetv.sports.SportsVideos.SOURCE_ID } ?: false)
+    }
 
     fun isPortalReplay(url: String): Boolean = synchronized(lock) { catchups[url]?.portal != null }
 
@@ -239,9 +256,9 @@ internal object LiveTvPlayback {
             }
             prefsRecordWatched(channel)
             return PlayerLaunchStore.put(PlayerLaunch(
-                profileId = profileId, title = program.title, sourceUrl = req.url, sourceHeaders = req.headers, stalkerMediaPolicy = req.mediaPolicy,
+                profileId = profileId, title = com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(program.title), sourceUrl = req.url, sourceHeaders = req.headers, stalkerMediaPolicy = req.mediaPolicy,
                 streamType = req.streamType, logo = channel.logo, poster = program.icon ?: channel.logo,
-                streamTitle = program.title, streamSubtitle = channel.name, pauseDescription = program.description,
+                streamTitle = com.nuvio.app.features.livetv.model.guideTitleWithSub(com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(program.title), program.subTitle), streamSubtitle = channel.name, pauseDescription = program.descriptionText,
                 providerName = channel.sourceName, providerAddonId = PROVIDER_ID, contentType = CONTENT_TYPE,
                 videoId = channel.key, parentMetaId = channel.key, parentMetaType = CONTENT_TYPE,
                 initialPositionMs = offsetMs.coerceAtLeast(0),
@@ -277,15 +294,15 @@ internal object LiveTvPlayback {
         prefs.recordWatched(channel.key)
         val launch = PlayerLaunch(
             profileId = profileId,
-            title = program.title,
+            title = com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(program.title),
             sourceUrl = req.url,
             sourceHeaders = req.headers,
             streamType = req.streamType,
             logo = channel.logo,
             poster = program.icon ?: channel.logo,
-            streamTitle = program.title,
+            streamTitle = com.nuvio.app.features.livetv.model.guideTitleWithSub(com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(program.title), program.subTitle),
             streamSubtitle = channel.name,
-            pauseDescription = program.description,
+            pauseDescription = program.descriptionText,
             providerName = channel.sourceName,
             providerAddonId = PROVIDER_ID,
             contentType = CONTENT_TYPE,
@@ -429,19 +446,26 @@ internal object LiveTvPlayback {
         return backupAmong(failed, tried)
     }
 
-    private fun backupAmong(failed: LiveChannel, tried: Set<String>): LiveChannel? {
+    private fun backupAmong(failed: LiveChannel, tried: Set<String>): LiveChannel? = copiesAmong(failed, tried).firstOrNull()
+
+    /**
+     * Every other stream of [channel] (same channel name, other playlists first), for the
+     * player's Backups list. Not tied to the "Backup channel" setting: picked by hand.
+     */
+    fun copiesOf(channel: LiveChannel): List<LiveChannel> = copiesAmong(channel, emptySet()).take(30).toList()
+
+    private fun copiesAmong(failed: LiveChannel, tried: Set<String>): Sequence<LiveChannel> {
         val index = indexNow()
         val name = backupName(failed.name)
-        if (name.length < 2) return null
+        if (name.length < 2) return emptySequence()
         val hidden = LiveTvPreferences.currentUserState()
         return index[name].orEmpty().asSequence()
             .filter { it.key !in tried && it.key != failed.key }
-            .filter { it.key !in hidden.hiddenChannels && it.groupId !in hidden.hiddenGroups }
+            .filter { it.key !in hidden.hiddenChannels && it.groupId !in hidden.hiddenGroups && !hidden.hidesPlaylistOf(it) }
             // Local stations: "FOX (WNYW)" isn't a backup for "FOX (KTTV)".
             .filter { c -> val a = stationNote(failed.name); val b = stationNote(c.name); a == null || b == null || a == b }
             // Other playlists first.
             .sortedBy { if (it.sourceId != failed.sourceId) 0 else 1 }
-            .firstOrNull()
     }
 
     private fun gameFailoverFor(failed: LiveChannel): LiveChannel? {

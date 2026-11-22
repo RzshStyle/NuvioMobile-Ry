@@ -696,7 +696,7 @@ private fun DebridTemplateDialog(
 }
 
 @Composable
-private fun DebridPreferenceRow(
+internal fun DebridPreferenceRow(
     isTablet: Boolean,
     title: String,
     description: String,
@@ -740,7 +740,7 @@ private fun DebridPreferenceRow(
 }
 
 @Composable
-private fun DebridStreamPreferenceDialog(
+internal fun DebridStreamPreferenceDialog(
     picker: DebridStreamPicker,
     preferences: DebridStreamPreferences,
     onPreferencesChanged: (DebridStreamPreferences) -> Unit,
@@ -998,7 +998,7 @@ private fun DebridIntChoiceDialog(
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun <T> DebridSingleChoiceDialog(
+internal fun <T> DebridSingleChoiceDialog(
     title: String,
     selectedValue: T,
     options: List<T>,
@@ -1086,7 +1086,7 @@ private fun <T> DebridMultiChoiceDialog(
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun DebridTextListDialog(
+internal fun DebridTextListDialog(
     title: String,
     selectedValues: List<String>,
     onSelected: (List<String>) -> Unit,
@@ -1158,7 +1158,7 @@ private fun sortProfileLabel(criteria: List<DebridStreamSortCriterion>): String 
     sortProfileLabel(sortProfileFor(criteria))
 
 @Composable
-private fun debridRuleRows(preferences: DebridStreamPreferences): List<DebridRuleRow> =
+internal fun debridRuleRows(preferences: DebridStreamPreferences): List<DebridRuleRow> =
     listOf(
         DebridRuleRow(DebridStreamPicker.PREFERRED_RESOLUTIONS, stringResource(Res.string.settings_debrid_rule_preferred_resolutions), stringResource(Res.string.settings_debrid_rule_preferred_resolutions_desc), selectionCountLabel(preferences.preferredResolutions)),
         DebridRuleRow(DebridStreamPicker.REQUIRED_RESOLUTIONS, stringResource(Res.string.settings_debrid_rule_required_resolutions), stringResource(Res.string.settings_debrid_rule_required_resolutions_desc), selectionCountLabel(preferences.requiredResolutions)),
@@ -1194,7 +1194,7 @@ private fun selectionCountLabel(values: List<*>): String =
     }
 
 @Composable
-private fun sizeRangeLabel(preferences: DebridStreamPreferences): String =
+internal fun sizeRangeLabel(preferences: DebridStreamPreferences): String =
     sizeRangeLabel(preferences.sizeMinGb, preferences.sizeMaxGb)
 
 @Composable
@@ -1249,7 +1249,7 @@ private fun sortCriteriaForProfile(profile: DebridSortProfile): List<DebridStrea
         )
     }
 
-private data class DebridRuleRow(
+internal data class DebridRuleRow(
     val picker: DebridStreamPicker,
     val title: String,
     val description: String,
@@ -1265,7 +1265,7 @@ private enum class DebridSortProfile {
     LANGUAGE,
 }
 
-private enum class DebridStreamPicker {
+internal enum class DebridStreamPicker {
     MAX_RESULTS,
     MAX_PER_RESOLUTION,
     MAX_PER_QUALITY,

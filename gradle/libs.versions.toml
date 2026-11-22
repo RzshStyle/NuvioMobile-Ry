@@ -1,4 +1,5 @@
 [versions]
+smbj = "0.15.0"
 androidx-benchmark = "1.5.0"
 androidx-uiautomator = "2.3.0"
 androidx-testRunner = "1.7.0"
@@ -39,6 +40,7 @@ sentry = "8.47.0"
 sentryGradle = "6.14.0"
 
 [libraries]
+smbj = { group = "com.hierynomus", name = "smbj", version.ref = "smbj" }
 androidx-benchmark-macro-junit4 = { module = "androidx.benchmark:benchmark-macro-junit4", version.ref = "androidx-benchmark" }
 androidx-uiautomator = { module = "androidx.test.uiautomator:uiautomator", version.ref = "androidx-uiautomator" }
 androidx-testRunner = { module = "androidx.test:runner", version.ref = "androidx-testRunner" }

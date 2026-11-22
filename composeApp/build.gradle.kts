@@ -492,6 +492,8 @@ kotlin {
             dependencies {
                 implementation(project(":vpn-android"))
                 implementation(project(":vpn-core"))
+                // Live TV: watching the TVs' recordings on a network folder (NAS / shared folder on a computer)
+                implementation(libs.smbj)
                 implementation(libs.compose.uiToolingPreview)
                 implementation(libs.androidx.appcompat)
                 implementation(libs.androidx.activity.compose)

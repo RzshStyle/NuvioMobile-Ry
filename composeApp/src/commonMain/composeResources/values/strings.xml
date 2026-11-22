@@ -2908,6 +2908,11 @@
     <string name="livetv_rec_manual_title">Title</string>
     <string name="livetv_rec_today">Today</string>
     <string name="livetv_rec_tomorrow">Tomorrow</string>
+    <string name="livetv_rec_tab_series">Series</string>
+    <string name="livetv_rec_failed_short">Couldn't be recorded</string>
+    <string name="livetv_rec_none_recorded">Nothing recorded yet. What you record shows here.</string>
+    <string name="livetv_rec_none_scheduled">Nothing scheduled. Open a show in the guide to record it.</string>
+    <string name="livetv_rec_none_series">No series set to record. Open a show in the guide and choose Record series.</string>
     <string name="livetv_rec_start_time_hint">Start time, like 20:30 or 8:30 pm</string>
     <string name="livetv_rec_padding_pre">Start early</string>
     <string name="livetv_rec_padding_pre_description">Recordings start this long before the show</string>
@@ -2918,6 +2923,23 @@
     <string name="livetv_rec_storage">Storage</string>
     <string name="livetv_rec_storage_description">Recordings are saved in the app's own storage on this phone</string>
     <string name="livetv_rec_this_device">This device</string>
+    <string name="livetv_rec_network_folder">Network folder</string>
+    <string name="livetv_rec_network_folder_description">A shared folder on a computer or NAS at home where your TVs save recordings. Set it up here or on a TV; the phone plays what's there</string>
+    <string name="livetv_rec_network_not_set_up">Not set up</string>
+    <string name="livetv_network_title">Network folder</string>
+    <string name="livetv_network_subtitle">A shared folder on a computer or NAS on your home network. Your TVs and this phone all use the same one.</string>
+    <string name="livetv_network_address">Address, like %1$s</string>
+    <string name="livetv_network_username">Username (empty for guest access)</string>
+    <string name="livetv_network_password">Password</string>
+    <string name="livetv_network_tips">Use the computer\'s IP address (names often aren\'t found). On Windows, share the folder with Read/Write for that user and set the network to Private. Each TV still picks where its own recordings go (Live TV › Recordings).</string>
+    <string name="livetv_network_test_save">Test and save</string>
+    <string name="livetv_network_save_anyway">Save anyway</string>
+    <string name="livetv_network_remove">Remove</string>
+    <string name="livetv_network_checking">Checking the folder…</string>
+    <string name="livetv_network_checking_vpn">Letting the folder past the VPN (it reconnects), then checking…</string>
+    <string name="livetv_network_bad_address">Type the computer\'s address and the shared folder\'s name, like %1$s</string>
+    <string name="livetv_network_saved">Network folder saved</string>
+    <string name="livetv_network_removed">Network folder removed</string>
     <string name="livetv_rec_space_rule">When storage runs low</string>
     <string name="livetv_rec_space_rule_description">Below 500 MB free, stop recording or make room</string>
     <string name="livetv_rec_space_rule_stop">Stop recording</string>
@@ -3006,6 +3028,10 @@
     <string name="livetv_sports_show_description">The Sports hub in the Live TV tab: scores, your teams, and which channels show each game</string>
     <string name="livetv_sports_score_chip">Live scores on channels</string>
     <string name="livetv_sports_score_chip_description">The score of the game a channel is showing, on its row in the channel list</string>
+    <string name="livetv_sports_show_highlights">Show highlights</string>
+    <string name="livetv_sports_show_highlights_description">A finished game's page lists highlights, recaps and big plays. Off: only replays of the whole game (and condensed games, if they're on)</string>
+    <string name="livetv_sports_show_condensed">Show condensed games</string>
+    <string name="livetv_sports_show_condensed_description">A finished game's page lists condensed games: the whole game cut down to the action</string>
     <!-- Live TV: parental controls -->
     <string name="livetv_parental">Parental controls</string>
     <string name="livetv_parental_pin">Parental PIN</string>
@@ -3022,6 +3048,9 @@
     <string name="livetv_parental_is_locked">is locked. Enter your PIN</string>
     <string name="livetv_parental_lock_adult">Lock adult content</string>
     <string name="livetv_parental_lock_adult_description">Groups and categories with adult names lock by themselves, and adult channels stay out of search and Recently watched</string>
+    <string name="livetv_parental_lock_logins">Lock playlist logins</string>
+    <string name="livetv_parental_lock_logins_description">Editing playlists, guides and the network folder, and saving backup files, need the PIN. Passwords show as dots.</string>
+    <string name="livetv_parental_logins_pin">Enter your PIN to see playlist logins</string>
     <string name="livetv_parental_locked_groups">Locked groups</string>
     <string name="livetv_parental_locked_groups_description">Channel groups and On Demand categories that need the PIN</string>
     <string name="livetv_parental_locked_count">%1$d locked</string>
@@ -3057,4 +3086,17 @@
     <string name="livetv_continue_watching_description">Put live channels and catch-up replays you watched in Home's Continue Watching row</string>
     <string name="livetv_hours_back">Guide hours back</string>
     <string name="livetv_hours_back_description">How far back the TV guide goes, for picking catch-up shows</string>
+    <string name="livetv_fix_match">Fix match</string>
+    <string name="livetv_fix_match_hint">Name, IMDb ID (tt…) or TMDB link</string>
+    <string name="livetv_fix_match_year">Year</string>
+    <string name="livetv_fix_match_all">All</string>
+    <string name="livetv_fix_match_shows">Shows</string>
+    <string name="livetv_fix_match_movies">Movies</string>
+    <string name="livetv_fix_match_show">Show</string>
+    <string name="livetv_fix_match_movie">Movie</string>
+    <string name="livetv_fix_match_current">Current</string>
+    <string name="livetv_fix_match_none">Nothing found. Try a shorter name, change All / Shows / Movies, clear the year, or paste the IMDb ID.</string>
+    <string name="livetv_fix_match_auto">Back to automatic</string>
+    <string name="livetv_fix_match_rec_scope">Used for every recording of this show, now and later</string>
+    <string name="livetv_fix_match_vod_scope">Its poster, details, and what it opens</string>
 </resources>

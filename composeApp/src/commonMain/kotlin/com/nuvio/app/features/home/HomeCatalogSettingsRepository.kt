@@ -29,6 +29,8 @@ data class HomeCatalogSettingsItem(
     val isCollection: Boolean = false,
     val collectionId: String? = null,
     val isPinnedToTop: Boolean = false,
+    /** A Live TV, Sports or On Demand row added from Add a row (its [addonName] says which kind). */
+    val isLiveRow: Boolean = false,
 ) {
     val displayTitle: String
         get() = customTitle.ifBlank { defaultTitle }
@@ -101,6 +103,10 @@ object HomeCatalogSettingsRepository {
     private var hasLoaded = false
     private var definitions: List<HomeCatalogDefinition> = emptyList()
     private var collectionDefinitions: List<CollectionCatalogDefinition> = emptyList()
+    /** Live TV, Sports and On Demand rows (kept across profile switches: the rows follow the profile themselves). */
+    private var liveRowDefinitions: List<LiveHomeRowDefinition> = emptyList()
+    /** Rows just added, which go to the top once they arrive. */
+    private val pendingTopKeys = mutableSetOf<String>()
     private var lastCatalogSync: CatalogSyncInput? = null
     private var lastCollectionSync: Pair<List<Collection>, String>? = null
     private val preferencesRef = atomic<Map<String, StoredHomeCatalogPreference>>(emptyMap())
@@ -174,6 +180,42 @@ object HomeCatalogSettingsRepository {
         publish()
         persist()
         HomeRepository.applyCurrentSettings()
+    }
+
+    /** A row about to be added from Add a row: it goes to the top of Home when it arrives. */
+    fun placeAtTopWhenAdded(key: String) {
+        pendingTopKeys += key
+    }
+
+    /** The Live TV, Sports and On Demand rows, in Home's row list next to the catalogs and collections. */
+    internal fun syncLiveRows(defs: List<LiveHomeRowDefinition>) {
+        ensureLoaded()
+        if (defs == liveRowDefinitions) return
+        liveRowDefinitions = defs
+        placeNewLiveRows()
+        normalizePreferences()
+        publish()
+        persist()
+        HomeRepository.applyCurrentSettings()
+    }
+
+    /** New rows: at the top (just added), else under the row they sat under on another device. */
+    private fun placeNewLiveRows() {
+        val fresh = liveRowDefinitions.filter { it.key !in preferences }
+        if (fresh.isEmpty()) return
+        val order = preferences.values.sortedBy { it.order }.map { it.key }.toMutableList()
+        fresh.forEach { def ->
+            val at = when {
+                pendingTopKeys.remove(def.key) || def.after.isBlank() -> 0
+                else -> order.indexOf(def.after).let { if (it < 0) 0 else it + 1 }
+            }
+            order.add(at.coerceIn(0, order.size), def.key)
+        }
+        val updated = preferences.toMutableMap()
+        order.forEachIndexed { index, key ->
+            updated[key] = (updated[key] ?: StoredHomeCatalogPreference(key = key, heroSourceEnabled = false)).copy(order = index)
+        }
+        preferences = updated
     }
 
     internal fun snapshot(): HomeCatalogSettingsSnapshot {
@@ -316,10 +358,11 @@ object HomeCatalogSettingsRepository {
 
     private fun normalizePreferences() {
         val current = preferences
-        data class UnifiedEntry(val key: String, val isCollection: Boolean)
+        data class UnifiedEntry(val key: String, val isCollection: Boolean, val isLive: Boolean = false)
         val catalogEntries = definitions.map { UnifiedEntry(it.key, false) }
         val collectionEntries = collectionDefinitions.map { UnifiedEntry(it.key, true) }
-        val allEntries = catalogEntries + collectionEntries
+        val liveEntries = liveRowDefinitions.map { UnifiedEntry(it.key, false, isLive = true) }
+        val allEntries = catalogEntries + collectionEntries + liveEntries
         val knownKeys = allEntries.mapTo(linkedSetOf(), UnifiedEntry::key)
         var nextOrder = (current.values.maxOfOrNull(StoredHomeCatalogPreference::order) ?: -1) + 1
 
@@ -342,7 +385,7 @@ object HomeCatalogSettingsRepository {
         var enabledHeroSourceCount = 0
         orderedEntries.forEach { entry ->
             val stored = current[entry.key]
-            val heroSourceEnabled = if (entry.isCollection) {
+            val heroSourceEnabled = if (entry.isCollection || entry.isLive) {
                 false
             } else {
                 (stored?.heroSourceEnabled ?: true) &&
@@ -394,7 +437,21 @@ object HomeCatalogSettingsRepository {
             )
         }
 
-        val items = (catalogItems + collectionItems)
+        val liveItems = liveRowDefinitions.map { def ->
+            val preference = preferences[def.key]
+            HomeCatalogSettingsItem(
+                key = def.key,
+                defaultTitle = def.title,
+                addonName = def.kindLabel,
+                customTitle = "",
+                enabled = preference?.enabled ?: true,
+                heroSourceEnabled = false,
+                order = preference?.order ?: 0,
+                isLiveRow = true,
+            )
+        }
+
+        val items = (catalogItems + collectionItems + liveItems)
             .sortedBy { it.order }
 
         _uiState.value = HomeCatalogSettingsUiState(
@@ -477,7 +534,7 @@ object HomeCatalogSettingsRepository {
         ensureLoaded()
         val catalogDefinitionsByKey = definitions.associateBy { it.key }
         val collectionDefinitionsByKey = collectionDefinitions.associateBy { it.key }
-        val items = preferences.values.filterNot { ServerCatalog.isServerKey(it.key) }.sortedBy { it.order }.map { pref ->
+        val items = preferences.values.filterNot { ServerCatalog.isServerKey(it.key) || it.key.startsWith(LIVE_ROW_KEY_PREFIX) }.sortedBy { it.order }.map { pref ->
             val catalogDefinition = catalogDefinitionsByKey[pref.key]
             val collectionDefinition = collectionDefinitionsByKey[pref.key]
             val isCollection = collectionDefinition != null || pref.key.startsWith("collection_")
@@ -547,7 +604,8 @@ object HomeCatalogSettingsRepository {
     private fun allOrderedKeys(): List<String> {
         val catalogKeys = definitions.map { it.key }
         val collectionKeys = collectionDefinitions.map { it.key }
-        return (catalogKeys + collectionKeys)
+        val liveKeys = liveRowDefinitions.map { it.key }
+        return (catalogKeys + collectionKeys + liveKeys)
             .sortedBy { key -> preferences[key]?.order ?: Int.MAX_VALUE }
     }
 
@@ -580,7 +638,8 @@ object HomeCatalogSettingsRepository {
     private fun defaultPreferenceForMissingKey(key: String): StoredHomeCatalogPreference? {
         val isCollection = collectionDefinitions.any { it.key == key }
         val isCatalog = definitions.any { it.key == key }
-        if (!isCollection && !isCatalog) return null
+        val isLive = liveRowDefinitions.any { it.key == key }
+        if (!isCollection && !isCatalog && !isLive) return null
 
         return StoredHomeCatalogPreference(
             key = key,
@@ -595,6 +654,7 @@ object HomeCatalogSettingsRepository {
     private fun knownPreferenceKeys(): Set<String> =
         definitions.mapTo(mutableSetOf()) { it.key }.also { keys ->
             keys.addAll(collectionDefinitions.map { it.key })
+            keys.addAll(liveRowDefinitions.map { it.key })
         }
 
     private fun HomeCatalogDefinition.addonIdForSync(): String {
@@ -614,6 +674,19 @@ object HomeCatalogSettingsRepository {
     private fun String.requiresExplicitSyncKey(): Boolean =
         !startsWith("collection_") && count { it == ':' } > 2
 }
+
+/** Rows added from Add a row (Live TV channels, Sports, On Demand); their keys start with "livetv_". */
+internal const val LIVE_ROW_KEY_PREFIX = "livetv_"
+
+/** A Live TV, Sports or On Demand row in Home's row list. */
+internal data class LiveHomeRowDefinition(
+    val key: String,
+    val title: String,
+    /** "Live TV row", "Sports row" or "On Demand row". */
+    val kindLabel: String,
+    /** The row it sits under ("" = the top), for a row that arrived from another device. */
+    val after: String = "",
+)
 
 internal data class CollectionCatalogDefinition(
     val key: String,

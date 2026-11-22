@@ -54,6 +54,7 @@ internal val navigationSavedStateConfiguration = SavedStateConfiguration {
             subclass(LiveTvOnDemandRoute::class, LiveTvOnDemandRoute.serializer())
             subclass(LiveTvOnDemandSeeAllRoute::class, LiveTvOnDemandSeeAllRoute.serializer())
             subclass(LiveTvRecordingsRoute::class, LiveTvRecordingsRoute.serializer())
+            subclass(LiveTvRecordingSettingsRoute::class, LiveTvRecordingSettingsRoute.serializer())
             subclass(LiveTvCalendarRoute::class, LiveTvCalendarRoute.serializer())
             subclass(LiveTvManageRoute::class, LiveTvManageRoute.serializer())
             subclass(LiveTvSportsRoute::class, LiveTvSportsRoute.serializer())

@@ -75,4 +75,12 @@ internal actual object OnDemandStore {
     actual fun cachedMatch(uid: String): VodMatch? = matches[uid]
     actual fun cacheMatch(uid: String, match: VodMatch) { matches[uid] = match }
     actual fun compact() {}
+
+    // "Hide Non-English Titles" isn't kept in this stand-in.
+    actual fun setHideForeign(on: Boolean) {}
+    actual fun markForeign(playlistId: String) {}
+    actual fun markForeignAll() {}
+    actual fun needingLanguage(limit: Int, retryBefore: Long): List<VodItem> = emptyList()
+    actual fun knownLanguages(keys: Collection<String>, retryBefore: Long): Set<String> = keys.toSet()
+    actual fun saveLanguages(found: Map<String, String>): Int = 0
 }

@@ -130,7 +130,9 @@ internal object LiveTvRepository {
             }
         }
         scope.launch {
-            runCatching { mutex.withLock { rebuildLocked() } }
+            // The channel list saved last time goes on screen first; only playlists that changed
+            // since are read again (quietly, the channels already showing).
+            runCatching { mutex.withLock { runCatching { loadSavedChannels() }; rebuildLocked() } }
             if (updateCheckDelayMs > 0) delay(updateCheckDelayMs)
             autoCheck()
             firstCheckDone = true
@@ -193,9 +195,14 @@ internal object LiveTvRepository {
     @OptIn(ExperimentalUuidApi::class)
     private fun newId(): String = Uuid.random().toString()
 
-    fun addPlaylist(name: String, url: String, userAgent: String = "", epgUrl: String = ""): String {
+    fun addPlaylist(name: String, url: String, userAgent: String = "", epgUrl: String = "", importVod: Boolean = true): String {
         val id = newId()
-        prefs.updatePlaylists { it + PlaylistSource(id = id, name = name.ifBlank { "Playlist" }, url = url.trim(), userAgent = userAgent.trim()) }
+        prefs.updatePlaylists {
+            it + PlaylistSource(
+                id = id, name = name.ifBlank { "Playlist" }, url = url.trim(), userAgent = userAgent.trim(),
+                importVod = importVod, vodSwitchSet = !importVod
+            )
+        }
         val guideId = addGuideForNewPlaylist(id, name.ifBlank { "Playlist" }, epgUrl)
         scope.launch { runCatching { refreshInternal(forcePlaylists = false, forceEpg = false, forceIds = setOfNotNull(id, guideId)) } }
         return id
@@ -364,15 +371,23 @@ internal object LiveTvRepository {
         scope.launch { runCatching { mutex.withLock { rebuildLocked() } } }
     }
 
-    fun addEpg(name: String, url: String): String {
+    fun addEpg(name: String, url: String, userAgent: String = ""): String {
         val id = newId()
-        prefs.updateEpgSources { it + EpgSource(id = id, name = name.ifBlank { "EPG" }, url = url.trim()) }
+        prefs.updateEpgSources { it + EpgSource(id = id, name = name.ifBlank { "EPG" }, url = url.trim(), userAgent = userAgent.trim()) }
         scope.launch { runCatching { refreshInternal(forcePlaylists = false, forceEpg = false, forceIds = setOf(id)) } }
         return id
     }
 
     fun updateEpg(source: EpgSource) {
-        prefs.updateEpgSources { list -> list.map { if (it.id == source.id) source else it } }
+        prefs.updateEpgSources { list ->
+            list.map { old ->
+                if (old.id != source.id) old
+                // A new link or user agent: the remembered fallback is worked out again.
+                else if (old.url.trim() != source.url.trim() || old.userAgent.trim() != source.userAgent.trim())
+                    source.copy(url = source.url.trim(), userAgent = source.userAgent.trim(), fallbackUserAgent = "")
+                else source
+            }
+        }
         scope.launch { runCatching { refreshInternal(forcePlaylists = false, forceEpg = false, forceIds = setOf(source.id)) } }
     }
 
@@ -523,13 +538,14 @@ internal object LiveTvRepository {
                         publish = { commit -> prefs.withCurrentPlaylist(target.stalkerSource, commit) }) { emit ->
                         client.forEachProgramme(hours) { programme -> emit(StalkerCatalogCache.guideLine(programme, identity)) }
                     }
-                } else LiveTvFiles.download(target.url, LiveTvDirs.EPG, file, target.userAgent) { bytes ->
+                } else downloadGuide(target, file) { bytes ->
                     setStatus(loading = true, message = "Downloading guide \"${target.name}\" (${sizeLabel(bytes)})…")
                 }
             }
             if (result.getOrNull() == true) changed = true
             val err = result.exceptionOrNull()?.let {
                 if (it is kotlinx.coroutines.CancellationException) throw it
+                else if (isStorageFull(it)) STORAGE_FULL
                 else if (target.stalkerSource != null) StalkerGateway.safeUpdateError(it) else it.message ?: "Download failed"
             }
             if (target.sourceId != null) {
@@ -548,9 +564,10 @@ internal object LiveTvRepository {
 
         if (changed || forceEpg || forceIds.isNotEmpty() || EpgStore.fingerprint() != guideFingerprint(settings, targets)) {
             setStatus(loading = true, message = "Matching guide data…")
+            guideStoreError = null
             buildPrograms(settings, targets)
         }
-        _status.value = LiveTvStatus(loading = false, loadedOnce = true, error = firstError)
+        _status.value = LiveTvStatus(loading = false, loadedOnce = true, error = firstError ?: guideStoreError)
     }
 
     /**
@@ -608,6 +625,18 @@ internal object LiveTvRepository {
             LiveTvFiles.list(dir).forEach { name ->
                 if (LiveTvFiles.lastModified(dir, name) > oldEnough) return@forEach
                 if (idOf(name) in keep) return@forEach
+                freed += LiveTvFiles.size(dir, name)
+                LiveTvFiles.delete(dir, name)
+                count++
+            }
+        }
+        // Half-written downloads (".tmp") left by an update that was cut off (app closed, phone off):
+        // a big guide's can be 100 MB or more, the space the next update needs. Only ones
+        // untouched for an hour, so nothing being written right now.
+        val tmpCutoff = now - HOUR
+        for (dir in listOf(LiveTvDirs.EPG, LiveTvDirs.PLAYLISTS)) {
+            LiveTvFiles.list(dir).forEach { name ->
+                if (!name.endsWith(".tmp") || LiveTvFiles.lastModified(dir, name) > tmpCutoff) return@forEach
                 freed += LiveTvFiles.size(dir, name)
                 LiveTvFiles.delete(dir, name)
                 count++
@@ -775,13 +804,14 @@ internal object LiveTvRepository {
                 if (it.id != pl.id) it
                 else {
                     // Movies and series found for the first time: switched on, like a new Xtream
-                    // login (playlists saved before they were read had them off).
+                    // login (playlists saved before they were read had them off). Not when the user
+                    // switched them off.
                     val hadVod = it.vodInPlaylist || it.linkServer.isNotBlank() || it.loginInLink() != null
                     val hasVod = hasVodEntries || keptNow != null || it.loginInLink() != null
                     it.copy(
                         linkServer = keptNow?.first ?: "", linkUsername = keptNow?.second ?: "", linkPassword = keptNow?.third ?: "",
                         vodInPlaylist = hasVodEntries,
-                        importVod = if (!hadVod && hasVod) true else it.importVod
+                        importVod = if (!hadVod && hasVod && !it.vodSwitchSet) true else it.importVod
                     )
                 }
             }
@@ -845,6 +875,69 @@ internal object LiveTvRepository {
                 REPORT.add("Renamed channels: settings moved over for ${moves.size}")
             }
             if (firstTime) prefs.setRenamedChannelsChecked()
+        }
+    }
+
+    // ---------------------------------------------------------------- saved channel list
+
+    /** What the saved channel list holds (its playlists' segments and channel count); null: nothing saved. */
+    @kotlin.concurrent.Volatile private var savedStamp: String? = null
+    private val saveMutex = Mutex()
+
+    private fun stampOf(segments: Map<String, String>, savedCount: Int): String =
+        segments.entries.sortedBy { it.key }.joinToString(",") { it.key + "=" + it.value } + "#" + savedCount
+
+    /**
+     * Start: the channel list saved last time, so channels show at once. Only playlists still on
+     * (and still downloaded) are taken; their channels are re-read straight after by
+     * [buildChannels] only if the playlist changed since. Provider portals aren't in it (they're
+     * read from their own saved copy, as before).
+     */
+    private suspend fun loadSavedChannels() = withContext(Dispatchers.Default) {
+        if (_channels.value.isNotEmpty()) return@withContext
+        val t0 = LiveTvClock.nowMs()
+        val on = prefs.currentPlaylists().filter { it.liveEnabled && !it.isStalker && LiveTvFiles.exists(LiveTvDirs.PLAYLISTS, playlistFile(it.id)) }
+            .mapTo(HashSet()) { it.id }
+        if (on.isEmpty()) return@withContext
+        val saved = LiveTvFiles.readChunks(LiveTvDirs.STATE, SavedChannels.FILE) { chunks -> SavedChannels.read(linesOf(chunks)) }
+        if (saved == null) {
+            if (LiveTvFiles.exists(LiveTvDirs.STATE, SavedChannels.FILE)) {
+                REPORT.add("Saved channel list couldn't be used: reading the playlists")
+                LiveTvFiles.delete(LiveTvDirs.STATE, SavedChannels.FILE)
+            }
+            return@withContext
+        }
+        savedStamp = stampOf(saved.segments, saved.channels.size)
+        val channels = saved.channels.filter { it.sourceId in on }
+        if (channels.isEmpty()) return@withContext
+        saved.epgUrls.forEach { (id, urls) -> if (id in on) embeddedEpgUrls[id] = urls }
+        builtSegments = saved.segments.filterKeys { it in on }
+        _channels.value = channels
+        REPORT.add("Start-up: ${channels.size} channels shown from the saved list in ${LiveTvClock.nowMs() - t0} ms")
+    }
+
+    /** Saves the channel list (in the background) when it's not what's saved already. */
+    private fun saveChannelsIfChanged(segments: Map<String, String>, list: List<LiveChannel>) {
+        val ids = segments.keys
+        val toSave = list.filter { it.sourceId in ids }
+        val stamp = stampOf(segments, toSave.size)
+        if (stamp == savedStamp) return
+        savedStamp = stamp
+        val urls = embeddedEpgUrls.filterKeys { it in ids }
+        scope.launch(Dispatchers.Default) {
+            saveMutex.withLock {
+                // Newer list made meanwhile: that one gets saved instead.
+                if (savedStamp != stamp) return@withLock
+                runCatching {
+                    if (toSave.isEmpty()) LiveTvFiles.delete(LiveTvDirs.STATE, SavedChannels.FILE)
+                    else LiveTvFiles.writeTextStream(LiveTvDirs.STATE, SavedChannels.FILE) { write ->
+                        SavedChannels.write(segments, urls, toSave, write)
+                    }
+                }.onFailure {
+                    savedStamp = null
+                    REPORT.add("Saving the channel list for a faster start failed: ${it.message ?: it::class.simpleName}")
+                }
+            }
         }
     }
 
@@ -982,6 +1075,7 @@ internal object LiveTvRepository {
         val stillOn = prefs.currentPlaylists().filter { it.liveEnabled }.mapTo(HashSet()) { it.id }
         val kept = if (out.all { it.sourceId in stillOn }) out else out.filter { it.sourceId in stillOn }
         _channels.value = kept
+        saveChannelsIfChanged(segments, kept)
         if (read < playlists.size) REPORT.add("Channel list: read $read playlist(s), kept ${playlists.size - read} unchanged")
         if (read > 0) REPORT.add("Channel list updated: ${kept.size} channels in ${LiveTvClock.nowMs() - t0} ms")
         carryOverRenamedChannels(before, kept)
@@ -1015,7 +1109,40 @@ internal object LiveTvRepository {
         /** How far this guide's listings are moved (its own time shift), in ms. */
         val shiftMs: Long = 0L,
         val stalkerSource: PlaylistSource? = null,
+        /** No user agent typed in for it (or its playlist): turned away, it's asked again as a media player. */
+        val autoAgent: Boolean = false,
     )
+
+    /**
+     * Downloads a guide. With no user agent typed in for it (or its playlist): if the server
+     * turns the app's default (browser-style) user agent away, as some guide providers do to keep
+     * out web scrapers (often with a 404), it's asked again as a media player (VLC), like other
+     * IPTV apps. The one that worked is remembered for that guide on this device.
+     */
+    private suspend fun downloadGuide(target: EpgTarget, file: String, progress: (Long) -> Unit): Boolean {
+        if (!target.autoAgent) return LiveTvFiles.download(target.url, LiveTvDirs.EPG, file, target.userAgent, onProgress = progress)
+        val first = target.userAgent.ifBlank { XtreamClient.DEFAULT_UA }
+        val second = if (first == PLAYER_UA) XtreamClient.DEFAULT_UA else PLAYER_UA
+        fun nameOf(ua: String) = if (ua == PLAYER_UA) "a media player's user agent" else "the app's user agent"
+        val refused = try {
+            return LiveTvFiles.download(target.url, LiveTvDirs.EPG, file, first, onProgress = progress)
+        } catch (e: HttpStatusException) {
+            if (e.code !in GUIDE_AGENT_RETRY_CODES) throw e
+            e
+        }
+        REPORT.add("Guide \"${target.name}\": ${nameOf(first)} got HTTP ${refused.code}; trying ${nameOf(second)}")
+        val changed = try {
+            LiveTvFiles.download(target.url, LiveTvDirs.EPG, file, second, onProgress = progress)
+        } catch (e: HttpStatusException) {
+            throw HttpStatusException(e.code, XtreamClient.httpError(e.code) + ". If this guide's provider asks for a specific user agent, enter it in the guide's settings.")
+        }
+        REPORT.add("Guide \"${target.name}\": loaded with ${nameOf(second)}" + if (target.sourceId != null) "; using it for this guide from now on" else "")
+        target.sourceId?.let { id ->
+            val remember = if (second == XtreamClient.DEFAULT_UA) "" else second
+            prefs.updateEpgSources { list -> list.map { if (it.id == id) it.copy(fallbackUserAgent = remember) else it } }
+        }
+        return changed
+    }
 
     /** Each guide file's time shift (ms), as last collected. */
     @kotlin.concurrent.Volatile private var targetShifts: Map<String, Long> = emptyMap()
@@ -1075,10 +1202,13 @@ internal object LiveTvRepository {
         val ownersByUrl = HashMap<String, MutableSet<String>>()
         prefs.currentEpgSources().filter { it.enabled && it.url.isNotBlank() }.forEach { src ->
             val host = hostOf(src.url)
-            val ua = allPlaylists.firstOrNull { pl ->
+            val borrowed = if (src.userAgent.isNotBlank()) "" else allPlaylists.firstOrNull { pl ->
                 pl.effectiveUserAgent.isNotBlank() && host != null && hostOf(if (pl.isXtream) pl.xtreamBase() else pl.url) == host
             }?.effectiveUserAgent.orEmpty()
-            targets += EpgTarget(src.id, src.id, src.name, src.url, ua, shiftMs = src.shiftMinutes * MINUTE)
+            // Its own user agent first, then its playlist's, then the one that worked last time.
+            val ua = src.userAgent.ifBlank { borrowed }.ifBlank { src.fallbackUserAgent }
+            targets += EpgTarget(src.id, src.id, src.name, src.url, ua, shiftMs = src.shiftMinutes * MINUTE,
+                autoAgent = src.userAgent.isBlank() && borrowed.isBlank())
         }
         for (pl in allPlaylists.filter { it.liveEnabled && it.useEmbeddedEpg }) {
             if (pl.isStalker) {
@@ -1097,6 +1227,7 @@ internal object LiveTvRepository {
                     targets += EpgTarget(
                         "auto_" + stableHash(url), null, "${pl.name} (built-in)", url, pl.effectiveUserAgent,
                         playlistId = pl.id, shiftMs = pl.guideShiftMinutes * MINUTE,
+                        autoAgent = pl.userAgent.isBlank(),
                     )
                 }
             }
@@ -1187,6 +1318,11 @@ internal object LiveTvRepository {
         class Candidate(val score: Int, val sourceId: String, val xmltvId: String, val programs: List<EpgProgram>, val icon: String?)
         val best = HashMap<String, Candidate>()
         val sourceLists = ArrayList<EpgSourceChannels>()
+        // What each channel was matched to last time, for a guide file that turns out broken.
+        val storedMatches: Map<String, EpgAssignment> by lazy {
+            runCatching { EpgStore.autoMatches() }.getOrDefault(emptyMap()) + overrides
+        }
+        val channelsByKeyAll: Map<String, LiveChannel> by lazy { channels.associateBy { it.key } }
 
         for ((order, target) in targets.withIndex()) {
             val file = epgFile(target.fileId)
@@ -1265,6 +1401,33 @@ internal object LiveTvRepository {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 REPORT.add("Guide \"${target.name}\" couldn't be read (${e.message?.take(140) ?: e::class.simpleName}); ${LiveTvFiles.size(LiveTvDirs.EPG, file) / 1024} KB")
             }.getOrNull() ?: continue
+            // A guide file broken part-way (cut off, bad characters) is still used for what it has,
+            // but not when the listings stored from it before reach further ahead: a short broken
+            // copy then replaced a good one, leaving channels with empty guides for days.
+            if (result.error != null) {
+                val mine = storedMatches.filterValues { it.sourceId == src }
+                if (mine.isNotEmpty()) {
+                    val newCount = collected.values.sumOf { l -> l.count { it.stopMs > now } }
+                    val newLast = collected.values.maxOfOrNull { l -> l.maxOfOrNull { it.stopMs } ?: 0L } ?: 0L
+                    val old = runCatching { EpgStore.range(now, windowEnd, light = true, channels = mine.keys) }.getOrDefault(emptyMap())
+                    val oldCount = old.values.sumOf { it.size }
+                    val oldLast = old.values.maxOfOrNull { l -> l.maxOfOrNull { it.stopMs } ?: 0L } ?: 0L
+                    if (oldLast > now && oldLast > newLast && newCount < oldCount) {
+                        val kept = runCatching { EpgStore.range(windowStart, windowEnd, channels = mine.keys) }.getOrDefault(emptyMap())
+                        kept.forEach { (key, list) ->
+                            val a = mine[key] ?: return@forEach
+                            // Stored listings already carry the playlist's tvg-shift, which is added again below.
+                            val shift = (channelsByKeyAll[key]?.tvgShiftMinutes ?: 0) * MINUTE
+                            val score = if (key in overrides) 9 else 3
+                            if (list.isNotEmpty() && (best[key]?.score ?: -1) < score) best[key] = Candidate(score, src, a.xmltvId, list.shiftedBy(-shift), null)
+                        }
+                        sourceLists += EpgSourceChannels(src, target.name, hostOf(target.url) ?: target.name,
+                            listed.values.map { EpgChannelEntry(it.id, it.displayNames, it.icon) }, mine.values.mapTo(HashSet()) { it.xmltvId }, guideUsers[src])
+                        REPORT.add("Guide \"${target.name}\": the new copy is broken (${result.error}) and has less in it ($newCount listings ahead) than the one stored before ($oldCount); kept the stored one")
+                        continue
+                    }
+                }
+            }
             val entries = listed.values.map { EpgChannelEntry(it.id, it.displayNames, it.icon) }
                 .ifEmpty { result.programChannelIds.map { EpgChannelEntry(it, emptyList(), null) } }
             val used = HashSet<String>()
@@ -1303,7 +1466,11 @@ internal object LiveTvRepository {
         if (tvgShifts.isNotEmpty()) REPORT.add("Guide: ${tvgShifts.size} channels moved by the playlist's tvg-shift")
         setStatus(loading = true, message = "Storing the guide…")
         runCatching { EpgStore.replaceAll(guideFingerprint(settings, targets), programs, auto) }
-            .onFailure { REPORT.add("Guide couldn't be stored (${it.message?.take(120) ?: it::class.simpleName}): the stored guide stays as it was until the next update") }
+            .onFailure {
+                REPORT.add("Guide couldn't be stored (${it.message?.take(120) ?: it::class.simpleName}): the stored guide stays as it was until the next update")
+                // Storage full: say so (a failure always gets its own message), and keep the guide from before.
+                if (isStorageFull(it)) guideStoreError = "The guide couldn't update. $STORAGE_FULL"
+            }
         _autoMatches.value = auto
         _epgLogos.value = logos
         // Every guide's channel list is only kept while Assign EPG or the logo picker is open.
@@ -1581,6 +1748,25 @@ internal object LiveTvRepository {
     }
 
     private const val HOUR = 60L * 60L * 1000L
+
+    /** The message when the phone ran out of storage during a guide update. */
+    private const val STORAGE_FULL = "Not enough storage space on this device. The guide from before is kept."
+
+    /** Set when the matched guide couldn't be stored because storage is full (shown once the update ends). */
+    @kotlin.concurrent.Volatile private var guideStoreError: String? = null
+
+    /** The device ran out of storage (the guide database or a file couldn't be written). */
+    private fun isStorageFull(e: Throwable): Boolean {
+        var t: Throwable? = e
+        var depth = 0
+        while (t != null && depth++ < 8) {
+            if (t::class.simpleName == "SQLiteFullException") return true
+            val m = t.message.orEmpty()
+            if ("ENOSPC" in m || "No space left" in m || "SQLITE_FULL" in m || "database or disk is full" in m) return true
+            t = t.cause
+        }
+        return false
+    }
     private const val MINUTE = 60_000L
     private const val STALE_CHECK_MS = 30L * 60L * 1000L
     /** Opening Live TV doesn't check again this soon after the last automatic check. */
@@ -1588,6 +1774,8 @@ internal object LiveTvRepository {
     private const val GUIDE_VERSION = 1
     /** Tried for M3U links that don't send channels to the default user agent (see [downloadM3u]). */
     private const val PLAYER_UA = "VLC/3.0.20 LibVLC/3.0.20"
+    /** Answers a guide server gives a user agent it doesn't like (see downloadGuide). */
+    private val GUIDE_AGENT_RETRY_CODES = setOf(401, 403, 404, 406, 451, 884)
 
     private val PLACEHOLDER_TITLES = Regex(
         """(programming|program|programme|no information|no info|no program information|no programme information|""" +

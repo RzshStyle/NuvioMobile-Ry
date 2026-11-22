@@ -65,6 +65,9 @@ import com.nuvio.app.features.livetv.model.PlaylistSource
 import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
 import com.nuvio.app.features.livetv.ondemand.VodSort
 import com.nuvio.app.features.livetv.record.LiveTvRecorder
+import com.nuvio.app.features.livetv.record.NetworkFolderConfig
+import com.nuvio.app.features.livetv.record.NetworkLibrary
+import com.nuvio.app.features.livetv.record.NetworkLibraryPlatform
 import com.nuvio.app.features.livetv.record.RecordingPlatform
 import com.nuvio.app.features.livetv.record.RecordingRules
 import com.nuvio.app.features.livetv.sports.SportsRepository
@@ -143,6 +146,13 @@ import nuvio.composeapp.generated.resources.livetv_epg_shift
 import nuvio.composeapp.generated.resources.livetv_epg_shift_description
 import nuvio.composeapp.generated.resources.livetv_field_guide_link
 import nuvio.composeapp.generated.resources.livetv_guides
+import com.nuvio.app.features.profiles.NuvioProfile
+import com.nuvio.app.features.profiles.ProfileRepository
+import nuvio.composeapp.generated.resources.livetv_show_on_profiles
+import nuvio.composeapp.generated.resources.livetv_show_on_profiles_all
+import nuvio.composeapp.generated.resources.livetv_show_on_profiles_count
+import nuvio.composeapp.generated.resources.livetv_show_on_profiles_description
+import nuvio.composeapp.generated.resources.livetv_show_on_profiles_value
 import nuvio.composeapp.generated.resources.livetv_guides_all
 import nuvio.composeapp.generated.resources.livetv_guides_description
 import nuvio.composeapp.generated.resources.livetv_guides_none
@@ -242,6 +252,23 @@ import nuvio.composeapp.generated.resources.livetv_rec_space_rule_stop
 import nuvio.composeapp.generated.resources.livetv_rec_storage
 import nuvio.composeapp.generated.resources.livetv_rec_storage_description
 import nuvio.composeapp.generated.resources.livetv_rec_this_device
+import nuvio.composeapp.generated.resources.livetv_rec_network_folder
+import nuvio.composeapp.generated.resources.livetv_rec_network_folder_description
+import nuvio.composeapp.generated.resources.livetv_rec_network_not_set_up
+import nuvio.composeapp.generated.resources.livetv_network_title
+import nuvio.composeapp.generated.resources.livetv_network_subtitle
+import nuvio.composeapp.generated.resources.livetv_network_address
+import nuvio.composeapp.generated.resources.livetv_network_username
+import nuvio.composeapp.generated.resources.livetv_network_password
+import nuvio.composeapp.generated.resources.livetv_network_tips
+import nuvio.composeapp.generated.resources.livetv_network_test_save
+import nuvio.composeapp.generated.resources.livetv_network_save_anyway
+import nuvio.composeapp.generated.resources.livetv_network_remove
+import nuvio.composeapp.generated.resources.livetv_network_checking
+import nuvio.composeapp.generated.resources.livetv_network_checking_vpn
+import nuvio.composeapp.generated.resources.livetv_network_bad_address
+import nuvio.composeapp.generated.resources.livetv_network_saved
+import nuvio.composeapp.generated.resources.livetv_network_removed
 import nuvio.composeapp.generated.resources.livetv_vod_default_sort
 import nuvio.composeapp.generated.resources.livetv_vod_default_sort_description
 import nuvio.composeapp.generated.resources.livetv_vod_autoplay
@@ -254,6 +281,8 @@ import nuvio.composeapp.generated.resources.livetv_vod_tab_position_description
 import nuvio.composeapp.generated.resources.livetv_vod_import
 import nuvio.composeapp.generated.resources.livetv_vod_import_description
 import nuvio.composeapp.generated.resources.livetv_vod_merge_duplicates
+import nuvio.composeapp.generated.resources.livetv_vod_hide_non_english
+import nuvio.composeapp.generated.resources.livetv_vod_hide_non_english_description
 import nuvio.composeapp.generated.resources.livetv_vod_merge_duplicates_description
 import nuvio.composeapp.generated.resources.livetv_vod_in_streams
 import nuvio.composeapp.generated.resources.livetv_vod_in_streams_description
@@ -297,6 +326,9 @@ import nuvio.composeapp.generated.resources.livetv_parental_new_pin
 import nuvio.composeapp.generated.resources.livetv_parental_current_pin
 import nuvio.composeapp.generated.resources.livetv_parental_lock_adult
 import nuvio.composeapp.generated.resources.livetv_parental_lock_adult_description
+import nuvio.composeapp.generated.resources.livetv_parental_lock_logins
+import nuvio.composeapp.generated.resources.livetv_parental_lock_logins_description
+import nuvio.composeapp.generated.resources.livetv_parental_logins_pin
 import nuvio.composeapp.generated.resources.livetv_parental_locked_groups
 import nuvio.composeapp.generated.resources.livetv_parental_locked_groups_description
 import nuvio.composeapp.generated.resources.livetv_parental_locked_count
@@ -316,6 +348,10 @@ import nuvio.composeapp.generated.resources.livetv_sports_score_delay_minutes
 import nuvio.composeapp.generated.resources.livetv_sports_hide_scores_description
 import nuvio.composeapp.generated.resources.livetv_sports_score_chip
 import nuvio.composeapp.generated.resources.livetv_sports_score_chip_description
+import nuvio.composeapp.generated.resources.livetv_sports_show_condensed
+import nuvio.composeapp.generated.resources.livetv_sports_show_condensed_description
+import nuvio.composeapp.generated.resources.livetv_sports_show_highlights
+import nuvio.composeapp.generated.resources.livetv_sports_show_highlights_description
 import nuvio.composeapp.generated.resources.livetv_show_tab_description
 import nuvio.composeapp.generated.resources.livetv_stream_format
 import nuvio.composeapp.generated.resources.livetv_stream_format_description
@@ -412,6 +448,7 @@ private sealed interface LiveDialog {
     data class PlaylistGuideShift(val source: PlaylistSource) : LiveDialog
     data class PlaylistCatchupShift(val source: PlaylistSource) : LiveDialog
     data class PlaylistGuides(val source: PlaylistSource) : LiveDialog
+    data class PlaylistProfiles(val source: PlaylistSource) : LiveDialog
     data class EpgSourceShift(val source: EpgSource) : LiveDialog
     data object VodDefaultSort : LiveDialog
     data object VodTabPosition : LiveDialog
@@ -429,6 +466,9 @@ private sealed interface LiveDialog {
     /** Asks the current PIN, then [then]. */
     data class ParentalAskPin(val then: LiveDialog?) : LiveDialog
     data object ParentalRemovePin : LiveDialog
+    /** The PIN before playlist logins are shown or handed out; [then] runs once it's right. */
+    data class LoginPin(val then: () -> Unit) : LiveDialog
+    data object NetworkFolder : LiveDialog
     data object ParentalGroups : LiveDialog
     data object Reminders : LiveDialog
     data object ReminderLead : LiveDialog
@@ -436,14 +476,29 @@ private sealed interface LiveDialog {
 }
 
 /** The Live TV page in Settings: playlists, guides, watching options, Google Drive backup. */
-internal fun LazyListScope.liveTvSettingsContent(isTablet: Boolean) {
+internal fun LazyListScope.liveTvSettingsContent(isTablet: Boolean, onlyRecordings: Boolean = false) {
     item(key = "livetv_settings") {
-        LiveTvSettingsBody(isTablet)
+        LiveTvSettingsBody(isTablet, onlyRecordings)
     }
 }
 
+/** Recordings settings on their own, opened from the gear on the Recordings page. */
 @Composable
-private fun LiveTvSettingsBody(isTablet: Boolean) {
+internal fun LiveTvRecordingSettingsScreen(onBack: () -> Unit) {
+    com.nuvio.app.core.ui.NuvioScreen {
+        stickyHeader {
+            com.nuvio.app.core.ui.NuvioScreenHeader(
+                title = stringResource(Res.string.livetv_section_recordings),
+                onBack = onBack,
+            )
+        }
+        liveTvSettingsContent(isTablet = false, onlyRecordings = true)
+    }
+}
+
+/** [onlyRecordings]: just the Recordings section (the page the Recordings gear opens). */
+@Composable
+private fun LiveTvSettingsBody(isTablet: Boolean, onlyRecordings: Boolean = false) {
     val tokens = MaterialTheme.nuvio
     val playlists by LiveTvPreferences.playlists.collectAsStateWithLifecycle()
     val epgs by LiveTvPreferences.epgSources.collectAsStateWithLifecycle()
@@ -453,10 +508,17 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
     val drive by remember { LiveTvDriveSync.start(); LiveTvDriveSync.state }.collectAsStateWithLifecycle()
     val vodStatus by remember { OnDemandRepository.start(); OnDemandRepository.status }.collectAsStateWithLifecycle()
     val sports by SportsRepository.settings.collectAsStateWithLifecycle()
+    val networkFolderJson by LiveTvPreferences.networkFolderJson.collectAsStateWithLifecycle(LiveTvPreferences.currentNetworkFolderJson())
     val userState by LiveTvPreferences.userState.collectAsStateWithLifecycle()
+    val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
+    val profiles = profileState.profiles
     val reminderLead by LiveTvPreferences.reminderLeadMinutes.collectAsStateWithLifecycle()
     val showInContinueWatching by LiveTvPreferences.showInContinueWatching.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<LiveDialog?>(null) }
+    /** Runs [go] now, or after the PIN when playlist logins are locked. */
+    fun withLogins(go: () -> Unit) {
+        if (ParentalControls.loginsLocked(settings)) dialog = LiveDialog.LoginPin(go) else go()
+    }
     var dnsChoice by remember { mutableStateOf(LiveTvDns.current()) }
     val scope = rememberCoroutineScope()
     var exactAlarms by remember { mutableStateOf(RecordingPlatform.canScheduleExact()) }
@@ -504,6 +566,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(tokens.spacing.listGap)) {
+        if (!onlyRecordings) {
         SettingsSection(title = stringResource(Res.string.livetv_section_playlists), isTablet = isTablet) {
             SettingsGroup(isTablet = isTablet) {
                 playlists.forEachIndexed { i, pl ->
@@ -765,7 +828,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                         checked = pl.importVod,
                         enabled = pl.enabled,
                         isTablet = isTablet,
-                        onCheckedChange = { on -> LiveTvPreferences.updatePlaylists { l -> l.map { if (it.id == pl.id) it.copy(importVod = on) else it } } },
+                        onCheckedChange = { on -> LiveTvPreferences.updatePlaylists { l -> l.map { if (it.id == pl.id) it.copy(importVod = on, vodSwitchSet = true) else it } } },
                     )
                 }
                 if (playlists.isNotEmpty()) SettingsGroupDivider(isTablet = isTablet)
@@ -792,6 +855,14 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     checked = settings.vodMergeDuplicates,
                     isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(vodMergeDuplicates = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_vod_hide_non_english),
+                    description = stringResource(Res.string.livetv_vod_hide_non_english_description),
+                    checked = settings.vodHideNonEnglish,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> update { it.copy(vodHideNonEnglish = on) } },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
@@ -857,6 +928,22 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 GameAlertsRow(isTablet = isTablet, onClick = { showGameAlerts = true })
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_sports_show_highlights),
+                    description = stringResource(Res.string.livetv_sports_show_highlights_description),
+                    checked = sports.showHighlights,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> SportsRepository.updateSettings { it.copy(showHighlights = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_sports_show_condensed),
+                    description = stringResource(Res.string.livetv_sports_show_condensed_description),
+                    checked = sports.showCondensed,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> SportsRepository.updateSettings { it.copy(showCondensed = on) } },
+                )
             }
         }
         if (showGameAlerts) GameAlertsSheet(onDismiss = { showGameAlerts = false })
@@ -880,6 +967,16 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     enabled = pinSet,
                     isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(lockAdultContent = on) }; ParentalControls.relock() },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                // Turning it on is free; turning it off needs the PIN (unless already entered).
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.livetv_parental_lock_logins),
+                    description = stringResource(Res.string.livetv_parental_lock_logins_description),
+                    checked = settings.lockLogins,
+                    enabled = pinSet,
+                    isTablet = isTablet,
+                    onCheckedChange = { on -> if (on) update { it.copy(lockLogins = true) } else withLogins { update { it.copy(lockLogins = false) } } },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsNavigationRow(
@@ -971,6 +1068,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                 )
             }
         }
+        }
 
         SettingsSection(title = stringResource(Res.string.livetv_section_recordings), isTablet = isTablet) {
             SettingsGroup(isTablet = isTablet) {
@@ -1005,6 +1103,19 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     trailingContent = { ValueLabel(stringResource(Res.string.livetv_rec_this_device) + " · " + RecordingRules.sizeLabel(LiveTvRecorder.freeBytes())) },
                     onClick = {},
                 )
+                // The network folder the TVs record to (synced): set up or changed here too.
+                if (NetworkLibraryPlatform.available) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.livetv_rec_network_folder),
+                        description = stringResource(Res.string.livetv_rec_network_folder_description),
+                        isTablet = isTablet,
+                        trailingContent = {
+                            ValueLabel(NetworkFolderConfig.fromJson(networkFolderJson)?.label ?: stringResource(Res.string.livetv_rec_network_not_set_up))
+                        },
+                        onClick = { withLogins { dialog = LiveDialog.NetworkFolder } },
+                    )
+                }
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsNavigationRow(
                     title = stringResource(Res.string.livetv_rec_space_rule),
@@ -1034,6 +1145,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             }
         }
 
+        if (!onlyRecordings) {
         SettingsSection(title = stringResource(Res.string.livetv_section_backup), isTablet = isTablet) {
             SettingsGroup(isTablet = isTablet) {
                 Text(
@@ -1059,7 +1171,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     icon = Icons.Filled.FileUpload,
                     isTablet = isTablet,
                     enabled = !fileBusy,
-                    onClick = { pickExportFile() },
+                    onClick = { withLogins { pickExportFile() } },
                 )
                 fileMessage?.let {
                     SettingsGroupDivider(isTablet = isTablet)
@@ -1156,6 +1268,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                 )
             }
         }
+        }
     }
 
     drive.signIn?.let { prompt -> DriveSignInDialog(prompt, onCancel = { LiveTvDriveSync.cancelSignIn() }) }
@@ -1174,12 +1287,13 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             else -> M3uForm(d.source, onDismiss = close)
         }
         is LiveDialog.EditEpg -> EpgForm(d.source, onDismiss = close)
+        LiveDialog.NetworkFolder -> NetworkFolderForm(onDismiss = close)
         is LiveDialog.PlaylistActions -> ActionsDialog(
             title = d.source.name,
             subtitle = playlistStatus(d.source, accounts[d.source.id]),
             onDismiss = close,
             actions = listOfNotNull(
-                stringResource(Res.string.action_edit) to { dialog = LiveDialog.EditPlaylist(d.source) },
+                stringResource(Res.string.action_edit) to { withLogins { dialog = LiveDialog.EditPlaylist(d.source) } },
                 stringResource(Res.string.livetv_update_now) to {
                     LiveTvRepository.updatePlaylistNow(d.source.id)
                     // A login with TV channels off only has On Demand to update.
@@ -1209,7 +1323,17 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                             }
                     }
                 },
-            ) else emptyList()) + listOf(
+            ) else emptyList()) + listOfNotNull(
+                // Which Nuvio profiles see this playlist (only with two or more profiles).
+                profiles.takeIf { it.size >= 2 }?.let { list ->
+                    val shownOn = list.count { d.source.id !in LiveTvPreferences.hiddenPlaylistsOf(it.profileIndex) }
+                    stringResource(
+                        Res.string.livetv_show_on_profiles_value,
+                        if (shownOn == list.size) stringResource(Res.string.livetv_show_on_profiles_all)
+                        else stringResource(Res.string.livetv_show_on_profiles_count, shownOn, list.size),
+                    ) to { dialog = LiveDialog.PlaylistProfiles(d.source) }
+                },
+            ) + listOf(
                 stringResource(if (d.source.enabled) Res.string.livetv_disable else Res.string.livetv_enable) to {
                     LiveTvRepository.setPlaylistEnabled(d.source.id, !d.source.enabled); close()
                 },
@@ -1228,6 +1352,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             ) { v -> LiveTvRepository.setPlaylistCatchupZone(d.source.id, v) }
         }
         is LiveDialog.PlaylistGuides -> PlaylistGuidesDialog(d.source.id, onDismiss = close)
+        is LiveDialog.PlaylistProfiles -> PlaylistProfilesDialog(d.source, profiles, onDismiss = close)
         is LiveDialog.PlaylistGuideShift -> {
             val none = stringResource(Res.string.livetv_catchup_shift_none)
             ChoiceDialog(
@@ -1263,7 +1388,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             subtitle = epgStatus(d.source),
             onDismiss = close,
             actions = listOf(
-                stringResource(Res.string.action_edit) to { dialog = LiveDialog.EditEpg(d.source) },
+                stringResource(Res.string.action_edit) to { withLogins { dialog = LiveDialog.EditEpg(d.source) } },
                 stringResource(Res.string.livetv_update_now) to { LiveTvRepository.updateEpg(d.source); close() },
                 stringResource(Res.string.livetv_epg_shift) + ": " + offsetLabel(d.source.shiftMinutes, stringResource(Res.string.livetv_catchup_shift_none)) to {
                     dialog = LiveDialog.EpgSourceShift(d.source)
@@ -1405,6 +1530,12 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             onDismiss = { if (dialog is LiveDialog.ParentalAskPin) dialog = null },
             confirmLabel = stringResource(Res.string.action_save),
             onPin = { pin -> ParentalControls.checkPin(pin, settings).also { ok -> if (ok) dialog = d.then } },
+        )
+        is LiveDialog.LoginPin -> ParentalPinDialog(
+            title = stringResource(Res.string.livetv_parental_logins_pin),
+            // A right PIN moves on to what was asked for; only a cancel closes everything.
+            onDismiss = { if (dialog is LiveDialog.LoginPin) dialog = null },
+            onPin = { pin -> ParentalControls.unlockLogins(pin, settings).also { ok -> if (ok) { dialog = null; d.then() } } },
         )
         LiveDialog.ParentalSetPin -> ParentalPinDialog(
             title = stringResource(Res.string.livetv_parental_new_pin),
@@ -1564,6 +1695,27 @@ private fun guideChoices(pl: PlaylistSource, playlists: List<PlaylistSource>, ep
             .map { PlaylistSource.builtInGuideKey(it.id) to it.name + " (built-in)" }
 }
 
+/** "Show on Profiles": which Nuvio profiles get this playlist's channels, On Demand and Sports. */
+@Composable
+private fun PlaylistProfilesDialog(pl: PlaylistSource, profiles: List<NuvioProfile>, onDismiss: () -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    // Read again after each change (matched profiles change together).
+    var version by remember { mutableStateOf(0) }
+    val hidden = remember(version, profiles) { profiles.associate { it.profileIndex to (pl.id in LiveTvPreferences.hiddenPlaylistsOf(it.profileIndex)) } }
+    DialogSurface(onDismissRequest = onDismiss, title = stringResource(Res.string.livetv_show_on_profiles) + ": " + pl.name) {
+        Text(stringResource(Res.string.livetv_show_on_profiles_description, pl.name), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary)
+        Column(modifier = Modifier.weight(1f, fill = false).heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            profiles.forEach { prof ->
+                SettingsSwitchRow(
+                    title = prof.name.ifBlank { "Profile ${prof.profileIndex}" }, checked = hidden[prof.profileIndex] != true, isTablet = false, horizontalPadding = 0.dp,
+                    onCheckedChange = { on -> LiveTvPreferences.setPlaylistShownOn(pl.id, prof.profileIndex, on); version++ },
+                )
+            }
+        }
+        DialogButtons { DialogButton(text = stringResource(Res.string.action_close), onClick = onDismiss) }
+    }
+}
+
 @Composable
 private fun PlaylistGuidesDialog(playlistId: String, onDismiss: () -> Unit) {
     val tokens = MaterialTheme.nuvio
@@ -1595,6 +1747,7 @@ private fun M3uForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
     var url by remember { mutableStateOf(existing?.url.orEmpty()) }
     var ua by remember { mutableStateOf(existing?.userAgent.orEmpty()) }
     var embedded by remember { mutableStateOf(existing?.useEmbeddedEpg ?: true) }
+    var includeVod by remember { mutableStateOf(existing?.importVod ?: true) }
     var guideLink by remember { mutableStateOf("") }
     DialogSurface(onDismissRequest = onDismiss, title = stringResource(if (existing == null) Res.string.livetv_add_m3u else Res.string.action_edit)) {
         NuvioInputField(value = name, onValueChange = { name = it }, placeholder = stringResource(Res.string.livetv_field_name))
@@ -1602,6 +1755,7 @@ private fun M3uForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
         NuvioInputField(value = ua, onValueChange = { ua = it }, placeholder = stringResource(Res.string.livetv_field_user_agent))
         if (existing == null) NuvioInputField(value = guideLink, onValueChange = { guideLink = it }, placeholder = stringResource(Res.string.livetv_field_guide_link))
         SettingsSwitchRow(title = stringResource(Res.string.livetv_load_embedded_epg), checked = embedded, isTablet = false, horizontalPadding = 0.dp, onCheckedChange = { embedded = it })
+        SettingsSwitchRow(title = stringResource(Res.string.livetv_xtream_include_vod), checked = includeVod, isTablet = false, horizontalPadding = 0.dp, onCheckedChange = { includeVod = it })
         DialogButtons {
             DialogButton(text = stringResource(Res.string.action_cancel), onClick = onDismiss)
             DialogButton(
@@ -1609,8 +1763,13 @@ private fun M3uForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
                 style = DialogButtonStyle.Primary,
                 enabled = url.isNotBlank(),
                 onClick = {
-                    if (existing == null) LiveTvRepository.addPlaylist(name, url, ua, guideLink)
-                    else LiveTvRepository.updatePlaylist(existing.copy(name = name.ifBlank { "Playlist" }, url = url.trim(), userAgent = ua.trim(), useEmbeddedEpg = embedded))
+                    if (existing == null) LiveTvRepository.addPlaylist(name, url, ua, guideLink, importVod = includeVod)
+                    else LiveTvRepository.updatePlaylist(
+                        existing.copy(
+                            name = name.ifBlank { "Playlist" }, url = url.trim(), userAgent = ua.trim(), useEmbeddedEpg = embedded,
+                            importVod = includeVod, vodSwitchSet = existing.vodSwitchSet || includeVod != existing.importVod
+                        )
+                    )
                     onDismiss()
                 },
             )
@@ -1633,7 +1792,8 @@ private fun XtreamForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
         NuvioInputField(value = name, onValueChange = { name = it }, placeholder = stringResource(Res.string.livetv_field_name))
         NuvioInputField(value = server, onValueChange = { server = it }, placeholder = stringResource(Res.string.livetv_field_server))
         NuvioInputField(value = user, onValueChange = { user = it }, placeholder = stringResource(Res.string.livetv_field_username))
-        NuvioInputField(value = pass, onValueChange = { pass = it }, placeholder = stringResource(Res.string.livetv_field_password))
+        if (ParentalControls.hideLogins()) StalkerSecretField(pass, { pass = it }, stringResource(Res.string.livetv_field_password))
+        else NuvioInputField(value = pass, onValueChange = { pass = it }, placeholder = stringResource(Res.string.livetv_field_password))
         NuvioInputField(value = ua, onValueChange = { ua = it }, placeholder = stringResource(Res.string.livetv_field_user_agent))
         if (existing == null) NuvioInputField(value = guideLink, onValueChange = { guideLink = it }, placeholder = stringResource(Res.string.livetv_field_guide_link))
         SettingsSwitchRow(title = stringResource(Res.string.livetv_load_embedded_epg), checked = embedded, isTablet = false, horizontalPadding = 0.dp, onCheckedChange = { embedded = it })
@@ -1727,6 +1887,101 @@ private fun StalkerForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
     }
 }
 
+/** How a network folder address is typed (shown as the example). */
+private const val NETWORK_ADDRESS_EXAMPLE = "\\\\192.168.1.20\\Recordings"
+
+/**
+ * Sets up the network folder (the one the TVs record to): address, username, password.
+ * "Test and save" connects and saves a small test file first; if that fails it says why, and
+ * "Save anyway" keeps it (a computer that's asleep right now). Saved here, it goes to the TVs
+ * with Live TV sync. The password always shows as dots, like on the TV.
+ */
+@Composable
+private fun NetworkFolderForm(onDismiss: () -> Unit) {
+    val tokens = MaterialTheme.nuvio
+    val existing = remember { NetworkFolderConfig.fromJson(LiveTvPreferences.currentNetworkFolderJson()) }
+    var address by remember { mutableStateOf(existing?.address.orEmpty()) }
+    var username by remember { mutableStateOf(existing?.username.orEmpty()) }
+    var password by remember { mutableStateOf(existing?.password.orEmpty()) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var failed by remember { mutableStateOf(false) }
+    var checking by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val checkingText = stringResource(Res.string.livetv_network_checking)
+    val checkingVpnText = stringResource(Res.string.livetv_network_checking_vpn)
+    val badAddressText = stringResource(Res.string.livetv_network_bad_address, NETWORK_ADDRESS_EXAMPLE)
+    val savedText = stringResource(Res.string.livetv_network_saved)
+    val removedText = stringResource(Res.string.livetv_network_removed)
+
+    fun configOrNull(): NetworkFolderConfig? {
+        val (host, share, path) = NetworkFolderConfig.parseAddress(address) ?: return null
+        return NetworkFolderConfig(host = host, share = share, path = path, username = username.trim(), password = password,
+            domain = existing?.takeIf { it.host == host }?.domain.orEmpty())
+    }
+    fun save(c: NetworkFolderConfig) {
+        NetworkLibrary.save(c)
+        com.nuvio.app.core.ui.NuvioToastController.show(savedText)
+        onDismiss()
+    }
+    fun edited() { failed = false; status = null }
+
+    // Closed without saving: the VPN goes back to the saved folder's address.
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { NetworkLibrary.restoreVpn() } }
+
+    DialogSurface(
+        onDismissRequest = { if (!checking) onDismiss() },
+        title = stringResource(Res.string.livetv_network_title),
+        message = stringResource(Res.string.livetv_network_subtitle),
+    ) {
+        NuvioInputField(value = address, onValueChange = { address = it; edited() },
+            placeholder = stringResource(Res.string.livetv_network_address, NETWORK_ADDRESS_EXAMPLE))
+        NuvioInputField(value = username, onValueChange = { username = it; edited() },
+            placeholder = stringResource(Res.string.livetv_network_username))
+        StalkerSecretField(password, { password = it; edited() }, stringResource(Res.string.livetv_network_password))
+        Text(stringResource(Res.string.livetv_network_tips), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted)
+        status?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = if (failed) tokens.colors.danger else tokens.colors.textMuted)
+        }
+        DialogButtons {
+            DialogButton(text = stringResource(Res.string.action_cancel), onClick = onDismiss, enabled = !checking)
+            if (existing != null) DialogButton(
+                text = stringResource(Res.string.livetv_network_remove),
+                style = DialogButtonStyle.Destructive,
+                enabled = !checking,
+                onClick = {
+                    NetworkLibrary.save(null)
+                    com.nuvio.app.core.ui.NuvioToastController.show(removedText)
+                    onDismiss()
+                },
+            )
+            if (failed) DialogButton(
+                text = stringResource(Res.string.livetv_network_save_anyway),
+                enabled = !checking,
+                onClick = { configOrNull()?.let { save(it) } },
+            )
+            DialogButton(
+                text = stringResource(Res.string.livetv_network_test_save),
+                style = DialogButtonStyle.Primary,
+                loading = checking,
+                onClick = {
+                    val c = configOrNull()
+                    if (c == null) { failed = false; status = badAddressText; return@DialogButton }
+                    checking = true
+                    failed = false
+                    status = checkingText
+                    scope.launch {
+                        val problem = runCatching { NetworkLibraryPlatform.test(c) { status = checkingVpnText } }
+                            .getOrElse { it.message ?: "The network folder didn't work" }
+                        checking = false
+                        if (problem == null) save(c)
+                        else { failed = true; status = problem }
+                    }
+                },
+            )
+        }
+    }
+}
+
 @Composable
 private fun StalkerSecretField(value: String, onChange: (String) -> Unit, placeholder: String) {
     val tokens = MaterialTheme.nuvio
@@ -1743,9 +1998,11 @@ private fun StalkerSecretField(value: String, onChange: (String) -> Unit, placeh
 private fun EpgForm(existing: EpgSource?, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf(existing?.name.orEmpty()) }
     var url by remember { mutableStateOf(existing?.url.orEmpty()) }
+    var ua by remember { mutableStateOf(existing?.userAgent.orEmpty()) }
     DialogSurface(onDismissRequest = onDismiss, title = stringResource(if (existing == null) Res.string.livetv_add_epg else Res.string.action_edit)) {
         NuvioInputField(value = name, onValueChange = { name = it }, placeholder = stringResource(Res.string.livetv_field_name))
         NuvioInputField(value = url, onValueChange = { url = it }, placeholder = stringResource(Res.string.livetv_field_xmltv_url))
+        NuvioInputField(value = ua, onValueChange = { ua = it }, placeholder = stringResource(Res.string.livetv_field_user_agent))
         DialogButtons {
             DialogButton(text = stringResource(Res.string.action_cancel), onClick = onDismiss)
             DialogButton(
@@ -1753,8 +2010,8 @@ private fun EpgForm(existing: EpgSource?, onDismiss: () -> Unit) {
                 style = DialogButtonStyle.Primary,
                 enabled = url.isNotBlank(),
                 onClick = {
-                    if (existing == null) LiveTvRepository.addEpg(name, url)
-                    else LiveTvRepository.updateEpg(existing.copy(name = name.ifBlank { "EPG" }, url = url.trim()))
+                    if (existing == null) LiveTvRepository.addEpg(name, url, ua)
+                    else LiveTvRepository.updateEpg(existing.copy(name = name.ifBlank { "EPG" }, url = url.trim(), userAgent = ua.trim()))
                     onDismiss()
                 },
             )

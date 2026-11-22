@@ -189,6 +189,8 @@ internal fun PlayerScreenRuntime.refreshTracks() {
 
     // The engine may have just switched: restore the selection captured before the switch.
     applyPendingEngineSwitchTrackPreference()
+
+    applyLiveCaptionDefaults()
 }
 
 private fun PlayerScreenRuntime.tryAutoSelectPreferredSubtitleFromAvailableTracks(

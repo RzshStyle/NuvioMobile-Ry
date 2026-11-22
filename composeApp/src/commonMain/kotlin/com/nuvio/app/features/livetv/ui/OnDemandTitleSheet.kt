@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.PlayArrow
@@ -69,6 +70,9 @@ import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.watched.WatchedRepository
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.livetv_fix_match
+import nuvio.composeapp.generated.resources.livetv_fix_match_vod_scope
+import com.nuvio.app.features.livetv.data.TitleMatchFixes
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.action_play
 import nuvio.composeapp.generated.resources.livetv_vod_details
@@ -96,6 +100,7 @@ internal fun OnDemandTitleSheet(item: VodItem, actions: OnDemandActions, onDismi
     val watchedState by WatchedRepository.uiState.collectAsStateWithLifecycle()
     val profileId = ProfileRepository.activeProfileId
     var versions by remember { mutableStateOf(false) }
+    var fixing by remember { mutableStateOf(false) }
     var season by remember { mutableStateOf<Int?>(null) }
     val playFailed = stringResource(Res.string.livetv_vod_play_failed)
     fun close(then: () -> Unit = {}) {
@@ -120,7 +125,17 @@ internal fun OnDemandTitleSheet(item: VodItem, actions: OnDemandActions, onDismi
     val seasons = remember(episodes) { episodes.map { it.season }.distinct().sorted() }
     val shownSeason = season ?: seasons.firstOrNull()
 
-    if (!versions) {
+    if (fixing) {
+        FixMatchSheet(
+            title = item.displayTitle,
+            scopeNote = stringResource(Res.string.livetv_fix_match_vod_scope),
+            key = TitleMatchFixes.vodKey(item.uid),
+            initialQuery = item.displayTitle.let { VodTitles.withoutTrailingYear(it) ?: it },
+            initialSeries = item.kind == VodKind.SERIES,
+            initialYear = item.year,
+            onDismiss = onDismiss,
+        )
+    } else if (!versions) {
         NuvioModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s12),
@@ -160,6 +175,8 @@ internal fun OnDemandTitleSheet(item: VodItem, actions: OnDemandActions, onDismi
                     close { actions.onOpenDetails(item.kind.key, tmdbId, title) }
                 })
             }
+            // Wrong poster or details (a same-named film, the wrong country's show): pick the right one.
+            NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_fix_match), icon = Icons.Filled.ImageSearch, onClick = { fixing = true })
             if (item.copies > 1 && item.kind == VodKind.MOVIE) {
                 NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_vod_versions), icon = Icons.Filled.Layers, onClick = { versions = true })
             }

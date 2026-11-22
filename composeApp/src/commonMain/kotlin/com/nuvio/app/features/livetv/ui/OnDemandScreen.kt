@@ -1,5 +1,6 @@
 package com.nuvio.app.features.livetv.ui
 
+import com.nuvio.app.features.livetv.ondemand.vodHidden
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -155,7 +156,7 @@ internal fun OnDemandScreen(
     val otherPlaylists = remember(categories, playlistId) {
         if (playlistId == null) emptySet() else categories.filter { it.playlistId != playlistId }.mapTo(HashSet()) { it.uid }
     }
-    val hiddenOrLocked = remember(user.vodHiddenCategories, lockedUids, otherPlaylists) { user.vodHiddenCategories + lockedUids + otherPlaylists }
+    val hiddenOrLocked = remember(categories, user.vodHiddenCategories, user.hiddenPlaylists, lockedUids, otherPlaylists) { user.vodHidden(categories) + lockedUids + otherPlaylists }
     var unlockCategory by remember { mutableStateOf<VodCategory?>(null) }
     val visible = remember(categories, user, lockedUids, otherPlaylists) { OnDemandGroups.visible(categories, user).filter { it.uid !in lockedUids && it.uid !in otherPlaylists } }
     val lockedShown = remember(categories, user, lockedUids, otherPlaylists) { OnDemandGroups.visible(categories, user).filter { it.uid in lockedUids && it.uid !in otherPlaylists } }
@@ -324,7 +325,10 @@ private fun VodRow(
 /** The TMDB match for a title (poster, proper name), looked up once and remembered. */
 @Composable
 internal fun rememberVodMatch(item: VodItem): VodMatch? {
-    val match by produceState<VodMatch?>(null, item.uid) {
+    // A Fix match pick (or going back to automatic) shows straight away.
+    val fixes by com.nuvio.app.features.livetv.data.TitleMatchFixes.fixes.collectAsStateWithLifecycle()
+    val pick = fixes[com.nuvio.app.features.livetv.data.TitleMatchFixes.vodKey(item.uid)]
+    val match by produceState<VodMatch?>(null, item.uid, pick) {
         value = runCatching { OnDemandRepository.match(item) }.getOrNull()
     }
     return match
@@ -353,7 +357,7 @@ internal fun OnDemandSeeAllScreen(
     val savedPlaylist by PlaylistFilter.selected.collectAsStateWithLifecycle()
     val playlistId = PlaylistFilter.effective(savedPlaylist, categories.map { it.playlistId })
     val hiddenOrLocked = remember(categories, user, settings, unlockedNow, playlistId) {
-        user.vodHiddenCategories +
+        user.vodHidden(categories) +
             categories.filter { c -> ParentalControls.isLocked("vod:${c.uid}", c.name, settings, user.lockedGroups) }.map { it.uid } +
             categories.filter { c -> playlistId != null && c.playlistId != playlistId }.map { it.uid }
     }

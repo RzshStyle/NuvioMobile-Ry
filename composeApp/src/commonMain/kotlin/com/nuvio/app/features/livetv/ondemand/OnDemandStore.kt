@@ -10,6 +10,8 @@ package com.nuvio.app.features.livetv.ondemand
  *  - categories(pl, kind, id, name, position)
  *  - posters(uid, poster, checked, title, tmdb): posters found for titles, remembered between starts
  *  - prefixes(pl, prefix): each provider's learned title tags
+ *  - langs(k, lang, checked): each title's original language ("Hide Non-English Titles"); items.fl
+ *    marks titles in another language (1 for sure, 2 a guess from a language group or label)
  */
 internal expect object OnDemandStore {
     /**
@@ -62,4 +64,25 @@ internal expect object OnDemandStore {
 
     /** Gives space left empty by removed titles back to the system when there's a lot of it. */
     fun compact()
+
+    /** "Hide Non-English Titles": while on, [categories], [items] and [search] leave marked titles out. */
+    fun setHideForeign(on: Boolean)
+
+    /**
+     * Marks one provider's titles in another language: from saved languages, its group names
+     * ("FR | Films", "Bollywood") and its own title labels ("DE - …"). Run after every import.
+     */
+    fun markForeign(playlistId: String)
+
+    /** Every provider's titles, as [markForeign]. */
+    fun markForeignAll()
+
+    /** Titles with no language answer yet (or none for a month), guesses first, then the newest; one per title. */
+    fun needingLanguage(limit: Int, retryBefore: Long): List<VodItem>
+
+    /** Which of these language keys already have an answer ("" counts only if recent). */
+    fun knownLanguages(keys: Collection<String>, retryBefore: Long): Set<String>
+
+    /** Saves original languages and marks (or, for English, unmarks) every copy; returns how many titles changed. */
+    fun saveLanguages(found: Map<String, String>): Int
 }

@@ -50,7 +50,26 @@ internal object ParentalControls {
     }
 
     /** Locks every unlocked group again (leaving the app, or the PIN changed). */
-    fun relock() { _unlocked.value = emptySet() }
+    fun relock() { _unlocked.value = emptySet(); _loginsUnlocked.value = false }
+
+    // Playlist logins (server, username, password, playlist and guide links, backup files) behind
+    // the PIN. Off unless the user turns it on ("lock_logins", the TV app's key); once the PIN is
+    // entered they stay open until the app is closed, like locked groups.
+    private val _loginsUnlocked = MutableStateFlow(false)
+
+    /** Whether showing or handing out playlist logins needs the PIN right now. */
+    fun loginsLocked(s: LiveTvSettings = LiveTvPreferences.currentSettings()): Boolean =
+        enabled(s) && s.lockLogins && !_loginsUnlocked.value
+
+    /** Whether passwords should show as dots (the lock is on, even once opened). */
+    fun hideLogins(s: LiveTvSettings = LiveTvPreferences.currentSettings()): Boolean = enabled(s) && s.lockLogins
+
+    /** True (and logins stay open) if [pin] is right. */
+    fun unlockLogins(pin: String, s: LiveTvSettings = LiveTvPreferences.currentSettings()): Boolean {
+        if (!checkPin(pin, s)) return false
+        _loginsUnlocked.value = true
+        return true
+    }
 
     fun checkPin(pin: String, s: LiveTvSettings = LiveTvPreferences.currentSettings()): Boolean = pin.trim() == s.parentalPin
 

@@ -91,7 +91,7 @@ internal object SportsRepository {
     ) { found, user, live ->
         found.mapValues { (_, list) ->
             list.filter { ch ->
-                ch.key !in user.hiddenChannels && ch.groupId !in user.hiddenGroups &&
+                ch.key !in user.hiddenChannels && ch.groupId !in user.hiddenGroups && !user.hidesPlaylistOf(ch) &&
                     !ParentalControls.isLocked(ch.groupId, ch.group, live, user.lockedGroups) &&
                     !(ParentalControls.enabled(live) && live.lockAdultContent && ParentalControls.isAdult(ch.name))
             }
@@ -104,7 +104,11 @@ internal object SportsRepository {
     /** ESPN games from the day after tomorrow to a week ahead (updated a few times a day). */
     private val weekData = MutableStateFlow<Map<String, LeagueData>>(emptyMap())
     private val fixtureData = MutableStateFlow<Map<String, LeagueData>>(emptyMap())
-    /** Leagues you follow or show on My Sports: a week ahead to five weeks ahead. */
+    /**
+     * Leagues you follow or show on My Sports: a week ahead to five weeks ahead, and their last
+     * race or round within [LEAGUE_BACK_DAYS] days, so a league that doesn't play every week
+     * (Formula 1, the Champions League) still has its last results in its row.
+     */
     private val aheadData = MutableStateFlow<Map<String, LeagueData>>(emptyMap())
     /** Followed teams' whole seasons from ESPN, by followed team key. */
     private val scheduleData = MutableStateFlow<Map<String, LeagueData>>(emptyMap())
@@ -125,8 +129,21 @@ internal object SportsRepository {
     private val tvCache = SportsTvListings.Cache()
     private val tvCountries = settings.map { SportsTvListings.countriesFor(it) }.distinctUntilChanged()
 
+    /** TheSportsDB's live rugby (match minute), read while a rugby game is on: see [RugbyLive]. */
+    private val rugbyLive = MutableStateFlow<RugbyLive.Snapshot?>(null)
+    private var rugbyLiveReadAt = 0L
+
+    private class EventInputs(
+        val l: Map<String, LeagueData>, val w: Map<String, LeagueData>,
+        val f: Map<String, LeagueData>, val g: Map<Long, List<SportsEvent>>, val t: Map<String, LeagueData>,
+    )
+
     /** Every game and event on the page's days (a week back to a week ahead), before the TV listings. */
-    private val plainEvents: StateFlow<List<SportsEvent>> = combine(leagueData, weekData, fixtureData, guideData, tsdbData) { l, w, f, g, t ->
+    private val plainEvents: StateFlow<List<SportsEvent>> = combine(
+        combine(leagueData, weekData, fixtureData, guideData, tsdbData) { l, w, f, g, t -> EventInputs(l, w, f, g, t) },
+        rugbyLive,
+    ) { inputs, rugby ->
+        val l = inputs.l; val w = inputs.w; val f = inputs.f; val g = inputs.g; val t = inputs.t
         val now = LiveTvClock.nowMs()
         val guide = mergeWrestlingAirings(g.values.flatten()).map { timed(it, now) }
         val from = dayStart(-DAYS_BACK - 1)
@@ -171,7 +188,8 @@ internal object SportsRepository {
                 }
             }
         }
-        val espn = l.values.flatMap { it.events } + w.values.flatMap { it.events }
+        // Rugby: ESPN's match minute stays at 1', so TheSportsDB's minute (or the half) instead.
+        val espn = RugbyLive.fixAll(l.values.flatMap { it.events } + w.values.flatMap { it.events }, rugby, now)
         // A match ESPN lists, found again in the guide (or a schedule file) under a guide-only
         // league of the same sport, shows once: the ESPN one, with its score.
         val espnBySport = (espn + tsdb).filter { it.away != null && it.home != null }
@@ -442,6 +460,46 @@ internal object SportsRepository {
         return (copies + others).firstOrNull()?.channel
     }
 
+    /**
+     * The game [channelKey] is showing now (live, or starting within 15 minutes) and every
+     * channel sure to be showing it: your own first, then streams from your sports addons. For
+     * the player's Backups list. Null when the channel isn't showing a game.
+     */
+    fun liveGameOn(channelKey: String): SportsWatchGame? {
+        val now = LiveTvClock.nowMs()
+        val evs = events.value.associateBy { it.id }
+        for ((id, list) in matches.value) {
+            val ev = evs[id] ?: continue
+            val on = ev.state == GameState.LIVE || (ev.state == GameState.PRE && ev.startMs - now < 15 * MINUTE)
+            if (!on || list.none { it.channel.key == channelKey && (it.sure || it.score >= 150) }) continue
+            return SportsWatchGame(ev, list.filter { it.sure || it.score >= 150 })
+        }
+        return null
+    }
+
+    private val liveLookAt = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    /**
+     * A game is playing in the player: look in your sports addons for its live streams too, so
+     * they show in the Backups list (and the automatic switch can reach them). At most every
+     * [LIVE_LOOK_MS] per game, only while it's live or about to start, and not while its game
+     * page is already looking.
+     */
+    fun lookForLiveStreams(eventId: String) {
+        val ev = events.value.firstOrNull { it.id == eventId } ?: return
+        val now = LiveTvClock.nowMs()
+        if (!(ev.state == GameState.LIVE || (ev.state == GameState.PRE && ev.startMs - now < 30 * MINUTE))) return
+        if (addonJobs[eventId]?.isActive == true) return
+        var go = false
+        liveLookAt.update { m ->
+            if (now - (m[eventId] ?: 0L) < LIVE_LOOK_MS) m.also { go = false }
+            else { go = true; m.filterValues { now - it < 6 * 60 * MINUTE } + (eventId to now) }
+        }
+        if (go) scope.launch { lookInAddons(ev) }
+    }
+
+    private const val LIVE_LOOK_MS = 3 * 60_000L
+
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
     private val _matching = MutableStateFlow(false)
@@ -587,6 +645,7 @@ internal object SportsRepository {
             // Watching your teams' games in the background: only the scores, nothing else.
             val active = full || watching.value
             if (active) runCatching { updateOnce(LiveTvClock.nowMs()) }
+            if (active) runCatching { updateRugbyLive(LiveTvClock.nowMs()) }
             // Week, past and non-league requests can take minutes: the live-score round keeps its
             // own clock while they're still going.
             if (full && extrasJob?.isActive != true) extrasJob = scope.launch {
@@ -744,6 +803,26 @@ internal object SportsRepository {
     // ------------------------------------------------------------------ the week ahead, seasons
 
     /** ESPN games from the day after tomorrow to a week ahead: a few times a day. */
+    /**
+     * While a rugby game is on: TheSportsDB's live rugby file (its match minute), read every minute
+     * while Sports is open and every 3 minutes otherwise. Each reading moves the minute on, even
+     * when the file hasn't changed. Nothing is read when no rugby is on.
+     */
+    private suspend fun updateRugbyLive(now: Long) {
+        val on = (leagueData.value.values.asSequence() + weekData.value.values.asSequence())
+            .flatMap { it.events.asSequence() }.any(RugbyLive::applies)
+        if (!on) {
+            if (rugbyLive.value != null) rugbyLive.value = null
+            return
+        }
+        val every = if (viewers.value > 0) 60_000L else 3 * MINUTE
+        if (now - rugbyLiveReadAt < every) return
+        rugbyLiveReadAt = now
+        val raw = runCatching { feeds.rugbyLiveRaw() }.getOrNull()
+        // Not there (yet) or unreadable: the half is shown instead, from the last reading's age.
+        rugbyLive.value = raw?.let { RugbyLive.parse(it, now) } ?: rugbyLive.value?.let { RugbyLive.Snapshot(it.atMs, now, it.games) }
+    }
+
     private suspend fun updateWeek(now: Long, force: Boolean) {
         val s = settings.value
         val f = follows.value
@@ -805,15 +884,18 @@ internal object SportsRepository {
         val noSchedule = f.teams.flatMap { listOf(it.leagueId) + SportsCatalog.relatedLeagues(it.leagueId) }
             .filter { it.startsWith("rugby/") || it.startsWith("rugby-league/") || it.startsWith("australian-football/") }
         val ids = (f.pins + f.leagues + noSchedule).toSet()
-        if (aheadData.value.keys.any { it !in ids }) aheadData.update { m -> m.filterKeys { it in ids } }
+        if (aheadData.value.keys.any { it.removePrefix(SEASON_KEY) !in ids }) aheadData.update { m -> m.filterKeys { it.removePrefix(SEASON_KEY) in ids } }
         val due = ids.mapNotNull { SportsCatalog.league(it) }.filter { l ->
             l.espnPath != null && now - (aheadData.value[l.id]?.fetchedAt ?: 0L) > (if (force) HOUR else 6 * HOUR)
         }
         if (due.isEmpty()) return
-        // ESPN takes a whole month ("202611") though not a range of days.
-        val wanted = listOf(now + (DAYS_AHEAD + 1) * DAY, now + 35 * DAY).map { SportsDates.monthKey(it) }.distinct()
+        // ESPN takes a whole month ("202611") though not a range of days: the months ahead, and
+        // the months the last [LEAGUE_BACK_DAYS] days touch, for their results.
+        val wanted = listOf(now - LEAGUE_BACK_DAYS * DAY, now, now + (DAYS_AHEAD + 1) * DAY, now + 35 * DAY).map { SportsDates.monthKey(it) }.distinct()
         val keepFrom = dayStart(DAYS_AHEAD + 1)
         val keepTo = now + 36 * DAY
+        val backFrom = now - LEAGUE_BACK_DAYS * DAY
+        val backTo = now - DAY
         for (l in due) {
             val raws = wanted.mapNotNull { m -> runCatching { feeds.scoreboardDayRaw(l, m) }.getOrNull() }
             val at = LiveTvClock.nowMs()
@@ -822,8 +904,44 @@ internal object SportsRepository {
                 continue
             }
             val parsed = raws.flatMap { raw -> runCatching { SportsFeeds.parseScoreboard(l, raw) }.getOrDefault(emptyList()) }
-                .filter { it.startMs in keepFrom until keepTo }.distinctBy { it.id }
+                .filter { it.startMs in keepFrom until keepTo || (it.startMs in backFrom until backTo && it.state != GameState.PRE) }
+                .distinctBy { it.id }
+                .let { list ->
+                    // Of the results, only the last race or round (a few days): a busy league
+                    // like the NBA would otherwise keep hundreds of games no row shows.
+                    val newest = list.filter { it.startMs < backTo }.maxOfOrNull { it.startMs } ?: 0L
+                    list.filter { it.startMs >= keepFrom || it.startMs >= newest - 4 * DAY }
+                }
             aheadData.update { it + (l.id to LeagueData(parsed, at, null)) }
+        }
+        updateSeasonPast(now, ids)
+    }
+
+    /**
+     * Followed leagues made of a few big events (Formula 1, NASCAR, UFC, golf and tennis tours):
+     * every result of the last year, so their row goes back through the whole season (each with
+     * its highlights and replays). Months that are over don't change: once a day is plenty.
+     */
+    private suspend fun updateSeasonPast(now: Long, ids: Set<String>) {
+        val due = ids.mapNotNull { SportsCatalog.league(it) }.filter { l ->
+            l.kind == LeagueKind.EVENT && l.espnPath != null && now - (aheadData.value[SEASON_KEY + l.id]?.fetchedAt ?: 0L) > DAY
+        }
+        if (due.isEmpty()) return
+        val thisMonth = SportsDates.monthKey(now)
+        // The months before this one (this month's results come with the weeks ahead above).
+        val wanted = (1..SEASON_MONTHS).map { SportsDates.monthKey(now - it * 30L * DAY) }.distinct().filter { it != thisMonth }
+        val from = now - SEASON_MONTHS * 31L * DAY
+        for (l in due) {
+            val raws = wanted.mapNotNull { m -> runCatching { feeds.scoreboardDayRaw(l, m) }.getOrNull() }
+            val at = LiveTvClock.nowMs()
+            if (raws.isEmpty()) {
+                aheadData.update { m -> m + (SEASON_KEY + l.id to LeagueData(m[SEASON_KEY + l.id]?.events.orEmpty(), at - 20 * HOUR, "failed")) }
+                continue
+            }
+            val parsed = raws.flatMap { raw -> runCatching { SportsFeeds.parseScoreboard(l, raw) }.getOrDefault(emptyList()) }
+                .filter { it.startMs in from until now - DAY && it.state != GameState.PRE }
+                .distinctBy { it.id }
+            aheadData.update { it + (SEASON_KEY + l.id to LeagueData(parsed, at, null)) }
         }
     }
 
@@ -838,11 +956,19 @@ internal object SportsRepository {
         }
     }
 
-    /** The week before yesterday, for the page's past days: only when someone has looked at one. */
+    /**
+     * The week before yesterday: for the page's past days when someone has looked at one, and for
+     * My Sports' league rows (they keep the last week's results, so a weekly league like the NFL
+     * still has last weekend's games midweek): only those leagues, every 6 hours.
+     */
     private suspend fun updatePast(now: Long) {
-        if (now - pastWanted > 30 * MINUTE) return
-        val due = activeLeagues().filter { l ->
-            l.espnPath != null && now - (weekData.value["p|" + l.id]?.fetchedAt ?: 0L) > 2 * HOUR
+        val pageWants = now - pastWanted <= 30 * MINUTE
+        val f = follows.value
+        val rowLeagues = HashSet<String>().apply { addAll(f.pins); addAll(f.leagues) }
+        if (!pageWants && rowLeagues.isEmpty()) return
+        val pool = if (pageWants) activeLeagues() else allEspnLeagues().filter { it.id in rowLeagues }
+        val due = pool.filter { l ->
+            l.espnPath != null && now - (weekData.value["p|" + l.id]?.fetchedAt ?: 0L) > (if (pageWants) 2 * HOUR else 6 * HOUR)
         }
         if (due.isEmpty()) return
         val singleDays = (2..DAYS_BACK).map { d -> SportsDates.dayKey(now - d * DAY) }
@@ -871,10 +997,15 @@ internal object SportsRepository {
             runCatching { feeds.teamScheduleRaw(path, t.teamId, fixtures = false) }.getOrNull()?.let { raws += l to it }
             if (path.startsWith("soccer/") || l.national) {
                 runCatching { feeds.teamScheduleRaw(path, t.teamId, fixtures = true) }.getOrNull()?.let { raws += l to it }
+                // The team's other competitions: results as well as games to come (ESPN gives a
+                // league's results only when asked for that league, so England's Nations League
+                // games and friendlies, or a club's cup games, need their own request).
                 for (rid in SportsCatalog.relatedLeagues(l.id)) {
                     val rl = SportsCatalog.league(rid) ?: continue
                     val rp = rl.espnPath ?: continue
-                    runCatching { feeds.teamScheduleRaw(rp, t.teamId, fixtures = true) }.getOrNull()?.let { raws += rl to it }
+                    for (fixtures in listOf(false, true)) {
+                        runCatching { feeds.teamScheduleRaw(rp, t.teamId, fixtures = fixtures) }.getOrNull()?.let { raws += rl to it }
+                    }
                 }
             }
             val at = LiveTvClock.nowMs()
@@ -1408,6 +1539,7 @@ internal object SportsRepository {
         val picked = SportsPickedChannels.keys(SportsPickedChannels.resolve(sp, all))
         val channels: List<LiveChannel> = all.filter { ch ->
             (ch.key in picked || (ch.key !in user.hiddenChannels && ch.groupId !in user.hiddenGroups)) &&
+                !user.hidesPlaylistOf(ch) &&
                 !ParentalControls.isLocked(ch.groupId, ch.group, live, user.lockedGroups) &&
                 !(ParentalControls.enabled(live) && live.lockAdultContent && ParentalControls.isAdult(ch.name))
         }
@@ -1422,20 +1554,19 @@ internal object SportsRepository {
             val f = follows.value
             val guideLeagues = SportsCatalog.all.filter { it.guideOnly }
             val keys = channels.associateBy { it.key }
-            // Channels found from names, listed networks and your picks go on live (and about to
-            // start) game cards before the much longer guide search; its results replace them.
-            val quickEvents = events.value.filter { ev ->
-                ev.state == GameState.LIVE || (ev.state == GameState.PRE && ev.startMs in now..(now + 3 * HOUR))
-            }
+            // Channels found from names, listed networks and your picks go on game cards before
+            // the much longer guide search. Channel names (event channels like "SMU @ Notre Dame")
+            // are looked for in every game, since that's quick and such channels rarely have
+            // guide listings; networks only for games on now or starting within 3 hours. Added
+            // to what's already shown; the guide search's results replace them when it finishes.
             val quickAt = LiveTvClock.nowMs()
-            if (quickEvents.isNotEmpty()) runCatching {
-                matcher.match(SportsMatcher.Input(events = quickEvents, channels = channels, quality = user.channelQuality,
-                    shiftMs = shift, settings = s, now = now, readGuide = false))
+            if (events.value.isNotEmpty()) runCatching {
+                matcher.match(SportsMatcher.Input(events = events.value, channels = channels, quality = user.channelQuality,
+                    shiftMs = shift, settings = s, now = now, readGuide = false, networksUntil = now + 3 * HOUR))
             }.onSuccess { quick ->
                 if (!quickOnly) LiveTvLoadReport.add("Sports quick channels: ${quick.matches.size} games in ${LiveTvClock.nowMs() - quickAt} ms")
-                val fresh = quick.matches.filterKeys { it !in _matches.value }
-                if (fresh.isNotEmpty()) {
-                    _matches.value = _matches.value + fresh
+                if (quick.matches.isNotEmpty()) {
+                    addMatches(quick.matches, s)
                     rebuildLiveScores()
                 }
             }
@@ -1465,6 +1596,23 @@ internal object SportsRepository {
             rebuildLiveScores()
         } finally {
             _matching.value = false
+        }
+    }
+
+    /** [found] added to the channels already shown for each game (a channel already there keeps the higher score). */
+    private fun addMatches(found: Map<String, List<ChannelMatch>>, s: SportsSettings) {
+        val rank = SportsMatcher.preferenceRank(s)
+        _matches.update { prev ->
+            val next = prev.toMutableMap()
+            for ((id, list) in found) {
+                val byChannel = prev[id].orEmpty().associateByTo(LinkedHashMap()) { it.channel.key }
+                for (m in list) {
+                    val old = byChannel[m.channel.key]
+                    if (old == null || m.score > old.score) byChannel[m.channel.key] = m
+                }
+                next[id] = SportsMatcher.sortMatches(byChannel.values.toList(), s.bestChannelFirst, rank).take(40)
+            }
+            next
         }
     }
 
@@ -1580,7 +1728,7 @@ internal object SportsRepository {
                 if (!chosen && !mine(side.team.id)) continue
                 val was = prev.sides.firstOrNull { it.team.id == side.team.id }?.score?.toDoubleOrNull() ?: continue
                 val nowScore = side.score?.toDoubleOrNull() ?: continue
-                if (nowScore > was) SportsLive.alert(SportsAlert(ev, side.team, league))
+                if (nowScore > was) SportsLive.alert(SportsAlert(RugbyLive.fix(ev, rugbyLive.value, LiveTvClock.nowMs()), side.team, league))
             }
         }
     }
@@ -2043,6 +2191,11 @@ internal object SportsRepository {
     /** The page's days run from this many days back to [DAYS_AHEAD] ahead. */
     const val DAYS_AHEAD = 7
     const val DAYS_BACK = 7
+    /** How far back followed leagues keep results (for leagues that play every few weeks). */
+    const val LEAGUE_BACK_DAYS = 45
+    /** Event leagues (races, fight cards, tournaments) keep this many months of results. */
+    const val SEASON_MONTHS = 12
+    private const val SEASON_KEY = "s|"
     /** Between saved answers when a league was asked one day at a time. */
     private const val RAW_SEP = "\n\u0001\n"
     /** Starts a saved scores file holding ready-made games (nuvio-data's) instead of the feed's answers. */

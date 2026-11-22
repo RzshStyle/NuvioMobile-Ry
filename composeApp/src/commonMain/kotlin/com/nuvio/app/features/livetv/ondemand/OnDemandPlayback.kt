@@ -155,7 +155,7 @@ internal object OnDemandGroups {
     fun visible(categories: List<VodCategory>, user: LiveUserState): List<VodCategory> {
         val order = user.vodGroupOrder.withIndex().associate { (i, uid) -> uid to i }
         return categories
-            .filter { it.uid !in user.vodHiddenCategories }
+            .filter { !user.hidesVodCategory(it.uid) }
             .map { c -> user.vodGroupNames[c.uid]?.takeIf { it.isNotBlank() }?.let { c.copy(name = it) } ?: c }
             .withIndex()
             .sortedWith(compareBy<IndexedValue<VodCategory>>({ order[it.value.uid] ?: Int.MAX_VALUE }, { it.index }))

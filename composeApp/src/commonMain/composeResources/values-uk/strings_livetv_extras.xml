@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="livetv_add_favorite_group">Додати до улюблених груп</string>
+    <string name="livetv_remove_favorite_group">Прибрати з улюблених груп</string>
+    <string name="livetv_show_on_profiles">Показувати в профілях</string>
+    <string name="livetv_show_on_profiles_value">Показувати в профілях: %1$s</string>
+    <string name="livetv_show_on_profiles_all">Усі</string>
+    <string name="livetv_show_on_profiles_count">%1$d з %2$d</string>
+    <string name="livetv_show_on_profiles_description">Профілі, вимкнені тут, не отримують каналів, On Demand і Sports з %1$s. Сам плейлист лишається для всіх</string>
+    <string name="livetv_vod_hide_non_english">Приховати неангломовні фільми</string>
+    <string name="livetv_vod_hide_non_english_description">Приховує фільми й серіали, зняті іншою мовою (перевірка за TMDB і за мовними групами та мітками провайдера). Приховані фільми ніколи не завантажуються і не шукаються.</string>
+</resources>

@@ -102,6 +102,9 @@ internal fun PlaybackStreamSettings(
                     isTablet = isTablet,
                     onClick = { showAutoPlayModeDialog = true },
                 )
+                // Best quality's rules and the source list order (where Nuvio Arc and the TV app keep them).
+                SettingsGroupDivider(isTablet = isTablet)
+                QualityRulesRows(isTablet = isTablet)
                 if (settings.streamAutoPlayMode == StreamAutoPlayMode.REGEX_MATCH) {
                     SettingsGroupDivider(isTablet = isTablet)
                     val notSetLabel = stringResource(Res.string.settings_playback_not_set)
@@ -404,4 +407,5 @@ internal val StreamAutoPlayMode.labelRes: StringResource
         StreamAutoPlayMode.MANUAL -> Res.string.settings_playback_stream_selection_mode_manual
         StreamAutoPlayMode.FIRST_STREAM -> Res.string.settings_playback_stream_selection_mode_first_stream
         StreamAutoPlayMode.REGEX_MATCH -> Res.string.settings_playback_stream_selection_mode_regex
+        StreamAutoPlayMode.QUALITY_RANK -> Res.string.settings_playback_stream_selection_mode_quality
     }

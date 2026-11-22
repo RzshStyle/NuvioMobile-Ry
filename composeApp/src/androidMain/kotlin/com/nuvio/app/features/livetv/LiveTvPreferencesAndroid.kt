@@ -32,6 +32,8 @@ internal object LiveTvPreferencesAndroid {
         OnDemandStore.initialize(context)
         RecordingPlatform.initialize(context)
         LiveTvDriveHttp.initialize(context)
+        // What this phone can decode, for Best quality (AV1 / Dolby Vision-only links go last when it can't).
+        com.nuvio.app.features.streams.quality.PlaybackDeviceSupportAndroid.init(context)
         VpnReportLines.start()
         val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
         val devicePreferences = context.getSharedPreferences(devicePreferencesName, Context.MODE_PRIVATE)

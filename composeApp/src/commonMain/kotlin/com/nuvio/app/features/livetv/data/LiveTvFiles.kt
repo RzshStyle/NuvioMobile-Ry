@@ -75,3 +75,6 @@ internal object LiveTvDirs {
 
 /** An M3U link answered with something other than channels; [what] says what came back. */
 internal class NotAPlaylistException(val what: String) : Exception(what)
+
+/** The server answered with an error code (same message as before, the code kept for retries). */
+internal class HttpStatusException(val code: Int, message: String) : IllegalStateException(message)

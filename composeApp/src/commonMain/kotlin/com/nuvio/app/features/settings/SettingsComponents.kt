@@ -486,7 +486,7 @@ internal fun HomescreenCatalogRow(
                                 append(" • ")
                                 append(stringResource(Res.string.settings_homescreen_pinned_to_top))
                             }
-                        } else {
+                        } else if (!item.isLiveRow) {
                             append(" • ")
                             append(
                                 if (item.heroSourceEnabled) {
@@ -500,11 +500,15 @@ internal fun HomescreenCatalogRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = tokens.colors.textMuted,
                 )
+                // Live TV hook: a Live TV, Sports or On Demand row with nothing to show says so.
+                if (item.isLiveRow) com.nuvio.app.features.livetv.home.HomeLiveRowEmptyNote(item.key)
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // Live TV hook: a row's options (name, what it shows, card shape, remove).
+                if (item.isLiveRow) com.nuvio.app.features.livetv.home.HomeLiveRowEditButton(item.key)
                 Switch(
                     checked = item.enabled,
                     onCheckedChange = onEnabledChange,
@@ -549,7 +553,7 @@ internal fun HomescreenCatalogRow(
             }
         }
 
-        AnimatedVisibility(visible = expanded && !item.isCollection) {
+        AnimatedVisibility(visible = expanded && !item.isCollection && !item.isLiveRow) {
             Column(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {

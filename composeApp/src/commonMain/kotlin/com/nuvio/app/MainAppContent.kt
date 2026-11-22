@@ -943,7 +943,7 @@ internal fun MainAppContent(
             liveChannelOpenJob?.cancel()
             liveChannelOpenJob = coroutineScope.launch {
                 try {
-                    val launchId = LiveTvPlayback.prepare(channel, activePlaybackProfileId, nowTitle)
+                    val launchId = LiveTvPlayback.prepare(channel, activePlaybackProfileId, nowTitle?.let { com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(it) })
                     navController.navigate(PlayerRoute(launchId = launchId, title = channel.name))
                 } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
                 catch (failure: com.nuvio.app.features.livetv.stalker.StalkerRoutingException) { NuvioToastController.show(failure.message.orEmpty()) }
@@ -974,7 +974,8 @@ internal fun MainAppContent(
                 profileId = activePlaybackProfileId,
                 title = rec.title,
                 sourceUrl = LiveTvRecorder.playUrl(rec),
-                streamType = null,
+                // A TV's recording from the network folder is served as an HLS playlist.
+                streamType = if (com.nuvio.app.features.livetv.record.NetworkLibrary.isNetwork(rec)) "hls" else null,
                 logo = rec.channelLogo,
                 poster = rec.channelLogo,
                 streamTitle = rec.title,
@@ -1039,6 +1040,19 @@ internal fun MainAppContent(
             onOpenLeague = { l -> navController.navigate(LiveTvSportsLeagueRoute(leagueId = l.id, title = l.name)) },
             onOpenMultiview = { openSportsMultiview() },
         )
+
+        // Live TV hook: what Home's Live TV, Sports and On Demand rows open.
+        androidx.compose.runtime.SideEffect {
+            com.nuvio.app.features.livetv.home.HomeLiveRowActions.apply {
+                playChannel = { channel, nowTitle -> openLiveChannel(channel, nowTitle) }
+                openGuide = { navController.navigate(LiveTvGuideRoute(liveTvGuideTitle)) }
+                openGame = { ev -> navController.navigate(LiveTvSportsGameRoute(eventId = ev.id, title = ev.title)) }
+                openMultiview = if (isMultiviewSupported) { key -> openSportsMultiview(key) } else null
+                openVodSeeAll = { kind, categoryUid, title ->
+                    navController.navigate(LiveTvOnDemandSeeAllRoute(kind = kind.key, categoryUid = categoryUid, title = title))
+                }
+            }
+        }
 
         fun openSportsRoot() = navController.openSportsRoot(
             showSportsTab = SportsRepository.settings.value.showInSidebar,
@@ -1871,7 +1885,16 @@ internal fun MainAppContent(
                 }
                 entry<LiveTvRecordingsRoute> { route ->
                     val onBack = rememberGuardedPopBackStack(navController, route)
-                    RecordingsScreen(onBack = onBack, onPlay = ::openRecording, modifier = Modifier.fillMaxSize())
+                    RecordingsScreen(
+                        onBack = onBack,
+                        onPlay = ::openRecording,
+                        modifier = Modifier.fillMaxSize(),
+                        onOpenSettings = { navController.navigate(LiveTvRecordingSettingsRoute()) },
+                    )
+                }
+                entry<LiveTvRecordingSettingsRoute> { route ->
+                    val onBack = rememberGuardedPopBackStack(navController, route)
+                    com.nuvio.app.features.livetv.ui.LiveTvRecordingSettingsScreen(onBack = onBack)
                 }
                 entry<LiveTvOnDemandRoute> { route ->
                     val onBack = rememberGuardedPopBackStack(navController, route)

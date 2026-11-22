@@ -1,5 +1,6 @@
 package com.nuvio.app.features.livetv.ui
 
+import com.nuvio.app.features.livetv.record.NetworkLibrary
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -19,9 +20,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -62,6 +64,7 @@ import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.livetv.data.CivilTime
+import com.nuvio.app.features.livetv.data.TitleMatchFixes
 import com.nuvio.app.features.livetv.data.LiveTvTimeZones
 import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.model.LiveTvClock
@@ -79,6 +82,8 @@ import com.nuvio.app.features.livetv.record.RepeatRule
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.livetv_fix_match
+import nuvio.composeapp.generated.resources.livetv_fix_match_rec_scope
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.action_delete
 import nuvio.composeapp.generated.resources.action_play
@@ -93,7 +98,6 @@ import nuvio.composeapp.generated.resources.livetv_rec_recorded
 import nuvio.composeapp.generated.resources.livetv_rec_recording
 import nuvio.composeapp.generated.resources.livetv_rec_schedule
 import nuvio.composeapp.generated.resources.livetv_rec_scheduled
-import nuvio.composeapp.generated.resources.livetv_rec_series
 import nuvio.composeapp.generated.resources.livetv_rec_repeat_stop
 import nuvio.composeapp.generated.resources.livetv_rec_repeat_pick
 import nuvio.composeapp.generated.resources.livetv_rec_repeat_weekends
@@ -109,11 +113,27 @@ import nuvio.composeapp.generated.resources.livetv_rec_stop
 import nuvio.composeapp.generated.resources.livetv_rec_today
 import nuvio.composeapp.generated.resources.livetv_rec_tomorrow
 import nuvio.composeapp.generated.resources.livetv_recordings
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.nuvio.app.features.livetv.data.LiveTvPreferences
+import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
+import com.nuvio.app.features.livetv.ondemand.VodItem
+import com.nuvio.app.features.livetv.ondemand.VodKind
+import com.nuvio.app.features.livetv.sports.SportsDates
+import nuvio.composeapp.generated.resources.livetv_rec_tab_series
+import nuvio.composeapp.generated.resources.livetv_rec_failed_short
+import nuvio.composeapp.generated.resources.livetv_rec_none_recorded
+import nuvio.composeapp.generated.resources.livetv_rec_none_scheduled
+import nuvio.composeapp.generated.resources.livetv_rec_none_series
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * Recordings: what's recording now, what's set to record (shows and series rules), and what's
- * been recorded, with its status, length and size. Tap a recording to play it; long-press (or
+ * Recordings: what's recording now above three tabs: Recorded (posters), Scheduled (by day) and
+ * Series (posters). Tap a recording to play it; long-press (or
  * tap a scheduled one) for its options.
  */
 @Composable
@@ -121,6 +141,8 @@ internal fun RecordingsScreen(
     onBack: () -> Unit,
     onPlay: (LiveTvRecording) -> Unit,
     modifier: Modifier = Modifier,
+    /** The gear in the header: Recordings settings (the network folder, padding, keep rules). */
+    onOpenSettings: () -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
     val recordings by remember { LiveTvRecordingScheduler.start(); LiveTvRecorder.recordings }.collectAsStateWithLifecycle()
@@ -128,13 +150,34 @@ internal fun RecordingsScreen(
     val series by LiveTvRecordingScheduler.series.collectAsStateWithLifecycle()
     val repeats by LiveTvRecordingScheduler.repeats.collectAsStateWithLifecycle()
     val notice by RecordingNotices.current.collectAsStateWithLifecycle()
+    // The TVs' recordings on the network folder (watch only), read now and every few minutes while open.
+    val network by remember { NetworkLibrary.start(); NetworkLibrary.state }.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { while (true) { NetworkLibrary.refresh(force = true); delay(180_000) } }
+    val netAway = network.folderLabel != null && network.reachable == false
     var sheet by remember { mutableStateOf<Any?>(null) }
+    // Fix match: the show's name, and whether it's surely a show (null = don't know).
+    var fixFor by remember { mutableStateOf<Pair<String, Boolean?>?>(null) }
     LaunchedEffect(Unit) { LiveTvRecordingScheduler.fireOverdue() }
     LaunchedEffect(notice) { if (notice != null) { NuvioToastController.show(notice.orEmpty()); RecordingNotices.clear() } }
     val now by produceState(LiveTvClock.nowMs()) { while (true) { value = LiveTvClock.nowMs(); delay(15_000) } }
 
-    val recordingNow = recordings.filter { it.isRecording }
-    val recorded = recordings.filter { !it.isRecording }
+    val recordingNow = recordings.filter { it.isRecording } + network.recordings.filter { it.isRecording }
+    val recorded = recordings.filter { !it.isRecording } + network.recordings.filter { !it.isRecording }
+    val awayText = "Available at home: your network folder can't be reached right now"
+    // A TV's recording: plays from the network folder, only when it can be reached.
+    fun play(r: LiveTvRecording) {
+        if (NetworkLibrary.isNetwork(r) && netAway) NuvioToastController.show(awayText) else onPlay(r)
+    }
+    val hasSeries = series.isNotEmpty() || repeats.isNotEmpty()
+    // Recorded first. Until a tab is picked, it opens on the first one that has anything.
+    var pickedTab by rememberSaveable { mutableStateOf(-1) }
+    val tab = if (pickedTab >= 0) pickedTab else when {
+        recorded.isNotEmpty() -> TAB_RECORDED
+        schedules.isNotEmpty() -> TAB_SCHEDULED
+        hasSeries -> TAB_SERIES
+        else -> TAB_RECORDED
+    }
+    val sidePad = PaddingValues(start = NuvioTokens.Space.s16, end = NuvioTokens.Space.s16, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16))
 
     Column(modifier = modifier.fillMaxSize().background(tokens.colors.background).statusBarsPadding().liveTvSideInsets()) {
         NuvioScreenHeader(
@@ -142,42 +185,141 @@ internal fun RecordingsScreen(
             includeStatusBarPadding = false,
             onBack = onBack,
             modifier = Modifier.padding(horizontal = NuvioTokens.Space.s8),
+            actions = {
+                androidx.compose.material3.IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Filled.Settings, contentDescription = "Recording settings", tint = tokens.colors.textPrimary)
+                }
+            },
         )
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = NuvioTokens.Space.s16, end = NuvioTokens.Space.s16, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16)),
-            verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
-        ) {
-            if (recordings.isEmpty() && schedules.isEmpty() && series.isEmpty() && repeats.isEmpty()) {
-                item { Text(stringResource(Res.string.livetv_rec_empty), style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textMuted, modifier = Modifier.padding(vertical = NuvioTokens.Space.s24)) }
+        if (netAway && network.recordings.isNotEmpty()) {
+            Text(
+                "Recordings from your TVs play when you're home (on the same Wi-Fi as the network folder)." + (network.problem?.let { " $it." } ?: ""),
+                style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted,
+                modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16).padding(bottom = NuvioTokens.Space.s8),
+            )
+        }
+        if (recordings.isEmpty() && network.recordings.isEmpty() && schedules.isEmpty() && !hasSeries) {
+            Text(stringResource(Res.string.livetv_rec_empty), style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textMuted, modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s24))
+            return@Column
+        }
+        // What's recording now: above the tabs, only while something records.
+        if (recordingNow.isNotEmpty()) {
+            Column(
+                modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16).padding(bottom = NuvioTokens.Space.s8),
+                verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
+            ) {
+                recordingNow.forEach { r -> RecordingRow(r, now, onClick = { play(r) }, onLongClick = { sheet = r }) }
             }
-            if (recordingNow.isNotEmpty()) {
-                item { SectionTitle(stringResource(Res.string.livetv_rec_recording)) }
-                items(recordingNow.size, key = { "r:" + recordingNow[it].id }) { i ->
-                    RecordingRow(recordingNow[i], now, onClick = { onPlay(recordingNow[i]) }, onLongClick = { sheet = recordingNow[i] })
+        }
+        Row(
+            modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s8),
+            horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
+        ) {
+            Chip(label = tabLabel(stringResource(Res.string.livetv_rec_recorded), recorded.size), selected = tab == TAB_RECORDED, onClick = { pickedTab = TAB_RECORDED })
+            Chip(label = tabLabel(stringResource(Res.string.livetv_rec_scheduled), schedules.size), selected = tab == TAB_SCHEDULED, onClick = { pickedTab = TAB_SCHEDULED })
+            Chip(label = tabLabel(stringResource(Res.string.livetv_rec_tab_series), series.size + repeats.size), selected = tab == TAB_SERIES, onClick = { pickedTab = TAB_SERIES })
+        }
+        when (tab) {
+            TAB_RECORDED -> if (recorded.isEmpty()) EmptyTab(stringResource(Res.string.livetv_rec_none_recorded)) else LazyVerticalGrid(
+                columns = GridCells.Adaptive(POSTER_MIN_WIDTH),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = NuvioTokens.Space.s16, end = NuvioTokens.Space.s16, top = NuvioTokens.Space.s4, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16)),
+                horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+                verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s16),
+            ) {
+                gridItems(recorded, key = { (if (NetworkLibrary.isNetwork(it)) "n:" else "d:") + it.id }) { r ->
+                    val failed = r.status == RecordingStatus.FAILED
+                    val fromTv = NetworkLibrary.isNetwork(r)
+                    RecordingPosterCard(
+                        title = r.title + (r.episode?.let { " · $it" } ?: ""),
+                        posterTitle = r.title,
+                        channelName = r.channelName,
+                        channelLogo = r.channelLogo,
+                        line = if (failed) (r.problem ?: stringResource(Res.string.livetv_rec_failed_short)) else if (fromTv && netAway) "Available at home" else listOfNotNull(
+                            "TV".takeIf { fromTv },
+                            SportsDates.dayLabel(r.programStartMs.takeIf { it > 0 } ?: r.startedAtMs),
+                            RecordingRules.durationLabel(r.durationSec).takeIf { r.durationSec >= 60 },
+                        ).joinToString(" · "),
+                        lineIsError = failed,
+                        onClick = { if (r.status == RecordingStatus.DONE) play(r) else sheet = r },
+                        onLongClick = { sheet = r },
+                    )
                 }
             }
-            if (schedules.isNotEmpty() || series.isNotEmpty() || repeats.isNotEmpty()) {
-                item { SectionTitle(stringResource(Res.string.livetv_rec_scheduled)) }
-                items(series.size, key = { "s:" + series[it].id }) { i -> SeriesRow(series[i], onClick = { sheet = series[i] }) }
-                items(repeats.size, key = { "m:" + repeats[it].id }) { i -> RepeatRow(repeats[i], onClick = { sheet = repeats[i] }) }
-                items(schedules.size, key = { "p:" + schedules[it].id }) { i -> ScheduleRow(schedules[i], onClick = { sheet = schedules[i] }) }
+            TAB_SCHEDULED -> if (schedules.isEmpty()) EmptyTab(stringResource(Res.string.livetv_rec_none_scheduled)) else {
+                val days = remember(schedules) { schedules.sortedBy { it.startMs }.groupBy { dayStartOf(it.startMs) }.toList() }
+                val today = dayStartOf(now)
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = sidePad,
+                    verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
+                ) {
+                    days.forEach { (day, list) ->
+                        item(key = "day:$day") {
+                            val label = when (SportsDates.dayLabel(day + 12 * 3_600_000L)) {
+                                SportsDates.dayLabel(today + 12 * 3_600_000L) -> stringResource(Res.string.livetv_rec_today) + " · " + SportsDates.dayLabel(day + 12 * 3_600_000L)
+                                SportsDates.dayLabel(today + 36 * 3_600_000L) -> stringResource(Res.string.livetv_rec_tomorrow) + " · " + SportsDates.dayLabel(day + 12 * 3_600_000L)
+                                else -> SportsDates.dayLabel(day + 12 * 3_600_000L)
+                            }
+                            SectionTitle(label)
+                        }
+                        items(list.size, key = { "p:" + list[it].id }) { i -> ScheduleRow(list[i], onClick = { sheet = list[i] }) }
+                    }
+                }
             }
-            if (recorded.isNotEmpty()) {
-                item { SectionTitle(stringResource(Res.string.livetv_rec_recorded)) }
-                items(recorded.size, key = { "d:" + recorded[it].id }) { i ->
-                    RecordingRow(recorded[i], now, onClick = { if (recorded[i].status == RecordingStatus.DONE) onPlay(recorded[i]) else sheet = recorded[i] }, onLongClick = { sheet = recorded[i] })
+            else -> if (!hasSeries) EmptyTab(stringResource(Res.string.livetv_rec_none_series)) else LazyVerticalGrid(
+                columns = GridCells.Adaptive(POSTER_MIN_WIDTH),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = NuvioTokens.Space.s16, end = NuvioTokens.Space.s16, top = NuvioTokens.Space.s4, bottom = nuvioSafeBottomPadding(NuvioTokens.Space.s16)),
+                horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+                verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s16),
+            ) {
+                gridItems(series, key = { "s:" + it.id }) { r ->
+                    val keep = if (r.keepLast > 0) stringResource(Res.string.livetv_rec_keep_last, r.keepLast) else stringResource(Res.string.livetv_rec_keep_all)
+                    RecordingPosterCard(
+                        title = r.title,
+                        posterTitle = r.title,
+                        channelName = r.channel.name,
+                        channelLogo = r.channel.logo,
+                        line = (if (r.newOnly) stringResource(Res.string.livetv_rec_series_new_only) + " · " else "") + keep,
+                        lineIsError = false,
+                        onClick = { sheet = r },
+                        onLongClick = { sheet = r },
+                    )
+                }
+                gridItems(repeats, key = { "m:" + it.id }) { r ->
+                    RecordingPosterCard(
+                        title = r.title,
+                        posterTitle = r.title,
+                        channelName = r.channel.name,
+                        channelLogo = r.channel.logo,
+                        line = RecordingRules.daysLabel(r.days) + " · " + minuteLabel(r.minuteOfDay),
+                        lineIsError = false,
+                        onClick = { sheet = r },
+                        onLongClick = { sheet = r },
+                    )
                 }
             }
         }
     }
 
     when (val s = sheet) {
-        is LiveTvRecording -> RecordingSheet(s, onDismiss = { sheet = null }, onPlay = { onPlay(s) })
-        is RecordingSchedule -> ScheduleSheet(s, onDismiss = { sheet = null })
-        is SeriesRule -> SeriesSheet(s, onDismiss = { sheet = null })
+        is LiveTvRecording -> RecordingSheet(s, onDismiss = { sheet = null }, onPlay = { play(s) },
+            onFixMatch = { fixFor = s.title to (if (s.episode.isNullOrBlank()) null else true) })
+        is RecordingSchedule -> ScheduleSheet(s, onDismiss = { sheet = null }, onFixMatch = { fixFor = s.title to (if (s.episode.isNullOrBlank()) null else true) })
+        is SeriesRule -> SeriesSheet(s, onDismiss = { sheet = null }, onFixMatch = { fixFor = s.title to true })
         is RepeatRule -> RepeatSheet(s, onDismiss = { sheet = null })
         else -> Unit
+    }
+    fixFor?.let { (title, series) ->
+        FixMatchSheet(
+            title = title,
+            scopeNote = stringResource(Res.string.livetv_fix_match_rec_scope),
+            key = TitleMatchFixes.recordingKey(title),
+            initialQuery = title,
+            initialSeries = series,
+            onDismiss = { fixFor = null },
+        )
     }
 }
 
@@ -221,34 +363,116 @@ private fun RecordingRow(rec: LiveTvRecording, now: Long, onClick: () -> Unit, o
     }
 }
 
+/** One show set to record: its poster, the title, the times and channel (the day is in the heading). */
 @Composable
 private fun ScheduleRow(s: RecordingSchedule, onClick: () -> Unit) {
     val tokens = MaterialTheme.nuvio
     val sub = listOfNotNull(
+        formatClock(s.startMs) + " – " + formatClock(s.stopMs),
         s.channel.name,
-        formatLocalDateTime(s.startMs) + " – " + formatClock(s.stopMs),
         if (s.useCatchup) stringResource(Res.string.livetv_rec_catchup_save) else null,
     ).joinToString("  ·  ")
-    SimpleRow(icon = Icons.Filled.Schedule, title = s.title + (s.episode?.let { "  ·  $it" } ?: ""), subtitle = sub, onClick = onClick, tint = tokens.colors.accent)
+    val poster = rememberRecordingPoster(s.title, s.channel.name)
+    Row(
+        modifier = Modifier.fillMaxWidth().clip(tokens.shapes.card).background(tokens.colors.surface)
+            .combinedClickableCompat(onClick)
+            .padding(horizontal = NuvioTokens.Space.s10, vertical = NuvioTokens.Space.s8),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+    ) {
+        PosterBox(poster, s.channel.logo, Modifier.width(40.dp).aspectRatio(2f / 3f))
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
+            Text(s.title + (s.episode?.let { "  ·  $it" } ?: ""), style = MaterialTheme.typography.bodyLarge, color = tokens.colors.textPrimary, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(sub, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        if (s.seriesId != null) Icon(Icons.Filled.FiberManualRecord, contentDescription = null, tint = tokens.colors.accent, modifier = Modifier.size(NuvioTokens.Icon.sm))
+    }
 }
 
+private const val TAB_RECORDED = 0
+private const val TAB_SCHEDULED = 1
+private const val TAB_SERIES = 2
+private val POSTER_MIN_WIDTH = 104.dp
+
+private fun tabLabel(name: String, count: Int): String = if (count > 0) "$name  $count" else name
+
 @Composable
-private fun SeriesRow(r: SeriesRule, onClick: () -> Unit) {
-    val keep = if (r.keepLast > 0) stringResource(Res.string.livetv_rec_keep_last, r.keepLast) else stringResource(Res.string.livetv_rec_keep_all)
-    val which = if (r.newOnly) stringResource(Res.string.livetv_rec_series_new_only) + "  ·  " else ""
-    SimpleRow(icon = Icons.Filled.FiberManualRecord, title = stringResource(Res.string.livetv_rec_series) + ": " + r.title, subtitle = r.channel.name + "  ·  " + which + keep, onClick = onClick, tint = MaterialTheme.nuvio.colors.accent)
+private fun EmptyTab(text: String) {
+    Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.nuvio.colors.textMuted, modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s24))
 }
 
-/** A repeating recording set by hand: its days and time. */
+/** Midnight on the device of the day [ms] falls on. */
+private fun dayStartOf(ms: Long): Long {
+    val t = CivilTime.at(ms, LiveTvTimeZones.SYSTEM)
+    return SportsDates.localDate(t.year, t.month, t.day)
+}
+
+/** Game titles found random films: sports keep the channel's logo. */
+private val SPORTS_CHANNEL = Regex("""(?i)sport|espn|dazn|bein|\bnfl\b|\bnba\b|\bnhl\b|\bmlb\b|\bufc\b|\bf1\b|ppv""")
+private val GAME_TITLE = Regex("""(?i)\s(vs?\.?|@)\s""")
+
+private fun isSportsRecording(title: String, channelName: String?): Boolean =
+    GAME_TITLE.containsMatchIn(title) || (channelName != null && SPORTS_CHANNEL.containsMatchIn(channelName))
+
+/** A show's poster (TMDB, as On Demand finds them), or null. Off when "Show posters" is off. */
 @Composable
-private fun RepeatRow(r: RepeatRule, onClick: () -> Unit) {
-    SimpleRow(
-        icon = Icons.Filled.Schedule,
-        title = r.title,
-        subtitle = r.channel.name + "  ·  " + RecordingRules.daysLabel(r.days) + "  ·  " + minuteLabel(r.minuteOfDay),
-        onClick = onClick,
-        tint = MaterialTheme.nuvio.colors.accent,
-    )
+private fun rememberRecordingPoster(title: String, channelName: String?): String? {
+    val settings by LiveTvPreferences.settings.collectAsStateWithLifecycle()
+    val wanted = settings.showPosters && title.isNotBlank() && !isSportsRecording(title, channelName)
+    // Fix match: your pick (here or on a TV) wins; then the channel's country picks between same-named shows.
+    val fixes by TitleMatchFixes.fixes.collectAsStateWithLifecycle()
+    val pick = fixes[TitleMatchFixes.recordingKey(title)]
+    val poster by produceState<String?>(null, title, wanted, pick) {
+        if (!wanted) { value = null; return@produceState }
+        pick?.poster?.let { value = it; return@produceState }
+        TitleMatchFixes.posterByCountry(title, channelName)?.let { value = it; return@produceState }
+        val key = title.trim().lowercase().replace(Regex("\\s+"), " ")
+        val item = VodItem(
+            playlistId = "rec", kind = VodKind.SERIES, id = key, name = title, icon = null, categoryId = "",
+            ext = null, tmdbId = null, year = null, rating = null, addedSec = 0L,
+        )
+        value = runCatching { OnDemandRepository.match(item) }.getOrNull()?.poster?.takeIf { it.isNotBlank() }
+    }
+    return poster
+}
+
+/** A portrait poster, or the channel's logo on the card color when there's none. */
+@Composable
+private fun PosterBox(poster: String?, channelLogo: String?, modifier: Modifier) {
+    val tokens = MaterialTheme.nuvio
+    Box(modifier = modifier.clip(RoundedCornerShape(NuvioTokens.Radius.md)).background(tokens.colors.surfaceCard), contentAlignment = Alignment.Center) {
+        when {
+            poster != null -> AsyncImage(model = poster, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            !channelLogo.isNullOrBlank() -> AsyncImage(model = channelLogo, contentDescription = null, modifier = Modifier.fillMaxSize().padding(NuvioTokens.Space.s8), contentScale = ContentScale.Fit)
+            else -> Icon(Icons.Filled.FiberManualRecord, contentDescription = null, tint = tokens.colors.textMuted)
+        }
+    }
+}
+
+/** A recording or a series in the Recorded and Series tabs: poster, title, a line under it. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun RecordingPosterCard(
+    title: String,
+    posterTitle: String,
+    channelName: String?,
+    channelLogo: String?,
+    line: String,
+    lineIsError: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val poster = rememberRecordingPoster(posterTitle, channelName)
+    Column(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(NuvioTokens.Radius.md)).combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
+    ) {
+        PosterBox(poster, channelLogo, Modifier.fillMaxWidth().aspectRatio(2f / 3f))
+        Spacer(Modifier.height(NuvioTokens.Space.s4))
+        Text(title, style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(line, style = MaterialTheme.typography.bodySmall, color = if (lineIsError) tokens.colors.danger else tokens.colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
 }
 
 /** "20:30" for a time of day in minutes after midnight. */
@@ -273,30 +497,12 @@ private fun RepeatSheet(r: RepeatRule, onDismiss: () -> Unit) {
     }
 }
 
-@Composable
-private fun SimpleRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, onClick: () -> Unit, tint: androidx.compose.ui.graphics.Color) {
-    val tokens = MaterialTheme.nuvio
-    Row(
-        modifier = Modifier.fillMaxWidth().clip(tokens.shapes.card).background(tokens.colors.surface)
-            .combinedClickableCompat(onClick)
-            .padding(horizontal = NuvioTokens.Space.s12, vertical = NuvioTokens.Space.s10),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
-    ) {
-        Icon(icon, contentDescription = null, tint = tint)
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, color = tokens.colors.textPrimary, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
 @OptIn(ExperimentalFoundationApi::class)
 private fun Modifier.combinedClickableCompat(onClick: () -> Unit): Modifier = combinedClickable(onClick = onClick)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: () -> Unit) {
+private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: () -> Unit, onFixMatch: () -> Unit) {
     val tokens = MaterialTheme.nuvio
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -314,17 +520,29 @@ private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: 
         if (rec.status != RecordingStatus.FAILED) {
             NuvioBottomSheetActionRow(title = stringResource(Res.string.action_play), icon = Icons.Filled.PlayArrow, onClick = { close(onPlay) })
         }
-        if (rec.isRecording) {
-            NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_stop), icon = Icons.Filled.Stop, onClick = { LiveTvRecorder.stop(rec.id); close() })
+        // Wrong poster (a film instead of the show, the US version of a UK show): pick the right one.
+        if (!isSportsRecording(rec.title, rec.channelName)) {
+            NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_fix_match), icon = Icons.Filled.ImageSearch, onClick = { close(onFixMatch) })
         }
-        NuvioBottomSheetActionRow(title = stringResource(Res.string.action_delete), icon = Icons.Filled.Delete, onClick = { LiveTvRecorder.delete(rec.id); close() })
+        if (NetworkLibrary.isNetwork(rec)) {
+            // A TV's recording on the network folder: deleting it takes it off every TV too. Not while it records.
+            if (!rec.isRecording) NuvioBottomSheetActionRow(title = stringResource(Res.string.action_delete), icon = Icons.Filled.Delete, onClick = {
+                NetworkLibrary.deleteAndTell(rec)
+                close()
+            })
+        } else {
+            if (rec.isRecording) {
+                NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_stop), icon = Icons.Filled.Stop, onClick = { LiveTvRecorder.stop(rec.id); close() })
+            }
+            NuvioBottomSheetActionRow(title = stringResource(Res.string.action_delete), icon = Icons.Filled.Delete, onClick = { LiveTvRecorder.delete(rec.id); close() })
+        }
         Spacer(Modifier.height(NuvioTokens.Space.s12))
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ScheduleSheet(s: RecordingSchedule, onDismiss: () -> Unit) {
+private fun ScheduleSheet(s: RecordingSchedule, onDismiss: () -> Unit, onFixMatch: () -> Unit) {
     val tokens = MaterialTheme.nuvio
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -339,6 +557,9 @@ private fun ScheduleSheet(s: RecordingSchedule, onDismiss: () -> Unit) {
             )
         }
         NuvioBottomSheetDivider()
+        if (!isSportsRecording(s.title, s.channel.name)) {
+            NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_fix_match), icon = Icons.Filled.ImageSearch, onClick = { close(onFixMatch) })
+        }
         NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_cancel), icon = Icons.Filled.Delete, onClick = { LiveTvRecordingScheduler.cancel(s.id); close() })
         Spacer(Modifier.height(NuvioTokens.Space.s12))
     }
@@ -348,7 +569,7 @@ private val KEEP_CHOICES = listOf(0, 1, 2, 3, 5, 10, 20)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SeriesSheet(r: SeriesRule, onDismiss: () -> Unit) {
+private fun SeriesSheet(r: SeriesRule, onDismiss: () -> Unit, onFixMatch: () -> Unit) {
     val tokens = MaterialTheme.nuvio
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -369,6 +590,9 @@ private fun SeriesSheet(r: SeriesRule, onDismiss: () -> Unit) {
             }
         }
         NuvioBottomSheetDivider()
+        if (!isSportsRecording(r.title, r.channel.name)) {
+            NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_fix_match), icon = Icons.Filled.ImageSearch, onClick = { close(onFixMatch) })
+        }
         NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_series_stop), icon = Icons.Filled.Delete, onClick = { LiveTvRecordingScheduler.removeSeries(r.id); close() })
         Spacer(Modifier.height(NuvioTokens.Space.s12))
     }

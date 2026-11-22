@@ -2,6 +2,9 @@ package com.nuvio.app.features.livetv
 
 import com.nuvio.app.features.livetv.data.XmltvParser
 import com.nuvio.app.features.livetv.model.EpgProgram
+import com.nuvio.app.features.livetv.model.SUB_TITLE_MARK
+import com.nuvio.app.features.livetv.model.descriptionText
+import com.nuvio.app.features.livetv.model.subTitle
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -14,9 +17,14 @@ class XmltvDescriptionTest {
         )
         for (subtitle in fields) {
             for (description in fields) {
-                // The prior parser's composition is the oracle, including its UTF-16 limit.
-                val full = listOfNotNull(subtitle?.takeIf { it.isNotBlank() }, description?.takeIf { it.isNotBlank() })
-                    .joinToString("\n").ifBlank { null }
+                // The sub-title leads behind SUB_TITLE_MARK (trimmed, up to 120), then the description;
+                // the whole thing keeps the UTF-16 limit.
+                val sub = subtitle?.trim()?.takeIf { it.isNotBlank() }?.let { if (it.length > 120) it.take(120).trimEnd() else it }
+                val full = when {
+                    sub == null -> description?.takeIf { it.isNotBlank() }
+                    description.isNullOrBlank() -> "$SUB_TITLE_MARK$sub"
+                    else -> "$SUB_TITLE_MARK$sub\n$description"
+                }
                 val expected = full?.let { if (it.length > 800) it.take(800).trimEnd() + "…" else it }
                 val xml = guide(field("sub-title", subtitle) + field("desc", description))
                 for (chunk in listOf(1, 7, xml.length)) {
@@ -37,7 +45,9 @@ class XmltvDescriptionTest {
         )
         for (chunk in listOf(1, 7, xml.length)) {
             val program = parse(xml, chunk).single()
-            assertEquals(" First subtitle \nFirst & café description", program.description)
+            assertEquals("${SUB_TITLE_MARK}First subtitle\nFirst & café description", program.description)
+            assertEquals("First subtitle", program.subTitle)
+            assertEquals("First & café description", program.descriptionText)
             assertEquals("S2 E3", program.episode)
             assertEquals(3_600_000L, program.stopMs - program.startMs)
         }
@@ -52,7 +62,7 @@ class XmltvDescriptionTest {
         for (chunk in listOf(1, 7, xml.length)) {
             val programs = parse(xml, chunk)
             assertEquals(listOf("One", "Two"), programs.map { it.title })
-            assertEquals(listOf("Part\nunfinished & café", "Second"), programs.map { it.description })
+            assertEquals(listOf("${SUB_TITLE_MARK}Part\nunfinished & café", "Second"), programs.map { it.description })
         }
     }
 
