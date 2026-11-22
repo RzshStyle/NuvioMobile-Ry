@@ -32,7 +32,9 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
         /** Nobody is on the Sports page: take short breaks while reading the guide so the phone stays smooth. */
         val gentle: Boolean = false,
         /** False: only names, listed networks and your picks (quick channels before the guide search). */
-        val readGuide: Boolean = true
+        val readGuide: Boolean = true,
+        /** Networks are only looked at for games starting before this (quick channels: games on now or soon; names are looked for in every game). */
+        val networksUntil: Long = Long.MAX_VALUE
     )
 
     class Result(val matches: Map<String, List<ChannelMatch>>, val summary: String)
@@ -306,7 +308,7 @@ internal class SportsMatcher(private val db: GuideSearch = GuideSearch.Store) {
         val tNames = LiveTvClock.nowMs()
 
         // ---- 3. The network ESPN lists, with a sports show on at the time.
-        val networkEvents = teamEvents.filter { it.broadcasts.isNotEmpty() && it.startMs > input.now - 5 * HOUR }
+        val networkEvents = teamEvents.filter { it.broadcasts.isNotEmpty() && it.startMs > input.now - 5 * HOUR && it.startMs <= input.networksUntil }
         val candidates = HashMap<String, List<LiveChannel>>()
         networkEvents.flatMap { it.broadcasts }.map { networkKey(it) }.distinct().forEach { n ->
             val mapped = NETWORKS[n]
