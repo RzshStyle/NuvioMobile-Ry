@@ -22,15 +22,18 @@
 
 ## 🆕 New in this update
 
-- **🎬 Highlights and replays for finished games:** official highlights and condensed games (ESPN, NHL, MLB) and YouTube highlights, right on the game's page. [More below](#-sports-hub).
-- **🖥️ Multiview:** a cleaner look with floating corner buttons and light pane names that fade away, panes that use the whole screen, and Sports filters for My Sports, All Events, Live Now or one sport.
-- **📺 A guide for each playlist:** paste a guide link when you add a playlist, and switch each playlist's guides on or off.
-- **🎞️ On Demand from M3U playlists:** movies and series straight from the playlist.
-- **⏺️ Recordings:** record only new episodes of a series, and set recordings that repeat every day, on weekdays or on the days you pick.
-- **🌐 DNS setting:** Cloudflare or Google, for when channels say your provider's server can't be found.
-- **🧾 Start-Up Report** under Live TV settings → Help, to copy or share when something isn't working.
-- **🗑️ Deleting a playlist** now clears everything it left behind, and sync combines favorites, hidden channels and your own groups between devices.
-- **Built on Nuvio Mobile 1.1.0-beta.2,** with Plex and Silo servers, Stremio tracking addons, a new Downloads screen and Library filters.
+- **🏆 A new Sports hub:** a search bar, a big swipe card, **Live on your channels**, leagues as folding groups, game cards in team colours, and a game page with the day's games, a scoreboard, a Watch button and replays first once a game ends. [More below](#-sports-hub).
+- **🏟️ Pick Leagues:** see several leagues together on All Events, with a Live only switch.
+- **🎬 More highlights:** races, fights, golf, tennis, darts and more, from the sports' own YouTube channels, with **Show Highlights** and **Show Condensed Games** switches in Sports settings.
+- **⏺️ Recordings from your network folder:** the TVs' recordings on a NAS or shared folder show up on your phone and play from there. Set the folder up on the phone too. **Recorded, Scheduled and Series** tabs with posters, and **Fix Match** to pick the right show or movie.
+- **🏠 Home rows:** add Live TV, Sports and On Demand rows to Home, including Continue Watching for On Demand.
+- **🎯 Best quality auto-play:** your own **Quality rules** and a **Best quality first** source order, under Settings → Playback → Stream Auto-play.
+- **🖼️ Seek thumbnails** fill in much sooner.
+- **⚡ Live TV starts instantly:** your channel list shows straight away when you open the app.
+- **⭐ Favorite groups,** **Show on Profiles** for each playlist, and **Lock Playlist Logins** with your PIN.
+- **🔁 Backups button** over a playing channel lists the other channels showing the same game.
+- **🌍 Hide Non-English Titles** for On Demand, and a movies and series switch for M3U playlists.
+- **Handball** added, and college tables have conference tabs and real records.
 
 ---
 
@@ -71,7 +74,7 @@ Sports shows scores and schedules, and works out **which of your own channels ar
   - **Live streams in the channel list:** a game that's on shows the addons' streams after your own channels.
   - **Replays & highlights:** a finished game gets its own list of replays, highlights and recaps, including official highlights and condensed games (ESPN, NHL, MLB) and YouTube highlights.
   - **Recording and picking a channel** work on your own playlist channels, not on an addon's streams.
-- **Choose leagues:** a row on All Events turns any league on or off.
+- **Choose leagues:** a row on All Events turns any league on or off, and **Pick Leagues** shows several together, with a Live only switch.
 - **Tables:** league tables with form, place changes and playoff lines, and your team marked.
 - **Game pages:** the score by period, scoring as it happens, team stats, line-ups, leaderboards and fight cards.
 - **Never miss it:** reminders, **Game Alerts** (offered when you first follow a team) with the live score while your team plays, a heads-up when a game starts and the **final score at full time**, even with the app closed, and **Record a game** with extra time for overtime.
@@ -115,12 +118,14 @@ Protect what you watch without installing a separate VPN app. **Settings → VPN
 - **Guide:** channels down the side and a timeline across, with what's on now highlighted, a progress bar and a "now" line (which you can hide).
 - **Playlist menu:** with more than one playlist, pick one in the group view, the guide and On Demand.
 - **Channel Display:** show logos, names, numbers, or any mix. Logos only fills each tile with the logo.
+- **Favorite groups:** hold a group to star it and it moves to the top. **Show on Profiles** picks which profiles see each playlist.
 - **Favorites** and **Recently watched**, plus a star on the logo of your favorite channels. **Pick favorites** puts a star on each group: open it and star many channels at once, with Select all, Clear and one Save.
 - **Change logo:** in a channel's long-press menu, pick a logo from your playlists and guides, tv-logos, iptv-org or TMDB, or paste a link.
 
 ### 🎬 While watching
 - **Channel panel:** a Channels button in the player opens your groups and a mini guide beside the video (below it when your phone is upright, along the bottom on a tablet). Switch channels without leaving the player.
 - **Swipe to change channel:** swipe up or down in the middle of the picture.
+- **Best quality auto-play:** set your own **Quality rules** and put the best quality first (Settings → Playback → Stream Auto-play).
 - **Seek thumbnails:** preview pictures above the seek bar. Change them under **Settings → Playback → Video**.
 - **Catch-up:** watch past shows with a seek bar, or restart what's on now. The app remembers which kind of replay link your provider answers and tries it first.
 - **Reminders** for upcoming shows, with a notification.
@@ -132,7 +137,9 @@ Protect what you watch without installing a separate VPN app. **Settings → VPN
 - **Smart guide matching** (fine-tune any channel with **Assign EPG**), plus guide and catch-up time shifts (up to 24 hours) for providers that are off.
 
 ### ⏺️ Recordings
-- **Record a show, or a whole series,** from the guide, or a game from Sports, and watch it later in **Recordings**. Series recordings skip repeats and episodes you cancelled.
+- **Record a show, or a whole series,** from the guide, or a game from Sports, and watch it later in **Recordings**, in Recorded, Scheduled and Series tabs. Series recordings skip repeats and episodes you cancelled.
+- **Network folder (NAS or computer):** the TVs' recordings on a shared folder show in your phone's Recordings and play from there. Set the folder up on the phone or let it come over with Setup Sync.
+- **Fix Match:** long-press a recording or an On Demand title to search for the right show or movie. The pick syncs with your TVs.
 
 ### 🗂️ Channel management
 - **Hide, reorder and rename** channels and groups. **Hide all groups** at once, or **Hide all / Show all** inside a group.
@@ -145,6 +152,7 @@ Protect what you watch without installing a separate VPN app. **Settings → VPN
 
 ### 🔒 Parental controls
 - **PIN locks** for any group or category. Adult content locks automatically.
+- **Lock Playlist Logins** asks for your PIN before anyone edits playlists, guides or the network folder.
 
 ### 🔎 Part of Nuvio, not bolted on
 - Everything you get in Nuvio Mobile is still here: your addons, library, Continue Watching, Trakt, Simkl and MDBList, subtitles and the player.
@@ -272,6 +280,7 @@ Nuvio + IPTV is free. If it's made your phone or TV better and you'd like to say
 
 - **[Nuvio Mobile](https://github.com/NuvioMedia/NuvioMobile)** by the NuvioMedia team: this app is built on their work.
 - **🙌 [ghbarker](https://github.com/ghbarker): a huge thank you.** He built the **built-in VPN** (WireGuard and OpenVPN playback protection), **Multiview** and **Stalker / Ministra portals**, and contributed them to this project. His [port of Nuvio Mobile with IPTV](https://github.com/ghbarker/NuvioMobile-IPTV) is also what this app is built on, with his permission.
+- **[Nuvio Arc](https://github.com/Ysosrs123)** by Ysosrs123: thanks for the ideas behind best-quality source sorting and auto-play and fast seek thumbnails.
 - Live TV and Sports come from **[Nuvio + IPTV](https://github.com/homelessbrian/NuvioPlusIPTV)** for TV.
 - Sports data from **ESPN**'s public feed, **[TheSportsDB](https://www.thesportsdb.com)**, **HockeyTech** and **MLB**'s stats service. Pictures and logos from **[TMDB](https://www.themoviedb.org)**. Nuvio + IPTV isn't affiliated with any of them, and team and league names and logos belong to their owners.
 - Built with Kotlin Multiplatform and Compose Multiplatform.
