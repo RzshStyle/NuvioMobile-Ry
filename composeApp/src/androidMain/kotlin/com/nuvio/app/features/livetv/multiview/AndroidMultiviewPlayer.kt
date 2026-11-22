@@ -287,7 +287,7 @@ internal class AndroidMultiviewPlayer(
                             return
                         }
                         mutableState.value = MultiviewTileState(
-                            isLoading = !reconnecting && (player.isLoading || player.playbackState == Player.STATE_BUFFERING),
+                            isLoading = !reconnecting && !player.isPlaying && player.playbackState == Player.STATE_BUFFERING,
                             isPlaying = player.isPlaying,
                             isReconnecting = reconnecting,
                         )
