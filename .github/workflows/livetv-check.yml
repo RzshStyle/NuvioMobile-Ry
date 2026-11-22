@@ -63,7 +63,7 @@ jobs:
         run: |
           chmod +x gradlew
           # Fit the build into the runner's memory (the project's own settings ask for 12 GB + 8 GB).
-          sed -i -E 's/^org\.gradle\.jvmargs=.*/org.gradle.jvmargs=-Xmx6144M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1024m/; s/^kotlin\.daemon\.jvmargs=.*/kotlin.daemon.jvmargs=-Xmx3072M/' gradle.properties
+          sed -i -E 's/^org\.gradle\.jvmargs=.*/org.gradle.jvmargs=-Xmx6144M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1024m/; s/^kotlin\.daemon\.jvmargs=.*/kotlin.daemon.jvmargs=-Xmx5120M/' gradle.properties
           echo 'org.gradle.workers.max=3' >> gradle.properties
           ./gradlew :composeApp:compileAndroidMain :composeApp:testAndroidHostTest \
             --tests 'com.nuvio.app.features.livetv.*' --tests '*RootTabHostTest*' --tests '*TraktAuthFlow*' --tests '*Simkl*' \
