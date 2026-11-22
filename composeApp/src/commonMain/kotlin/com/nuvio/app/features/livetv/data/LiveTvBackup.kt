@@ -47,7 +47,7 @@ internal object LiveTvBackup {
                             it.copy(lastUpdatedMs = 0, lastError = null, channelCount = 0, serverTimezone = "", catchupNoHlsSince = 0L)
                         })
                         LiveTvKeys.epgs -> LiveTvCodec.encodeEpgs(LiveTvCodec.decodeEpgs(value.value).map {
-                            it.copy(lastUpdatedMs = 0, lastError = null, programCount = 0)
+                            it.copy(lastUpdatedMs = 0, lastError = null, programCount = 0, fallbackUserAgent = "")
                         })
                         else -> value.value
                     }
@@ -111,7 +111,12 @@ internal object LiveTvBackup {
                     } else if (name == LiveTvKeys.epgs) {
                         v = LiveTvCodec.encodeEpgs(LiveTvCodec.decodeEpgs(v).map { r ->
                             localEpgs[r.id]?.let { l ->
-                                r.copy(lastUpdatedMs = l.lastUpdatedMs, lastError = l.lastError, programCount = l.programCount)
+                                // A new link or user agent from the other device: downloaded again.
+                                if (l.url != r.url || l.userAgent != r.userAgent) changed += r.id
+                                r.copy(
+                                    lastUpdatedMs = l.lastUpdatedMs, lastError = l.lastError, programCount = l.programCount,
+                                    fallbackUserAgent = if (l.url == r.url) l.fallbackUserAgent.ifBlank { r.fallbackUserAgent } else ""
+                                )
                             } ?: r
                         })
                     }

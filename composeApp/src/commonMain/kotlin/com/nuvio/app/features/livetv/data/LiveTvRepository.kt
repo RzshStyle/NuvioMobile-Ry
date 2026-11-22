@@ -364,15 +364,23 @@ internal object LiveTvRepository {
         scope.launch { runCatching { mutex.withLock { rebuildLocked() } } }
     }
 
-    fun addEpg(name: String, url: String): String {
+    fun addEpg(name: String, url: String, userAgent: String = ""): String {
         val id = newId()
-        prefs.updateEpgSources { it + EpgSource(id = id, name = name.ifBlank { "EPG" }, url = url.trim()) }
+        prefs.updateEpgSources { it + EpgSource(id = id, name = name.ifBlank { "EPG" }, url = url.trim(), userAgent = userAgent.trim()) }
         scope.launch { runCatching { refreshInternal(forcePlaylists = false, forceEpg = false, forceIds = setOf(id)) } }
         return id
     }
 
     fun updateEpg(source: EpgSource) {
-        prefs.updateEpgSources { list -> list.map { if (it.id == source.id) source else it } }
+        prefs.updateEpgSources { list ->
+            list.map { old ->
+                if (old.id != source.id) old
+                // A new link or user agent: the remembered fallback is worked out again.
+                else if (old.url.trim() != source.url.trim() || old.userAgent.trim() != source.userAgent.trim())
+                    source.copy(url = source.url.trim(), userAgent = source.userAgent.trim(), fallbackUserAgent = "")
+                else source
+            }
+        }
         scope.launch { runCatching { refreshInternal(forcePlaylists = false, forceEpg = false, forceIds = setOf(source.id)) } }
     }
 
@@ -523,7 +531,7 @@ internal object LiveTvRepository {
                         publish = { commit -> prefs.withCurrentPlaylist(target.stalkerSource, commit) }) { emit ->
                         client.forEachProgramme(hours) { programme -> emit(StalkerCatalogCache.guideLine(programme, identity)) }
                     }
-                } else LiveTvFiles.download(target.url, LiveTvDirs.EPG, file, target.userAgent) { bytes ->
+                } else downloadGuide(target, file) { bytes ->
                     setStatus(loading = true, message = "Downloading guide \"${target.name}\" (${sizeLabel(bytes)})…")
                 }
             }
@@ -1015,7 +1023,40 @@ internal object LiveTvRepository {
         /** How far this guide's listings are moved (its own time shift), in ms. */
         val shiftMs: Long = 0L,
         val stalkerSource: PlaylistSource? = null,
+        /** No user agent typed in for it (or its playlist): turned away, it's asked again as a media player. */
+        val autoAgent: Boolean = false,
     )
+
+    /**
+     * Downloads a guide. With no user agent typed in for it (or its playlist): if the server
+     * turns the app's default (browser-style) user agent away, as some guide providers do to keep
+     * out web scrapers (often with a 404), it's asked again as a media player (VLC), like other
+     * IPTV apps. The one that worked is remembered for that guide on this device.
+     */
+    private suspend fun downloadGuide(target: EpgTarget, file: String, progress: (Long) -> Unit): Boolean {
+        if (!target.autoAgent) return LiveTvFiles.download(target.url, LiveTvDirs.EPG, file, target.userAgent, onProgress = progress)
+        val first = target.userAgent.ifBlank { XtreamClient.DEFAULT_UA }
+        val second = if (first == PLAYER_UA) XtreamClient.DEFAULT_UA else PLAYER_UA
+        fun nameOf(ua: String) = if (ua == PLAYER_UA) "a media player's user agent" else "the app's user agent"
+        val refused = try {
+            return LiveTvFiles.download(target.url, LiveTvDirs.EPG, file, first, onProgress = progress)
+        } catch (e: HttpStatusException) {
+            if (e.code !in GUIDE_AGENT_RETRY_CODES) throw e
+            e
+        }
+        REPORT.add("Guide \"${target.name}\": ${nameOf(first)} got HTTP ${refused.code}; trying ${nameOf(second)}")
+        val changed = try {
+            LiveTvFiles.download(target.url, LiveTvDirs.EPG, file, second, onProgress = progress)
+        } catch (e: HttpStatusException) {
+            throw HttpStatusException(e.code, XtreamClient.httpError(e.code) + ". If this guide's provider asks for a specific user agent, enter it in the guide's settings.")
+        }
+        REPORT.add("Guide \"${target.name}\": loaded with ${nameOf(second)}" + if (target.sourceId != null) "; using it for this guide from now on" else "")
+        target.sourceId?.let { id ->
+            val remember = if (second == XtreamClient.DEFAULT_UA) "" else second
+            prefs.updateEpgSources { list -> list.map { if (it.id == id) it.copy(fallbackUserAgent = remember) else it } }
+        }
+        return changed
+    }
 
     /** Each guide file's time shift (ms), as last collected. */
     @kotlin.concurrent.Volatile private var targetShifts: Map<String, Long> = emptyMap()
@@ -1075,10 +1116,13 @@ internal object LiveTvRepository {
         val ownersByUrl = HashMap<String, MutableSet<String>>()
         prefs.currentEpgSources().filter { it.enabled && it.url.isNotBlank() }.forEach { src ->
             val host = hostOf(src.url)
-            val ua = allPlaylists.firstOrNull { pl ->
+            val borrowed = if (src.userAgent.isNotBlank()) "" else allPlaylists.firstOrNull { pl ->
                 pl.effectiveUserAgent.isNotBlank() && host != null && hostOf(if (pl.isXtream) pl.xtreamBase() else pl.url) == host
             }?.effectiveUserAgent.orEmpty()
-            targets += EpgTarget(src.id, src.id, src.name, src.url, ua, shiftMs = src.shiftMinutes * MINUTE)
+            // Its own user agent first, then its playlist's, then the one that worked last time.
+            val ua = src.userAgent.ifBlank { borrowed }.ifBlank { src.fallbackUserAgent }
+            targets += EpgTarget(src.id, src.id, src.name, src.url, ua, shiftMs = src.shiftMinutes * MINUTE,
+                autoAgent = src.userAgent.isBlank() && borrowed.isBlank())
         }
         for (pl in allPlaylists.filter { it.liveEnabled && it.useEmbeddedEpg }) {
             if (pl.isStalker) {
@@ -1097,6 +1141,7 @@ internal object LiveTvRepository {
                     targets += EpgTarget(
                         "auto_" + stableHash(url), null, "${pl.name} (built-in)", url, pl.effectiveUserAgent,
                         playlistId = pl.id, shiftMs = pl.guideShiftMinutes * MINUTE,
+                        autoAgent = pl.userAgent.isBlank(),
                     )
                 }
             }
@@ -1588,6 +1633,8 @@ internal object LiveTvRepository {
     private const val GUIDE_VERSION = 1
     /** Tried for M3U links that don't send channels to the default user agent (see [downloadM3u]). */
     private const val PLAYER_UA = "VLC/3.0.20 LibVLC/3.0.20"
+    /** Answers a guide server gives a user agent it doesn't like (see downloadGuide). */
+    private val GUIDE_AGENT_RETRY_CODES = setOf(401, 403, 404, 406, 451, 884)
 
     private val PLACEHOLDER_TITLES = Regex(
         """(programming|program|programme|no information|no info|no program information|no programme information|""" +

@@ -426,7 +426,9 @@ internal object LiveTvCodec {
                     lastUpdatedMs = o.optLong("lastUpdatedMs"),
                     lastError = o.optString("lastError").ifBlank { null },
                     programCount = o.optInt("programCount"),
-                    shiftMinutes = o.optInt("shiftMinutes")
+                    shiftMinutes = o.optInt("shiftMinutes"),
+                    userAgent = o.optString("userAgent"),
+                    fallbackUserAgent = o.optString("fallbackUserAgent")
                 )
             }
         }.getOrDefault(emptyList())
@@ -439,6 +441,7 @@ internal object LiveTvCodec {
                 put("enabled", s.enabled); put("lastUpdatedMs", s.lastUpdatedMs)
                 put("lastError", s.lastError ?: ""); put("programCount", s.programCount)
                 put("shiftMinutes", s.shiftMinutes)
+                put("userAgent", s.userAgent); put("fallbackUserAgent", s.fallbackUserAgent)
             })
         }
     }.toString()

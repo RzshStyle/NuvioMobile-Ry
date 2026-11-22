@@ -79,7 +79,7 @@ internal actual object LiveTvFiles {
                 if (checkPlaylist && (response.code == 403 || response.code == 406)) {
                     throw NotAPlaylistException("an error (${XtreamClient.httpError(response.code)})")
                 }
-                if (!response.isSuccessful) error(XtreamClient.httpError(response.code))
+                if (!response.isSuccessful) throw HttpStatusException(response.code, XtreamClient.httpError(response.code))
                 val body = response.body ?: error("Empty response")
                 val raw: InputStream = body.byteStream()
                 // Whatever came down (gzip from the server, a .gz file, or plain text) is stored
@@ -112,7 +112,7 @@ internal actual object LiveTvFiles {
             changed
         } catch (e: Exception) {
             tmp.delete()
-            if (e is kotlinx.coroutines.CancellationException || e is NotAPlaylistException) throw e
+            if (e is kotlinx.coroutines.CancellationException || e is NotAPlaylistException || e is HttpStatusException) throw e
             throw IllegalStateException(describe(e), e)
         }
     }

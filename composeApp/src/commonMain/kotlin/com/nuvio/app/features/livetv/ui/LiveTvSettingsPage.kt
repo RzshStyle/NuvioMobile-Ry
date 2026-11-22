@@ -1789,9 +1789,11 @@ private fun StalkerSecretField(value: String, onChange: (String) -> Unit, placeh
 private fun EpgForm(existing: EpgSource?, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf(existing?.name.orEmpty()) }
     var url by remember { mutableStateOf(existing?.url.orEmpty()) }
+    var ua by remember { mutableStateOf(existing?.userAgent.orEmpty()) }
     DialogSurface(onDismissRequest = onDismiss, title = stringResource(if (existing == null) Res.string.livetv_add_epg else Res.string.action_edit)) {
         NuvioInputField(value = name, onValueChange = { name = it }, placeholder = stringResource(Res.string.livetv_field_name))
         NuvioInputField(value = url, onValueChange = { url = it }, placeholder = stringResource(Res.string.livetv_field_xmltv_url))
+        NuvioInputField(value = ua, onValueChange = { ua = it }, placeholder = stringResource(Res.string.livetv_field_user_agent))
         DialogButtons {
             DialogButton(text = stringResource(Res.string.action_cancel), onClick = onDismiss)
             DialogButton(
@@ -1799,8 +1801,8 @@ private fun EpgForm(existing: EpgSource?, onDismiss: () -> Unit) {
                 style = DialogButtonStyle.Primary,
                 enabled = url.isNotBlank(),
                 onClick = {
-                    if (existing == null) LiveTvRepository.addEpg(name, url)
-                    else LiveTvRepository.updateEpg(existing.copy(name = name.ifBlank { "EPG" }, url = url.trim()))
+                    if (existing == null) LiveTvRepository.addEpg(name, url, ua)
+                    else LiveTvRepository.updateEpg(existing.copy(name = name.ifBlank { "EPG" }, url = url.trim(), userAgent = ua.trim()))
                     onDismiss()
                 },
             )

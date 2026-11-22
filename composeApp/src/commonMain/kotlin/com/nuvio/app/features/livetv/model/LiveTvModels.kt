@@ -223,7 +223,12 @@ data class EpgSource(
     val lastError: String? = null,
     val programCount: Int = 0,
     /** Minutes to move this guide's listings by: later (+) or earlier (−). Applied when the guide is stored. */
-    val shiftMinutes: Int = 0
+    val shiftMinutes: Int = 0,
+    /** User agent typed in for this guide (some guide servers only answer IPTV apps). Blank: automatic. */
+    val userAgent: String = "",
+    /** With none typed in: the one that worked when the app's default was turned away (a media
+     *  player's), remembered on this device. Blank: the app's default. */
+    val fallbackUserAgent: String = ""
 )
 
 data class CatchupInfo(
