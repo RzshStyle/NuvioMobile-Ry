@@ -4,6 +4,8 @@ enum class StreamAutoPlayMode {
     MANUAL,
     FIRST_STREAM,
     REGEX_MATCH,
+    /** The best source by the Quality rules (Settings › Playback › Stream Auto-play › Quality rules). */
+    QUALITY_RANK,
 }
 
 enum class StreamAutoPlaySource {

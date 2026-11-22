@@ -119,6 +119,8 @@ object StreamAutoPlaySelector {
         val targetBingeGroup = preferredBingeGroup?.trim().orEmpty()
         val bingeGroupCandidates = if (preferBingeGroupInSelection && targetBingeGroup.isNotEmpty()) {
             candidateStreams.filter { stream -> stream.behaviorHints.bingeGroup == targetBingeGroup }
+                // Best quality: the best of several copies in the same binge group.
+                .let { if (mode == StreamAutoPlayMode.QUALITY_RANK && it.size > 1) com.nuvio.app.features.streams.quality.StreamQualityRank.order(it).bestFirst.map(it::get) else it }
         } else {
             emptyList()
         }
@@ -140,9 +142,8 @@ object StreamAutoPlaySelector {
             return StreamAutoPlayEvaluation()
         }
         val preferredStream = if (preferBingeGroupInSelection && targetBingeGroup.isNotEmpty()) {
-            candidateStreams.firstOrNull { stream ->
-                stream.behaviorHints.bingeGroup == targetBingeGroup &&
-                    stream.isAutoPlayable(debridEnabled, activeResolverProviderId)
+            bingeGroupCandidates.firstOrNull { stream ->
+                stream.isAutoPlayable(debridEnabled, activeResolverProviderId)
             }
         } else {
             null
@@ -150,6 +151,7 @@ object StreamAutoPlaySelector {
         val matchingStreams = when (mode) {
             StreamAutoPlayMode.MANUAL -> emptyList()
             StreamAutoPlayMode.FIRST_STREAM -> candidateStreams
+            StreamAutoPlayMode.QUALITY_RANK -> com.nuvio.app.features.streams.quality.StreamQualityRank.rank(candidateStreams)
             StreamAutoPlayMode.REGEX_MATCH -> {
                 val pattern = regexPattern.trim()
 

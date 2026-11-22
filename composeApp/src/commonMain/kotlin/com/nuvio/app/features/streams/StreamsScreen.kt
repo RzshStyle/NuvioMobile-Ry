@@ -698,7 +698,15 @@ internal fun StreamList(
     resumeProgressFraction: Float?,
     modifier: Modifier = Modifier,
 ) {
-    val filteredGroups = uiState.filteredGroups
+    // Sort sources › Best quality first: every link ranked by the Quality rules (one list for all
+    // sources, or within the source picked).
+    val qualityState by com.nuvio.app.features.streams.quality.QualitySettings.state.collectAsStateWithLifecycle()
+    val bestFirstLabel = stringResource(Res.string.stream_sort_best_first)
+    val sourceGroups = uiState.filteredGroups
+    val filteredGroups = remember(sourceGroups, qualityState, uiState.selectedFilter) {
+        if (qualityState.listSort != com.nuvio.app.features.streams.quality.StreamListSort.BEST_QUALITY_FIRST) sourceGroups
+        else com.nuvio.app.features.streams.quality.StreamQualityRank.sortGroups(sourceGroups, combined = uiState.selectedFilter == null, label = bestFirstLabel, settings = qualityState)
+    }
     val hasGroups = filteredGroups.isNotEmpty()
     val hasAnyStreams = filteredGroups.any { it.streams.isNotEmpty() }
     val anyLoading = filteredGroups.any { it.isLoading }
