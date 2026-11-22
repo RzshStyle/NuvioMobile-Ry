@@ -54,4 +54,6 @@
     <string name="home_rows_playlist_names_hint">تُظهر صفوف البث المباشر وحسب الطلب المأخوذة من مجموعة قائمة تشغيل اسم تلك القائمة (UK: Entertainment - HBStrong).</string>
     <string name="home_rows_web_done">تم</string>
     <string name="home_rows_web_back">رجوع</string>
+    <string name="home_rows_vod_continue_title">متابعة مشاهدة On Demand</string>
+    <string name="home_rows_vod_continue_hint">الأفلام والحلقات من مزوّدك التي بدأتها ولم تكملها، الأحدث مشاهدة أولًا. زر OK يكمل من حيث توقفت</string>
 </resources>

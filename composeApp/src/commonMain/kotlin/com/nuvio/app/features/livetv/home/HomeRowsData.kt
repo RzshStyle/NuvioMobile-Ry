@@ -1,5 +1,8 @@
 package com.nuvio.app.features.livetv.home
 
+import com.nuvio.app.features.livetv.ondemand.OnDemandPlayback
+import com.nuvio.app.features.watchprogress.WatchProgressEntry
+import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.livetv.ondemand.vodHidden
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.LiveTvRepository
@@ -126,6 +129,10 @@ internal object HomeLiveRowsData {
                 vodRows, OnDemandRepository.version, LiveTvPreferences.userState,
                 LiveTvPreferences.settings, ParentalControls.unlocked,
             ) { rows, _, user, settings, _ -> Triple(rows, user, settings) }
+                // Continue Watching On Demand also follows what you watch.
+                .let { flow ->
+                    combine(flow, continueChanges) { t, _ -> t }
+                }
                 .collectLatest { (rows, user, settings) ->
                     if (rows.isEmpty()) { _vodItems.value = emptyMap(); return@collectLatest }
                     val cats = OnDemandRepository.categories(VodKind.MOVIE) + OnDemandRepository.categories(VodKind.SERIES)
@@ -135,6 +142,7 @@ internal object HomeLiveRowsData {
                     _vodItems.value = rows.associate { row ->
                         row.id to runCatching {
                             when (row.source) {
+                                HomeLiveRow.VOD_CONTINUE -> continueWatching(hidden)
                                 HomeLiveRow.VOD_RECENT_MOVIES, HomeLiveRow.VOD_RECENT_SERIES -> {
                                     val kind = if (row.source == HomeLiveRow.VOD_RECENT_SERIES) VodKind.SERIES else VodKind.MOVIE
                                     OnDemandRepository.items(kind, null, hidden, VOD_TITLES, 0, VodSort.RECENTLY_ADDED, settings.vodMergeDuplicates)
@@ -191,6 +199,45 @@ internal object HomeLiveRowsData {
 
     /** How far ahead a Sports row looks for its next games. */
     private const val UPCOMING_DAYS = 7
+
+    /** Changes when an On Demand title's saved place changes (only while a Continue row is on Home). */
+    private val continueChanges = combine(vodRows, WatchProgressRepository.uiState) { rows, state ->
+        if (rows.none { it.source == HomeLiveRow.VOD_CONTINUE }) 0
+        else state.entries.filter { isOnDemand(it) }.map { it.videoId to it.lastUpdatedEpochMs }.hashCode()
+    }.distinctUntilChanged()
+
+    private fun isOnDemand(e: WatchProgressEntry): Boolean =
+        e.providerAddonId == OnDemandPlayback.PROVIDER_ID || e.videoId.startsWith(OnDemandPlayback.PROVIDER_ID + ":")
+
+    /**
+     * The provider titles played from On Demand that you started and haven't finished, last watched
+     * first: one card per movie or series (a series by the episode watched last). Hidden and locked
+     * groups, and playlists this profile doesn't show, stay out.
+     */
+    private suspend fun continueWatching(hidden: Set<String>): List<VodItem> {
+        val prefix = OnDemandPlayback.PROVIDER_ID + ":"
+        val started = WatchProgressRepository.uiState.value.entries.asSequence()
+            .filter { isOnDemand(it) && it.videoId.startsWith(prefix) && !it.isCompleted }
+            .filter { e -> e.durationMs <= 0L || e.lastPositionMs < e.durationMs * 0.92 }
+            .filter { e -> e.lastPositionMs > 0L || (e.progressPercent ?: 0f) > 0f }
+            .sortedByDescending { it.lastUpdatedEpochMs }
+            .toList()
+        val out = ArrayList<VodItem>()
+        val seen = HashSet<String>()
+        for (e in started) {
+            if (out.size >= VOD_TITLES) break
+            // "<prefix><kind>:<playlist>:<id>" for a movie, plus ":<season>:<episode>" for an episode.
+            val parts = e.videoId.removePrefix(prefix).split(':')
+            if (parts.size < 3) continue
+            val uid = if (parts.size >= 5 && parts[parts.size - 1].toIntOrNull() != null && parts[parts.size - 2].toIntOrNull() != null)
+                parts.dropLast(2).joinToString(":") else parts.joinToString(":")
+            if (!seen.add(uid)) continue
+            val item = OnDemandRepository.itemByUid(uid) ?: continue
+            if ("${item.kind.key}:${item.playlistId}:${item.categoryId}" in hidden) continue
+            out += item
+        }
+        return out
+    }
 
     /** Titles in an On Demand row (See all opens the whole category). */
     const val VOD_TITLES = 40

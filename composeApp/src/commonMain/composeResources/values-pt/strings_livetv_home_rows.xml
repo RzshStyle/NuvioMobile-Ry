@@ -54,4 +54,6 @@
     <string name="home_rows_playlist_names_hint">As filas de TV em direto e On Demand de um grupo de uma playlist mostram de que playlist são (UK: Entertainment - HBStrong).</string>
     <string name="home_rows_web_done">Concluído</string>
     <string name="home_rows_web_back">Voltar</string>
+    <string name="home_rows_vod_continue_title">Continuar assistindo On Demand</string>
+    <string name="home_rows_vod_continue_hint">Os filmes e episódios do seu provedor que você começou e não terminou, o último assistido primeiro. OK continua de onde parou</string>
 </resources>

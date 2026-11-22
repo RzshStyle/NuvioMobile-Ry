@@ -1,5 +1,7 @@
 package com.nuvio.app.features.livetv.home
 
+import nuvio.composeapp.generated.resources.home_rows_vod_continue_hint
+import nuvio.composeapp.generated.resources.home_rows_vod_continue_title
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -192,6 +194,9 @@ internal fun HomeRowAddSheet(onDismiss: () -> Unit) {
             ChoiceRow(stringResource(Res.string.home_rows_pick_vod_recent), stringResource(Res.string.home_rows_pick_vod_recent_hint), more = true) {
                 picker = Picker.VOD_RECENT
             }
+            ChoiceRow(stringResource(Res.string.home_rows_vod_continue_title), stringResource(Res.string.home_rows_vod_continue_hint), more = false) {
+                add(HomeLiveRow.vod(HomeLiveRow.VOD_CONTINUE, ""))
+            }
             Spacer(Modifier.height(NuvioTokens.Space.s16))
         }
     }
@@ -339,6 +344,7 @@ private fun RowPicker(picker: Picker, onBack: () -> Unit, onPick: (RowChoice) ->
     val version by OnDemandRepository.version.collectAsStateWithLifecycle()
     val moviesLabel = stringResource(Res.string.home_rows_vod_movies)
     val seriesLabel = stringResource(Res.string.home_rows_vod_series)
+    val continueLabel = stringResource(Res.string.home_rows_vod_continue_title)
     val sportsHeading = stringResource(Res.string.home_rows_sports_heading)
     val leaguesHeading = stringResource(Res.string.home_rows_leagues_heading)
     val title = stringResource(
@@ -386,6 +392,7 @@ private fun RowPicker(picker: Picker, onBack: () -> Unit, onPick: (RowChoice) ->
         Picker.VOD_RECENT -> listOf(
             RowChoice(HomeLiveRow.VOD_RECENT_MOVIES, moviesLabel),
             RowChoice(HomeLiveRow.VOD_RECENT_SERIES, seriesLabel),
+            RowChoice(HomeLiveRow.VOD_CONTINUE, continueLabel),
         )
     }
     Column(Modifier.fillMaxWidth()) {

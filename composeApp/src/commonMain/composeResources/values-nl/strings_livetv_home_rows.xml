@@ -54,4 +54,6 @@
     <string name="home_rows_playlist_names_hint">Live-tv- en On Demand-rijen uit een groep van een playlist tonen welke playlist het is (UK: Entertainment - HBStrong).</string>
     <string name="home_rows_web_done">Klaar</string>
     <string name="home_rows_web_back">Terug</string>
+    <string name="home_rows_vod_continue_title">Verder kijken On Demand</string>
+    <string name="home_rows_vod_continue_hint">Films en afleveringen van je provider die je begon en niet afmaakte, laatst bekeken eerst. OK gaat verder waar je was</string>
 </resources>

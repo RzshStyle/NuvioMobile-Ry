@@ -54,4 +54,6 @@
     <string name="home_rows_playlist_names_hint">Bir listenin grubundan gelen Canlı TV ve İsteğe Bağlı satırlar hangi liste olduğunu gösterir (UK: Entertainment - HBStrong).</string>
     <string name="home_rows_web_done">Bitti</string>
     <string name="home_rows_web_back">Geri</string>
+    <string name="home_rows_vod_continue_title">On Demand’i izlemeye devam et</string>
+    <string name="home_rows_vod_continue_hint">Sağlayıcınızdan başlayıp bitirmediğiniz filmler ve bölümler, son izlenen önce. OK kaldığınız yerden devam eder</string>
 </resources>

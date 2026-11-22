@@ -54,4 +54,6 @@
     <string name="home_rows_playlist_names_hint">Rzędy TV na żywo i na żądanie z grupy playlisty pokazują, z której to playlisty (UK: Entertainment - HBStrong).</string>
     <string name="home_rows_web_done">Gotowe</string>
     <string name="home_rows_web_back">Wstecz</string>
+    <string name="home_rows_vod_continue_title">Oglądaj dalej On Demand</string>
+    <string name="home_rows_vod_continue_hint">Filmy i odcinki od dostawcy, które zacząłeś i nie skończyłeś, od ostatnio oglądanych. OK wznawia tam, gdzie przerwałeś</string>
 </resources>

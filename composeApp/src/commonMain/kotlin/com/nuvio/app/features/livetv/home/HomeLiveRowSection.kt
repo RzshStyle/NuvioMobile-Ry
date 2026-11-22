@@ -423,7 +423,8 @@ private fun VodRow(row: HomeLiveRow, title: String, sectionPadding: Dp, modifier
     if (items.isEmpty()) return
     val watchedState by WatchedRepository.uiState.collectAsStateWithLifecycle()
     var selected by remember { mutableStateOf<VodItem?>(null) }
-    val seeAll = HomeLiveRowActions.openVodSeeAll?.let { go ->
+    // Continue Watching On Demand has no page of its own to see all.
+    val seeAll = HomeLiveRowActions.openVodSeeAll?.takeIf { row.source != HomeLiveRow.VOD_CONTINUE }?.let { go ->
         {
             when (row.source) {
                 HomeLiveRow.VOD_RECENT_MOVIES -> go(VodKind.MOVIE, null, title)

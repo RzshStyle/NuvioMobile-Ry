@@ -54,4 +54,6 @@
     <string name="home_rows_playlist_names_hint">שורות של שידור חי ו-VOD מקבוצה של פלייליסט מציגות מאיזה פלייליסט הן (UK: Entertainment - HBStrong).</string>
     <string name="home_rows_web_done">סיום</string>
     <string name="home_rows_web_back">חזרה</string>
+    <string name="home_rows_vod_continue_title">המשך צפייה On Demand</string>
+    <string name="home_rows_vod_continue_hint">סרטים ופרקים מהספק שהתחלתם ולא סיימתם, האחרון שנצפה קודם. OK ממשיך מהמקום שבו עצרתם</string>
 </resources>

@@ -35,6 +35,7 @@ import nuvio.composeapp.generated.resources.home_rows_sports_title
 import nuvio.composeapp.generated.resources.home_rows_type_vod
 import nuvio.composeapp.generated.resources.home_rows_vod_recent_movies_title
 import nuvio.composeapp.generated.resources.home_rows_vod_recent_series_title
+import nuvio.composeapp.generated.resources.home_rows_vod_continue_title
 import org.jetbrains.compose.resources.getString
 import kotlin.random.Random
 
@@ -85,6 +86,8 @@ data class HomeLiveRow(
         const val KIND_VOD = "ondemand"
         const val VOD_RECENT_MOVIES = "recent:movie"
         const val VOD_RECENT_SERIES = "recent:series"
+        /** The On Demand titles you started and haven't finished, last watched first (same id as the TV). */
+        const val VOD_CONTINUE = "continue"
         const val VOD_GROUP_PREFIX = "group:"
         const val SHAPE_AUTO = "auto"
         const val SHAPE_PORTRAIT = "portrait"
@@ -196,6 +199,7 @@ internal object HomeLiveRows {
         HomeLiveRow.KIND_VOD -> when (row.source) {
             HomeLiveRow.VOD_RECENT_MOVIES -> getString(Res.string.home_rows_vod_recent_movies_title)
             HomeLiveRow.VOD_RECENT_SERIES -> getString(Res.string.home_rows_vod_recent_series_title)
+            HomeLiveRow.VOD_CONTINUE -> getString(Res.string.home_rows_vod_continue_title)
             else -> {
                 val uid = row.source.removePrefix(HomeLiveRow.VOD_GROUP_PREFIX)
                 val name = vodRenamed[uid]?.takeIf { it.isNotBlank() } ?: row.label.ifBlank { getString(Res.string.home_rows_type_vod) }

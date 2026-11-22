@@ -97,4 +97,6 @@
     <string name="home_rows_hold_game_page">Game page</string>
     <string name="home_rows_hold_multiview">Watch in Multiview</string>
     <string name="home_rows_hold_edit">Edit this row</string>
+    <string name="home_rows_vod_continue_title">Continue Watching On Demand</string>
+    <string name="home_rows_vod_continue_hint">The movies and episodes from your provider that you started and haven’t finished, last watched first.</string>
 </resources>
