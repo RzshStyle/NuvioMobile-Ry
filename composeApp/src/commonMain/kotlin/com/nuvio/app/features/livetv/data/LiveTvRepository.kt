@@ -538,6 +538,7 @@ internal object LiveTvRepository {
             if (result.getOrNull() == true) changed = true
             val err = result.exceptionOrNull()?.let {
                 if (it is kotlinx.coroutines.CancellationException) throw it
+                else if (isStorageFull(it)) STORAGE_FULL
                 else if (target.stalkerSource != null) StalkerGateway.safeUpdateError(it) else it.message ?: "Download failed"
             }
             if (target.sourceId != null) {
@@ -556,9 +557,10 @@ internal object LiveTvRepository {
 
         if (changed || forceEpg || forceIds.isNotEmpty() || EpgStore.fingerprint() != guideFingerprint(settings, targets)) {
             setStatus(loading = true, message = "Matching guide data…")
+            guideStoreError = null
             buildPrograms(settings, targets)
         }
-        _status.value = LiveTvStatus(loading = false, loadedOnce = true, error = firstError)
+        _status.value = LiveTvStatus(loading = false, loadedOnce = true, error = firstError ?: guideStoreError)
     }
 
     /**
@@ -616,6 +618,18 @@ internal object LiveTvRepository {
             LiveTvFiles.list(dir).forEach { name ->
                 if (LiveTvFiles.lastModified(dir, name) > oldEnough) return@forEach
                 if (idOf(name) in keep) return@forEach
+                freed += LiveTvFiles.size(dir, name)
+                LiveTvFiles.delete(dir, name)
+                count++
+            }
+        }
+        // Half-written downloads (".tmp") left by an update that was cut off (app closed, phone off):
+        // a big guide's can be 100 MB or more, the space the next update needs. Only ones
+        // untouched for an hour, so nothing being written right now.
+        val tmpCutoff = now - HOUR
+        for (dir in listOf(LiveTvDirs.EPG, LiveTvDirs.PLAYLISTS)) {
+            LiveTvFiles.list(dir).forEach { name ->
+                if (!name.endsWith(".tmp") || LiveTvFiles.lastModified(dir, name) > tmpCutoff) return@forEach
                 freed += LiveTvFiles.size(dir, name)
                 LiveTvFiles.delete(dir, name)
                 count++
@@ -1232,6 +1246,11 @@ internal object LiveTvRepository {
         class Candidate(val score: Int, val sourceId: String, val xmltvId: String, val programs: List<EpgProgram>, val icon: String?)
         val best = HashMap<String, Candidate>()
         val sourceLists = ArrayList<EpgSourceChannels>()
+        // What each channel was matched to last time, for a guide file that turns out broken.
+        val storedMatches: Map<String, EpgAssignment> by lazy {
+            runCatching { EpgStore.autoMatches() }.getOrDefault(emptyMap()) + overrides
+        }
+        val channelsByKeyAll: Map<String, LiveChannel> by lazy { channels.associateBy { it.key } }
 
         for ((order, target) in targets.withIndex()) {
             val file = epgFile(target.fileId)
@@ -1310,6 +1329,33 @@ internal object LiveTvRepository {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 REPORT.add("Guide \"${target.name}\" couldn't be read (${e.message?.take(140) ?: e::class.simpleName}); ${LiveTvFiles.size(LiveTvDirs.EPG, file) / 1024} KB")
             }.getOrNull() ?: continue
+            // A guide file broken part-way (cut off, bad characters) is still used for what it has,
+            // but not when the listings stored from it before reach further ahead: a short broken
+            // copy then replaced a good one, leaving channels with empty guides for days.
+            if (result.error != null) {
+                val mine = storedMatches.filterValues { it.sourceId == src }
+                if (mine.isNotEmpty()) {
+                    val newCount = collected.values.sumOf { l -> l.count { it.stopMs > now } }
+                    val newLast = collected.values.maxOfOrNull { l -> l.maxOfOrNull { it.stopMs } ?: 0L } ?: 0L
+                    val old = runCatching { EpgStore.range(now, windowEnd, light = true, channels = mine.keys) }.getOrDefault(emptyMap())
+                    val oldCount = old.values.sumOf { it.size }
+                    val oldLast = old.values.maxOfOrNull { l -> l.maxOfOrNull { it.stopMs } ?: 0L } ?: 0L
+                    if (oldLast > now && oldLast > newLast && newCount < oldCount) {
+                        val kept = runCatching { EpgStore.range(windowStart, windowEnd, channels = mine.keys) }.getOrDefault(emptyMap())
+                        kept.forEach { (key, list) ->
+                            val a = mine[key] ?: return@forEach
+                            // Stored listings already carry the playlist's tvg-shift, which is added again below.
+                            val shift = (channelsByKeyAll[key]?.tvgShiftMinutes ?: 0) * MINUTE
+                            val score = if (key in overrides) 9 else 3
+                            if (list.isNotEmpty() && (best[key]?.score ?: -1) < score) best[key] = Candidate(score, src, a.xmltvId, list.shiftedBy(-shift), null)
+                        }
+                        sourceLists += EpgSourceChannels(src, target.name, hostOf(target.url) ?: target.name,
+                            listed.values.map { EpgChannelEntry(it.id, it.displayNames, it.icon) }, mine.values.mapTo(HashSet()) { it.xmltvId }, guideUsers[src])
+                        REPORT.add("Guide \"${target.name}\": the new copy is broken (${result.error}) and has less in it ($newCount listings ahead) than the one stored before ($oldCount); kept the stored one")
+                        continue
+                    }
+                }
+            }
             val entries = listed.values.map { EpgChannelEntry(it.id, it.displayNames, it.icon) }
                 .ifEmpty { result.programChannelIds.map { EpgChannelEntry(it, emptyList(), null) } }
             val used = HashSet<String>()
@@ -1348,7 +1394,11 @@ internal object LiveTvRepository {
         if (tvgShifts.isNotEmpty()) REPORT.add("Guide: ${tvgShifts.size} channels moved by the playlist's tvg-shift")
         setStatus(loading = true, message = "Storing the guide…")
         runCatching { EpgStore.replaceAll(guideFingerprint(settings, targets), programs, auto) }
-            .onFailure { REPORT.add("Guide couldn't be stored (${it.message?.take(120) ?: it::class.simpleName}): the stored guide stays as it was until the next update") }
+            .onFailure {
+                REPORT.add("Guide couldn't be stored (${it.message?.take(120) ?: it::class.simpleName}): the stored guide stays as it was until the next update")
+                // Storage full: say so (a failure always gets its own message), and keep the guide from before.
+                if (isStorageFull(it)) guideStoreError = "The guide couldn't update. $STORAGE_FULL"
+            }
         _autoMatches.value = auto
         _epgLogos.value = logos
         // Every guide's channel list is only kept while Assign EPG or the logo picker is open.
@@ -1626,6 +1676,25 @@ internal object LiveTvRepository {
     }
 
     private const val HOUR = 60L * 60L * 1000L
+
+    /** The message when the phone ran out of storage during a guide update. */
+    private const val STORAGE_FULL = "Not enough storage space on this device. The guide from before is kept."
+
+    /** Set when the matched guide couldn't be stored because storage is full (shown once the update ends). */
+    @kotlin.concurrent.Volatile private var guideStoreError: String? = null
+
+    /** The device ran out of storage (the guide database or a file couldn't be written). */
+    private fun isStorageFull(e: Throwable): Boolean {
+        var t: Throwable? = e
+        var depth = 0
+        while (t != null && depth++ < 8) {
+            if (t::class.simpleName == "SQLiteFullException") return true
+            val m = t.message.orEmpty()
+            if ("ENOSPC" in m || "No space left" in m || "SQLITE_FULL" in m || "database or disk is full" in m) return true
+            t = t.cause
+        }
+        return false
+    }
     private const val MINUTE = 60_000L
     private const val STALE_CHECK_MS = 30L * 60L * 1000L
     /** Opening Live TV doesn't check again this soon after the last automatic check. */
