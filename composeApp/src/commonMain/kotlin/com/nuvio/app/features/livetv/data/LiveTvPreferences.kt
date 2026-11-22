@@ -387,7 +387,8 @@ internal object LiveTvCodec {
                     linkServer = o.optString("linkServer"),
                     linkUsername = o.optString("linkUsername"),
                     linkPassword = o.optString("linkPassword"),
-                    vodInPlaylist = o.optBoolean("vodInPlaylist", false)
+                    vodInPlaylist = o.optBoolean("vodInPlaylist", false),
+                    vodSwitchSet = o.optBoolean("vodSwitchSet", false)
                 )
             }
         }.getOrDefault(emptyList())
@@ -405,6 +406,7 @@ internal object LiveTvCodec {
                 if (s.guidesOff.isNotEmpty()) put("guidesOff", buildJsonArray { s.guidesOff.sorted().forEach { add(it) } })
                 put("linkServer", s.linkServer); put("linkUsername", s.linkUsername)
                 put("linkPassword", s.linkPassword); put("vodInPlaylist", s.vodInPlaylist)
+                put("vodSwitchSet", s.vodSwitchSet)
                 put("lastUpdatedMs", s.lastUpdatedMs); put("lastError", s.lastError ?: "")
                 put("channelCount", s.channelCount)
                 put("importVod", s.importVod)

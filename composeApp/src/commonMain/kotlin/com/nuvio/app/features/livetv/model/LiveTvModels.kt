@@ -87,7 +87,12 @@ data class PlaylistSource(
     val linkUsername: String = "",
     val linkPassword: String = "",
     /** M3U links: the playlist also lists movies or episodes (found when it's read). */
-    val vodInPlaylist: Boolean = false
+    val vodInPlaylist: Boolean = false,
+    /**
+     * M3U links: the user picked whether to load movies and series (when adding the playlist or
+     * in its settings), so finding them in the playlist later doesn't switch them back on.
+     */
+    val vodSwitchSet: Boolean = false
 ) {
     /** The user agent requests for this playlist go out with ("" = the app default). */
     val effectiveUserAgent: String get() = userAgent.ifBlank { fallbackUserAgent }

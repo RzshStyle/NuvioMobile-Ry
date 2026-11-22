@@ -828,7 +828,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean, onlyRecordings: Boolean = fals
                         checked = pl.importVod,
                         enabled = pl.enabled,
                         isTablet = isTablet,
-                        onCheckedChange = { on -> LiveTvPreferences.updatePlaylists { l -> l.map { if (it.id == pl.id) it.copy(importVod = on) else it } } },
+                        onCheckedChange = { on -> LiveTvPreferences.updatePlaylists { l -> l.map { if (it.id == pl.id) it.copy(importVod = on, vodSwitchSet = true) else it } } },
                     )
                 }
                 if (playlists.isNotEmpty()) SettingsGroupDivider(isTablet = isTablet)
@@ -1747,6 +1747,7 @@ private fun M3uForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
     var url by remember { mutableStateOf(existing?.url.orEmpty()) }
     var ua by remember { mutableStateOf(existing?.userAgent.orEmpty()) }
     var embedded by remember { mutableStateOf(existing?.useEmbeddedEpg ?: true) }
+    var includeVod by remember { mutableStateOf(existing?.importVod ?: true) }
     var guideLink by remember { mutableStateOf("") }
     DialogSurface(onDismissRequest = onDismiss, title = stringResource(if (existing == null) Res.string.livetv_add_m3u else Res.string.action_edit)) {
         NuvioInputField(value = name, onValueChange = { name = it }, placeholder = stringResource(Res.string.livetv_field_name))
@@ -1754,6 +1755,7 @@ private fun M3uForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
         NuvioInputField(value = ua, onValueChange = { ua = it }, placeholder = stringResource(Res.string.livetv_field_user_agent))
         if (existing == null) NuvioInputField(value = guideLink, onValueChange = { guideLink = it }, placeholder = stringResource(Res.string.livetv_field_guide_link))
         SettingsSwitchRow(title = stringResource(Res.string.livetv_load_embedded_epg), checked = embedded, isTablet = false, horizontalPadding = 0.dp, onCheckedChange = { embedded = it })
+        SettingsSwitchRow(title = stringResource(Res.string.livetv_xtream_include_vod), checked = includeVod, isTablet = false, horizontalPadding = 0.dp, onCheckedChange = { includeVod = it })
         DialogButtons {
             DialogButton(text = stringResource(Res.string.action_cancel), onClick = onDismiss)
             DialogButton(
@@ -1761,8 +1763,13 @@ private fun M3uForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
                 style = DialogButtonStyle.Primary,
                 enabled = url.isNotBlank(),
                 onClick = {
-                    if (existing == null) LiveTvRepository.addPlaylist(name, url, ua, guideLink)
-                    else LiveTvRepository.updatePlaylist(existing.copy(name = name.ifBlank { "Playlist" }, url = url.trim(), userAgent = ua.trim(), useEmbeddedEpg = embedded))
+                    if (existing == null) LiveTvRepository.addPlaylist(name, url, ua, guideLink, importVod = includeVod)
+                    else LiveTvRepository.updatePlaylist(
+                        existing.copy(
+                            name = name.ifBlank { "Playlist" }, url = url.trim(), userAgent = ua.trim(), useEmbeddedEpg = embedded,
+                            importVod = includeVod, vodSwitchSet = existing.vodSwitchSet || includeVod != existing.importVod
+                        )
+                    )
                     onDismiss()
                 },
             )
