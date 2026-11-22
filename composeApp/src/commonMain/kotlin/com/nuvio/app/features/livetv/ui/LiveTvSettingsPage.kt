@@ -476,14 +476,29 @@ private sealed interface LiveDialog {
 }
 
 /** The Live TV page in Settings: playlists, guides, watching options, Google Drive backup. */
-internal fun LazyListScope.liveTvSettingsContent(isTablet: Boolean) {
+internal fun LazyListScope.liveTvSettingsContent(isTablet: Boolean, onlyRecordings: Boolean = false) {
     item(key = "livetv_settings") {
-        LiveTvSettingsBody(isTablet)
+        LiveTvSettingsBody(isTablet, onlyRecordings)
     }
 }
 
+/** Recordings settings on their own, opened from the gear on the Recordings page. */
 @Composable
-private fun LiveTvSettingsBody(isTablet: Boolean) {
+internal fun LiveTvRecordingSettingsScreen(onBack: () -> Unit) {
+    com.nuvio.app.core.ui.NuvioScreen {
+        stickyHeader {
+            com.nuvio.app.core.ui.NuvioScreenHeader(
+                title = stringResource(Res.string.livetv_section_recordings),
+                onBack = onBack,
+            )
+        }
+        liveTvSettingsContent(isTablet = false, onlyRecordings = true)
+    }
+}
+
+/** [onlyRecordings]: just the Recordings section (the page the Recordings gear opens). */
+@Composable
+private fun LiveTvSettingsBody(isTablet: Boolean, onlyRecordings: Boolean = false) {
     val tokens = MaterialTheme.nuvio
     val playlists by LiveTvPreferences.playlists.collectAsStateWithLifecycle()
     val epgs by LiveTvPreferences.epgSources.collectAsStateWithLifecycle()
@@ -551,6 +566,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(tokens.spacing.listGap)) {
+        if (!onlyRecordings) {
         SettingsSection(title = stringResource(Res.string.livetv_section_playlists), isTablet = isTablet) {
             SettingsGroup(isTablet = isTablet) {
                 playlists.forEachIndexed { i, pl ->
@@ -1052,6 +1068,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                 )
             }
         }
+        }
 
         SettingsSection(title = stringResource(Res.string.livetv_section_recordings), isTablet = isTablet) {
             SettingsGroup(isTablet = isTablet) {
@@ -1128,6 +1145,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
             }
         }
 
+        if (!onlyRecordings) {
         SettingsSection(title = stringResource(Res.string.livetv_section_backup), isTablet = isTablet) {
             SettingsGroup(isTablet = isTablet) {
                 Text(
@@ -1249,6 +1267,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean) {
                     onClick = { dialog = LiveDialog.StartUpReport },
                 )
             }
+        }
         }
     }
 

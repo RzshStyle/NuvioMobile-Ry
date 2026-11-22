@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.ImageSearch
 import androidx.compose.material.icons.filled.PlayArrow
@@ -140,6 +141,8 @@ internal fun RecordingsScreen(
     onBack: () -> Unit,
     onPlay: (LiveTvRecording) -> Unit,
     modifier: Modifier = Modifier,
+    /** The gear in the header: Recordings settings (the network folder, padding, keep rules). */
+    onOpenSettings: () -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
     val recordings by remember { LiveTvRecordingScheduler.start(); LiveTvRecorder.recordings }.collectAsStateWithLifecycle()
@@ -182,6 +185,11 @@ internal fun RecordingsScreen(
             includeStatusBarPadding = false,
             onBack = onBack,
             modifier = Modifier.padding(horizontal = NuvioTokens.Space.s8),
+            actions = {
+                androidx.compose.material3.IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Filled.Settings, contentDescription = "Recording settings", tint = tokens.colors.textPrimary)
+                }
+            },
         )
         if (netAway && network.recordings.isNotEmpty()) {
             Text(

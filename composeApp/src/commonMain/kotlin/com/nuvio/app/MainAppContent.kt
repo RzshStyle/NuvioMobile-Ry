@@ -1885,7 +1885,16 @@ internal fun MainAppContent(
                 }
                 entry<LiveTvRecordingsRoute> { route ->
                     val onBack = rememberGuardedPopBackStack(navController, route)
-                    RecordingsScreen(onBack = onBack, onPlay = ::openRecording, modifier = Modifier.fillMaxSize())
+                    RecordingsScreen(
+                        onBack = onBack,
+                        onPlay = ::openRecording,
+                        modifier = Modifier.fillMaxSize(),
+                        onOpenSettings = { navController.navigate(LiveTvRecordingSettingsRoute()) },
+                    )
+                }
+                entry<LiveTvRecordingSettingsRoute> { route ->
+                    val onBack = rememberGuardedPopBackStack(navController, route)
+                    com.nuvio.app.features.livetv.ui.LiveTvRecordingSettingsScreen(onBack = onBack)
                 }
                 entry<LiveTvOnDemandRoute> { route ->
                     val onBack = rememberGuardedPopBackStack(navController, route)
