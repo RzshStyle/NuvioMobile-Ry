@@ -202,6 +202,8 @@ fun LiveTvScreen(
     }
     var query by rememberSaveable { mutableStateOf("") }
     var searching by rememberSaveable { mutableStateOf(false) }
+    // Back from search: closes it, back to the group you were in (not out of Live TV).
+    com.nuvio.app.core.ui.PlatformBackHandler(enabled = searching) { searching = false; query = "" }
     // Groups start collapsed; tapping a header opens it. Kept across the trip to the player.
     val expanded = remember { mutableStateOf(LiveTvListMemory.expanded) }
     var sheetChannel by remember { mutableStateOf<LiveChannel?>(null) }

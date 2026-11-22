@@ -871,3 +871,26 @@ object ChannelNameEditor {
     /** Common ones, for "Add common prefixes and suffixes". */
     const val COMMON = "USA, US, UK, CA, AU, 24/7, FHD, HD, SD, UHD, 4K, HEVC, RAW, VIP, ᴴᴰ, ᵁᴴᴰ, ᶠᴴᴰ"
 }
+
+/** Starts a description whose first line is the guide's sub-title (see [EpgProgram.subTitle]). */
+const val SUB_TITLE_MARK = '\u2063'
+
+/** The guide's sub-title (an episode's name, a game's match-up), when the guide has one. */
+val EpgProgram.subTitle: String?
+    get() {
+        val d = description ?: return null
+        if (d.isEmpty() || d[0] != SUB_TITLE_MARK) return null
+        return d.substring(1).substringBefore('\n').trim().takeIf { it.isNotEmpty() }
+    }
+
+/** The description without its sub-title line (null when there's nothing else). */
+val EpgProgram.descriptionText: String?
+    get() {
+        val d = description ?: return null
+        if (d.isEmpty() || d[0] != SUB_TITLE_MARK) return d
+        return d.substringAfter('\n', "").trim().takeIf { it.isNotEmpty() }
+    }
+
+/** "College Football : Texas at LSU", TiviMate style; just [title] when the sub-title adds nothing. */
+fun guideTitleWithSub(title: String, sub: String?): String =
+    if (sub.isNullOrBlank() || title.contains(sub, ignoreCase = true)) title else "$title : $sub"

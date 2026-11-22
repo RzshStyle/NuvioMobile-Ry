@@ -1,5 +1,7 @@
 package com.nuvio.app.features.livetv.player
 
+import com.nuvio.app.features.livetv.model.descriptionText
+import com.nuvio.app.features.livetv.model.subTitle
 import com.nuvio.app.features.livetv.data.CatchupUrlBuilder
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.data.LiveTvRepository
@@ -254,7 +256,7 @@ internal object LiveTvPlayback {
             return PlayerLaunchStore.put(PlayerLaunch(
                 profileId = profileId, title = com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(program.title), sourceUrl = req.url, sourceHeaders = req.headers, stalkerMediaPolicy = req.mediaPolicy,
                 streamType = req.streamType, logo = channel.logo, poster = program.icon ?: channel.logo,
-                streamTitle = com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(program.title), streamSubtitle = channel.name, pauseDescription = program.description,
+                streamTitle = com.nuvio.app.features.livetv.model.guideTitleWithSub(com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(program.title), program.subTitle), streamSubtitle = channel.name, pauseDescription = program.descriptionText,
                 providerName = channel.sourceName, providerAddonId = PROVIDER_ID, contentType = CONTENT_TYPE,
                 videoId = channel.key, parentMetaId = channel.key, parentMetaType = CONTENT_TYPE,
                 initialPositionMs = offsetMs.coerceAtLeast(0),
@@ -296,9 +298,9 @@ internal object LiveTvPlayback {
             streamType = req.streamType,
             logo = channel.logo,
             poster = program.icon ?: channel.logo,
-            streamTitle = com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(program.title),
+            streamTitle = com.nuvio.app.features.livetv.model.guideTitleWithSub(com.nuvio.app.features.livetv.record.RecordingRules.shownTitle(program.title), program.subTitle),
             streamSubtitle = channel.name,
-            pauseDescription = program.description,
+            pauseDescription = program.descriptionText,
             providerName = channel.sourceName,
             providerAddonId = PROVIDER_ID,
             contentType = CONTENT_TYPE,
