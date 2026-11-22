@@ -974,7 +974,8 @@ internal fun MainAppContent(
                 profileId = activePlaybackProfileId,
                 title = rec.title,
                 sourceUrl = LiveTvRecorder.playUrl(rec),
-                streamType = null,
+                // A TV's recording from the network folder is served as an HLS playlist.
+                streamType = if (com.nuvio.app.features.livetv.record.NetworkLibrary.isNetwork(rec)) "hls" else null,
                 logo = rec.channelLogo,
                 poster = rec.channelLogo,
                 streamTitle = rec.title,

@@ -117,6 +117,8 @@ internal object LiveTvKeys {
     const val parentalPin = "parental_pin"
     const val lockAdultContent = "lock_adult_content"
     const val lockLogins = "lock_logins"
+    /** The network folder (NAS / shared folder) set up on a TV for recordings, synced so the phone can watch them. */
+    const val networkFolder = "network_folder"
     const val showQualityBadges = "show_quality_badges"
     const val showFrameRate = "show_frame_rate"
     const val matchFrameRate = "match_frame_rate"
@@ -1405,6 +1407,13 @@ internal open class LiveTvPreferencesStore {
     fun setPictureShape(key: String, shapeName: String) = editStringMap(LiveTvKeys.pictureShapes) { m ->
         if (shapeName == "AUTO") m.remove(key) else m[key] = shapeName
     }
+
+    // ---------- Network folder (set up on a TV, for recordings) ----------
+
+    /** The network folder as JSON (the TV app's format); "" when it was removed; null when never set up. */
+    val networkFolderJson: Flow<String?> = _data.map { it.str(LiveTvKeys.networkFolder) }.distinctUntilChanged()
+
+    fun currentNetworkFolderJson(): String? = _data.value.str(LiveTvKeys.networkFolder)
 
     // ---------- Sports ----------
 

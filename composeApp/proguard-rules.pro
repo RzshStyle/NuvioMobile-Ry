@@ -62,3 +62,14 @@
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
+
+# ── Live TV: the TVs' recordings on a network folder (smbj) ──────────────────
+# smbj's event bus (mbassador) finds its listeners by their @Handler annotation, so keep both
+# whole. Kerberos logins (org.ietf.jgss) aren't on Android and aren't used (password logins only).
+-keep class com.hierynomus.** { *; }
+-keep class net.engio.mbassy.** { *; }
+-dontwarn org.ietf.jgss.**
+-dontwarn javax.naming.**
+-dontwarn org.slf4j.**
+-dontwarn javax.el.**
+-dontwarn org.bouncycastle.**

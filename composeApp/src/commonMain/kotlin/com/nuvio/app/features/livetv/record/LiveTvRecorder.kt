@@ -75,7 +75,9 @@ internal object LiveTvRecorder {
 
     /** A link the player can open. */
     fun playUrl(rec: LiveTvRecording): String =
-        RecordingPlatform.playUrl(filePath(rec)).also { com.nuvio.app.features.livetv.player.LiveTvPlayback.noteRecording(it) }
+        // A TV's recording on the network folder: played from there through this phone.
+        (if (NetworkLibrary.isNetwork(rec)) NetworkLibrary.playUrl(rec) else RecordingPlatform.playUrl(filePath(rec)))
+            .also { com.nuvio.app.features.livetv.player.LiveTvPlayback.noteRecording(it) }
 
     /** Roughly how much room there is where recordings go. */
     fun freeBytes(): Long = RecordingPlatform.usableSpace()

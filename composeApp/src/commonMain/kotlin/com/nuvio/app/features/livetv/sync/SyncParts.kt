@@ -27,7 +27,7 @@ internal object SyncParts {
     private val store = LiveTvDriveHttp
     private val PROFILE_SUFFIX = Regex("""_p\d+$""")
 
-    private val LOGIN_KEYS = setOf(LiveTvKeys.playlists, LiveTvKeys.epgs, LiveTvKeys.playlistAccounts, LiveTvKeys.epgOverrides)
+    private val LOGIN_KEYS = setOf(LiveTvKeys.playlists, LiveTvKeys.epgs, LiveTvKeys.playlistAccounts, LiveTvKeys.epgOverrides, LiveTvKeys.networkFolder)
     private val FAVORITE_KEYS = setOf(
         LiveTvKeys.favorites, LiveTvKeys.hiddenChannels, LiveTvKeys.hiddenGroups, LiveTvKeys.hiddenPlaylists, LiveTvKeys.channelNames,
         LiveTvKeys.channelLogos, LiveTvKeys.channelNumbers, LiveTvKeys.groupNames, LiveTvKeys.groupOrder,

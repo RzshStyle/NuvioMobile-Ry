@@ -1,5 +1,6 @@
 package com.nuvio.app.features.livetv.ui
 
+import com.nuvio.app.features.livetv.record.NetworkLibrary
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -142,13 +143,22 @@ internal fun RecordingsScreen(
     val series by LiveTvRecordingScheduler.series.collectAsStateWithLifecycle()
     val repeats by LiveTvRecordingScheduler.repeats.collectAsStateWithLifecycle()
     val notice by RecordingNotices.current.collectAsStateWithLifecycle()
+    // The TVs' recordings on the network folder (watch only), read now and every few minutes while open.
+    val network by remember { NetworkLibrary.start(); NetworkLibrary.state }.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { while (true) { NetworkLibrary.refresh(force = true); delay(180_000) } }
+    val netAway = network.folderLabel != null && network.reachable == false
     var sheet by remember { mutableStateOf<Any?>(null) }
     LaunchedEffect(Unit) { LiveTvRecordingScheduler.fireOverdue() }
     LaunchedEffect(notice) { if (notice != null) { NuvioToastController.show(notice.orEmpty()); RecordingNotices.clear() } }
     val now by produceState(LiveTvClock.nowMs()) { while (true) { value = LiveTvClock.nowMs(); delay(15_000) } }
 
-    val recordingNow = recordings.filter { it.isRecording }
-    val recorded = recordings.filter { !it.isRecording }
+    val recordingNow = recordings.filter { it.isRecording } + network.recordings.filter { it.isRecording }
+    val recorded = recordings.filter { !it.isRecording } + network.recordings.filter { !it.isRecording }
+    val awayText = "Available at home: your network folder can't be reached right now"
+    // A TV's recording: plays from the network folder, only when it can be reached.
+    fun play(r: LiveTvRecording) {
+        if (NetworkLibrary.isNetwork(r) && netAway) NuvioToastController.show(awayText) else onPlay(r)
+    }
     val hasSeries = series.isNotEmpty() || repeats.isNotEmpty()
     // Recorded first. Until a tab is picked, it opens on the first one that has anything.
     var pickedTab by rememberSaveable { mutableStateOf(-1) }
@@ -167,7 +177,14 @@ internal fun RecordingsScreen(
             onBack = onBack,
             modifier = Modifier.padding(horizontal = NuvioTokens.Space.s8),
         )
-        if (recordings.isEmpty() && schedules.isEmpty() && !hasSeries) {
+        if (netAway && network.recordings.isNotEmpty()) {
+            Text(
+                "Recordings from your TVs play when you're home (on the same Wi-Fi as the network folder)." + (network.problem?.let { " $it." } ?: ""),
+                style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted,
+                modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16).padding(bottom = NuvioTokens.Space.s8),
+            )
+        }
+        if (recordings.isEmpty() && network.recordings.isEmpty() && schedules.isEmpty() && !hasSeries) {
             Text(stringResource(Res.string.livetv_rec_empty), style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textMuted, modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s24))
             return@Column
         }
@@ -177,7 +194,7 @@ internal fun RecordingsScreen(
                 modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16).padding(bottom = NuvioTokens.Space.s8),
                 verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
             ) {
-                recordingNow.forEach { r -> RecordingRow(r, now, onClick = { onPlay(r) }, onLongClick = { sheet = r }) }
+                recordingNow.forEach { r -> RecordingRow(r, now, onClick = { play(r) }, onLongClick = { sheet = r }) }
             }
         }
         Row(
@@ -196,19 +213,21 @@ internal fun RecordingsScreen(
                 horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
                 verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s16),
             ) {
-                gridItems(recorded, key = { "d:" + it.id }) { r ->
+                gridItems(recorded, key = { (if (NetworkLibrary.isNetwork(it)) "n:" else "d:") + it.id }) { r ->
                     val failed = r.status == RecordingStatus.FAILED
+                    val fromTv = NetworkLibrary.isNetwork(r)
                     RecordingPosterCard(
                         title = r.title + (r.episode?.let { " · $it" } ?: ""),
                         posterTitle = r.title,
                         channelName = r.channelName,
                         channelLogo = r.channelLogo,
-                        line = if (failed) (r.problem ?: stringResource(Res.string.livetv_rec_failed_short)) else listOfNotNull(
+                        line = if (failed) (r.problem ?: stringResource(Res.string.livetv_rec_failed_short)) else if (fromTv && netAway) "Available at home" else listOfNotNull(
+                            "TV".takeIf { fromTv },
                             SportsDates.dayLabel(r.programStartMs.takeIf { it > 0 } ?: r.startedAtMs),
                             RecordingRules.durationLabel(r.durationSec).takeIf { r.durationSec >= 60 },
                         ).joinToString(" · "),
                         lineIsError = failed,
-                        onClick = { if (r.status == RecordingStatus.DONE) onPlay(r) else sheet = r },
+                        onClick = { if (r.status == RecordingStatus.DONE) play(r) else sheet = r },
                         onLongClick = { sheet = r },
                     )
                 }
@@ -271,7 +290,7 @@ internal fun RecordingsScreen(
     }
 
     when (val s = sheet) {
-        is LiveTvRecording -> RecordingSheet(s, onDismiss = { sheet = null }, onPlay = { onPlay(s) })
+        is LiveTvRecording -> RecordingSheet(s, onDismiss = { sheet = null }, onPlay = { play(s) })
         is RecordingSchedule -> ScheduleSheet(s, onDismiss = { sheet = null })
         is SeriesRule -> SeriesSheet(s, onDismiss = { sheet = null })
         is RepeatRule -> RepeatSheet(s, onDismiss = { sheet = null })
@@ -469,10 +488,18 @@ private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: 
         if (rec.status != RecordingStatus.FAILED) {
             NuvioBottomSheetActionRow(title = stringResource(Res.string.action_play), icon = Icons.Filled.PlayArrow, onClick = { close(onPlay) })
         }
-        if (rec.isRecording) {
-            NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_stop), icon = Icons.Filled.Stop, onClick = { LiveTvRecorder.stop(rec.id); close() })
+        if (NetworkLibrary.isNetwork(rec)) {
+            // A TV's recording on the network folder: deleting it takes it off every TV too. Not while it records.
+            if (!rec.isRecording) NuvioBottomSheetActionRow(title = stringResource(Res.string.action_delete), icon = Icons.Filled.Delete, onClick = {
+                NetworkLibrary.deleteAndTell(rec)
+                close()
+            })
+        } else {
+            if (rec.isRecording) {
+                NuvioBottomSheetActionRow(title = stringResource(Res.string.livetv_rec_stop), icon = Icons.Filled.Stop, onClick = { LiveTvRecorder.stop(rec.id); close() })
+            }
+            NuvioBottomSheetActionRow(title = stringResource(Res.string.action_delete), icon = Icons.Filled.Delete, onClick = { LiveTvRecorder.delete(rec.id); close() })
         }
-        NuvioBottomSheetActionRow(title = stringResource(Res.string.action_delete), icon = Icons.Filled.Delete, onClick = { LiveTvRecorder.delete(rec.id); close() })
         Spacer(Modifier.height(NuvioTokens.Space.s12))
     }
 }
