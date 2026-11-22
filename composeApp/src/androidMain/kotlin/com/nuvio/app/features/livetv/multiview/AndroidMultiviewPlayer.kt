@@ -512,7 +512,9 @@ internal fun multiviewRetryable(error: PlaybackException): Boolean {
         PlaybackException.ERROR_CODE_TIMEOUT,
         PlaybackException.ERROR_CODE_UNSPECIFIED,
         PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
-        PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> true
+        PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
+        // The phone took this pane's decoder away for a moment (another pane or app needed it).
+        PlaybackException.ERROR_CODE_DECODING_RESOURCES_RECLAIMED -> true
         else -> false
     }
 }
