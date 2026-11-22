@@ -179,7 +179,9 @@ internal object LiveTvPlayback {
      */
     suspend fun switchTo(channel: LiveChannel): LivePlayRequest {
         val req = requestFor(channel)
-        LiveTvPreferences.recordWatched(channel.key, addToRecent = !com.nuvio.app.features.livetv.parental.ParentalControls.isAdultChannel(channel))
+        // A sports add-on's stream (from the Backups list) isn't one of your channels: not kept as Recent or last channel.
+        if (channel.sourceId != com.nuvio.app.features.livetv.sports.SportsAddonSource.SOURCE_ID)
+            LiveTvPreferences.recordWatched(channel.key, addToRecent = !com.nuvio.app.features.livetv.parental.ParentalControls.isAdultChannel(channel))
         synchronized(lock) {
             backupTried.clear()
             portalRetried.clear()
@@ -444,10 +446,18 @@ internal object LiveTvPlayback {
         return backupAmong(failed, tried)
     }
 
-    private fun backupAmong(failed: LiveChannel, tried: Set<String>): LiveChannel? {
+    private fun backupAmong(failed: LiveChannel, tried: Set<String>): LiveChannel? = copiesAmong(failed, tried).firstOrNull()
+
+    /**
+     * Every other stream of [channel] (same channel name, other playlists first), for the
+     * player's Backups list. Not tied to the "Backup channel" setting: picked by hand.
+     */
+    fun copiesOf(channel: LiveChannel): List<LiveChannel> = copiesAmong(channel, emptySet()).take(30).toList()
+
+    private fun copiesAmong(failed: LiveChannel, tried: Set<String>): Sequence<LiveChannel> {
         val index = indexNow()
         val name = backupName(failed.name)
-        if (name.length < 2) return null
+        if (name.length < 2) return emptySequence()
         val hidden = LiveTvPreferences.currentUserState()
         return index[name].orEmpty().asSequence()
             .filter { it.key !in tried && it.key != failed.key }
@@ -456,7 +466,6 @@ internal object LiveTvPlayback {
             .filter { c -> val a = stationNote(failed.name); val b = stationNote(c.name); a == null || b == null || a == b }
             // Other playlists first.
             .sortedBy { if (it.sourceId != failed.sourceId) 0 else 1 }
-            .firstOrNull()
     }
 
     private fun gameFailoverFor(failed: LiveChannel): LiveChannel? {

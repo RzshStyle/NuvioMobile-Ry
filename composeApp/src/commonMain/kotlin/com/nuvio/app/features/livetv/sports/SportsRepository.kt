@@ -460,6 +460,46 @@ internal object SportsRepository {
         return (copies + others).firstOrNull()?.channel
     }
 
+    /**
+     * The game [channelKey] is showing now (live, or starting within 15 minutes) and every
+     * channel sure to be showing it: your own first, then streams from your sports addons. For
+     * the player's Backups list. Null when the channel isn't showing a game.
+     */
+    fun liveGameOn(channelKey: String): SportsWatchGame? {
+        val now = LiveTvClock.nowMs()
+        val evs = events.value.associateBy { it.id }
+        for ((id, list) in matches.value) {
+            val ev = evs[id] ?: continue
+            val on = ev.state == GameState.LIVE || (ev.state == GameState.PRE && ev.startMs - now < 15 * MINUTE)
+            if (!on || list.none { it.channel.key == channelKey && (it.sure || it.score >= 150) }) continue
+            return SportsWatchGame(ev, list.filter { it.sure || it.score >= 150 })
+        }
+        return null
+    }
+
+    private val liveLookAt = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    /**
+     * A game is playing in the player: look in your sports addons for its live streams too, so
+     * they show in the Backups list (and the automatic switch can reach them). At most every
+     * [LIVE_LOOK_MS] per game, only while it's live or about to start, and not while its game
+     * page is already looking.
+     */
+    fun lookForLiveStreams(eventId: String) {
+        val ev = events.value.firstOrNull { it.id == eventId } ?: return
+        val now = LiveTvClock.nowMs()
+        if (!(ev.state == GameState.LIVE || (ev.state == GameState.PRE && ev.startMs - now < 30 * MINUTE))) return
+        if (addonJobs[eventId]?.isActive == true) return
+        var go = false
+        liveLookAt.update { m ->
+            if (now - (m[eventId] ?: 0L) < LIVE_LOOK_MS) m.also { go = false }
+            else { go = true; m.filterValues { now - it < 6 * 60 * MINUTE } + (eventId to now) }
+        }
+        if (go) scope.launch { lookInAddons(ev) }
+    }
+
+    private const val LIVE_LOOK_MS = 3 * 60_000L
+
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
     private val _matching = MutableStateFlow(false)
