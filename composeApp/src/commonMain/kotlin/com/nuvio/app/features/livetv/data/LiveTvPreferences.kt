@@ -119,6 +119,12 @@ internal object LiveTvKeys {
     const val lockLogins = "lock_logins"
     /** The network folder (NAS / shared folder) set up on a TV for recordings, synced so the phone can watch them. */
     const val networkFolder = "network_folder"
+    /**
+     * This device's own network folder (JSON; "" = removed here), once one was saved here: kept
+     * on this device only, so a phone reaching home through Tailscale and a TV on the home
+     * network can each use their own address. Null: this device uses the synced one.
+     */
+    const val networkFolderOwn = "network_folder_own"
     const val showQualityBadges = "show_quality_badges"
     const val showFrameRate = "show_frame_rate"
     const val matchFrameRate = "match_frame_rate"
@@ -258,7 +264,7 @@ internal object LiveTvKeys {
     /** Per-device keys that sync never copies. */
     private val SYNC_EXCLUDED_BASE = setOf(
         "last_channel", "previous_channel", "last_group", "recent", "on_demand_imports",
-        "channel_quality", "developer_tools", "recording_storage",
+        "channel_quality", "developer_tools", "recording_storage", "network_folder_own",
         "phone_channel_logos", "phone_channel_names", "phone_channel_numbers"
     )
     internal val PROFILE_SUFFIX = Regex("""_p\d+$""")
@@ -1418,13 +1424,42 @@ internal open class LiveTvPreferencesStore {
 
     // ---------- Network folder (set up on a TV, for recordings) ----------
 
-    /** The network folder as JSON (the TV app's format); "" when it was removed; null when never set up. */
-    val networkFolderJson: Flow<String?> = _data.map { it.str(LiveTvKeys.networkFolder) }.distinctUntilChanged()
+    /**
+     * The network folder this device uses, as JSON (the TV app's format): its own one once it was
+     * saved here, else the synced one. "" when it was removed; null when never set up.
+     */
+    val networkFolderJson: Flow<String?> = _data.map { networkFolderOf(it) }.distinctUntilChanged()
 
-    fun currentNetworkFolderJson(): String? = _data.value.str(LiveTvKeys.networkFolder)
+    fun currentNetworkFolderJson(): String? = networkFolderOf(_data.value)
 
-    /** [json] "" removes it (and tells the other devices so). */
-    fun setNetworkFolderJson(json: String) = edit { it[LiveTvKeys.networkFolder] = json }
+    private fun networkFolderOf(m: Map<String, PrefValue>): String? =
+        m.str(LiveTvKeys.networkFolderOwn) ?: m.str(LiveTvKeys.networkFolder)
+
+    /**
+     * Saves the folder on this device only ([json] "" removes it here). The synced copy is only
+     * there to start new devices off: the first folder saved anywhere goes into it, and removing
+     * the folder it holds empties it. Another device's address never replaces this one's.
+     */
+    fun setNetworkFolderJson(json: String) = edit { m ->
+        val synced = m.str(LiveTvKeys.networkFolder)
+        val before = networkFolderOf(m)
+        m[LiveTvKeys.networkFolderOwn] = json
+        if (json.isNotBlank()) {
+            if (synced.isNullOrBlank()) m[LiveTvKeys.networkFolder] = json
+        } else if (!synced.isNullOrBlank() && sameNetworkFolder(synced, before)) {
+            m[LiveTvKeys.networkFolder] = ""
+        }
+    }
+
+    /** The same shared folder (address, share and folder; the login can differ). */
+    private fun sameNetworkFolder(a: String?, b: String?): Boolean {
+        fun key(s: String?): String? = runCatching {
+            val o = parseObject(s ?: return null)
+            listOf("host", "share", "path").joinToString("|") { o.optString(it).trim().lowercase() }
+        }.getOrNull()
+        val ka = key(a)
+        return ka != null && ka == key(b)
+    }
 
     // ---------- Sports ----------
 

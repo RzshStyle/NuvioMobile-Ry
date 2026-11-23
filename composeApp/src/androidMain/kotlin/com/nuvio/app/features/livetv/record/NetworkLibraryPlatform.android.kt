@@ -109,6 +109,9 @@ internal actual object NetworkLibraryPlatform {
         Unit
     }
 
+    actual suspend fun publish(config: NetworkFolderConfig, rec: LiveTvRecording, localPath: String, onProgress: (Float) -> Unit): String =
+        withContext(Dispatchers.IO) { NetworkPublish.publish(folderFor(config), rec, java.io.File(localPath), onProgress) }
+
     /** A whole (small) file from the folder. */
     internal fun SmbFolder.readAll(rel: String): ByteArray {
         val size = size(rel) ?: throw NetworkFolderException("Not on the network folder")

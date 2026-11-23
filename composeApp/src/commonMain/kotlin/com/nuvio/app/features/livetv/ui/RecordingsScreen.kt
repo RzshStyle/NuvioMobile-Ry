@@ -1,6 +1,7 @@
 package com.nuvio.app.features.livetv.ui
 
 import com.nuvio.app.features.livetv.record.NetworkLibrary
+import com.nuvio.app.features.livetv.record.NetworkUploads
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -153,6 +154,10 @@ internal fun RecordingsScreen(
     // The TVs' recordings on the network folder (watch only), read now and every few minutes while open.
     val network by remember { NetworkLibrary.start(); NetworkLibrary.state }.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { while (true) { NetworkLibrary.refresh(force = true); delay(180_000) } }
+    // Recordings made here for the network folder: copying across, or waiting until it can be reached.
+    val uploads by NetworkUploads.state.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { NetworkUploads.kick(force = true) }
+    val waitingForNetwork = remember(recordings, uploads) { recordings.filter { NetworkUploads.isPending(it) }.map { it.id }.toSet() }
     val netAway = network.folderLabel != null && network.reachable == false
     var sheet by remember { mutableStateOf<Any?>(null) }
     // Fix match: the show's name, and whether it's surely a show (null = don't know).
@@ -163,8 +168,8 @@ internal fun RecordingsScreen(
 
     val recordingNow = recordings.filter { it.isRecording } + network.recordings.filter { it.isRecording }
     val recorded = recordings.filter { !it.isRecording } + network.recordings.filter { !it.isRecording }
-    val awayText = "Available at home: your network folder can't be reached right now"
-    // A TV's recording: plays from the network folder, only when it can be reached.
+    val awayText = "Your network folder can't be reached right now"
+    // A recording on the network folder: plays from there, only when it can be reached.
     fun play(r: LiveTvRecording) {
         if (NetworkLibrary.isNetwork(r) && netAway) NuvioToastController.show(awayText) else onPlay(r)
     }
@@ -191,9 +196,13 @@ internal fun RecordingsScreen(
                 }
             },
         )
-        if (netAway && network.recordings.isNotEmpty()) {
+        // The network folder can't be reached: said even when its recordings were never listed
+        // here (a blank list looked like the folder was empty).
+        if (netAway) {
             Text(
-                "Recordings from your TVs play when you're home (on the same Wi-Fi as the network folder)." + (network.problem?.let { " $it." } ?: ""),
+                (if (network.recordings.isNotEmpty()) "Recordings on your network folder play when it can be reached (at home, or through your VPN)."
+                else "Your network folder (${network.folderLabel}) can't be reached, so its recordings can't be listed. Check its address with the gear above.") +
+                    (network.problem?.let { " ${it.trimEnd('.')}." } ?: ""),
                 style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted,
                 modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16).padding(bottom = NuvioTokens.Space.s8),
             )
@@ -235,8 +244,10 @@ internal fun RecordingsScreen(
                         posterTitle = r.title,
                         channelName = r.channelName,
                         channelLogo = r.channelLogo,
-                        line = if (failed) (r.problem ?: stringResource(Res.string.livetv_rec_failed_short)) else if (fromTv && netAway) "Available at home" else listOfNotNull(
-                            "TV".takeIf { fromTv },
+                        line = if (failed) (r.problem ?: stringResource(Res.string.livetv_rec_failed_short)) else if (fromTv && netAway) "Network folder unreachable"
+                        else if (uploads.copyingId == r.id) "Copying to network folder · ${(uploads.progress * 100).toInt()}%"
+                        else if (r.id in waitingForNetwork) "Waiting for network folder" else listOfNotNull(
+                            "Network".takeIf { fromTv },
                             SportsDates.dayLabel(r.programStartMs.takeIf { it > 0 } ?: r.startedAtMs),
                             RecordingRules.durationLabel(r.durationSec).takeIf { r.durationSec >= 60 },
                         ).joinToString(" · "),

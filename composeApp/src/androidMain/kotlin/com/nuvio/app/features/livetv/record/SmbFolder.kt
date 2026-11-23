@@ -163,6 +163,28 @@ class SmbFolder(val config: NetworkFolderConfig) : Closeable {
         expected
     }
 
+    /**
+     * Writes [len] bytes of [bytes] into [rel] at [offset] (making [rel] if it isn't there).
+     * Writing at a set place means a try that broke part way is simply written over by the next.
+     */
+    fun writeBytesAt(rel: String, offset: Long, bytes: ByteArray, len: Int) = call { d ->
+        d.openFile(
+            p(rel),
+            EnumSet.of(AccessMask.GENERIC_WRITE, AccessMask.GENERIC_READ),
+            EnumSet.of(FileAttributes.FILE_ATTRIBUTE_NORMAL),
+            SMB2ShareAccess.ALL,
+            SMB2CreateDisposition.FILE_OPEN_IF,
+            EnumSet.of(SMB2CreateOptions.FILE_NON_DIRECTORY_FILE)
+        ).use { f ->
+            var off = 0
+            while (off < len) {
+                val w = f.write(bytes, offset + off, off, len - off).toInt()
+                if (w <= 0) throw java.io.IOException("the network folder stopped taking data")
+                off += w
+            }
+        }
+    }
+
     /** Cuts (or grows) [rel] to exactly [length] bytes. */
     fun setLength(rel: String, length: Long) = call { d ->
         d.openFile(

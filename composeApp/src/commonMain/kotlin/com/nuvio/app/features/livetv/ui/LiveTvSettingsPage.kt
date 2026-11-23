@@ -78,6 +78,7 @@ import com.nuvio.app.features.livetv.record.NetworkSearchState
 import com.nuvio.app.features.livetv.record.SmbShare
 import com.nuvio.app.features.livetv.record.NetworkLibrary
 import com.nuvio.app.features.livetv.record.NetworkLibraryPlatform
+import com.nuvio.app.features.livetv.record.NetworkUploads
 import com.nuvio.app.features.livetv.record.RecordingPlatform
 import com.nuvio.app.features.livetv.record.RecordingRules
 import com.nuvio.app.features.livetv.sports.SportsRepository
@@ -261,6 +262,8 @@ import nuvio.composeapp.generated.resources.livetv_rec_space_rule_description
 import nuvio.composeapp.generated.resources.livetv_rec_space_rule_stop
 import nuvio.composeapp.generated.resources.livetv_rec_storage
 import nuvio.composeapp.generated.resources.livetv_rec_storage_description
+import nuvio.composeapp.generated.resources.livetv_rec_storage_network_description
+import nuvio.composeapp.generated.resources.livetv_rec_storage_choice_message
 import nuvio.composeapp.generated.resources.livetv_rec_this_device
 import nuvio.composeapp.generated.resources.livetv_rec_network_folder
 import nuvio.composeapp.generated.resources.livetv_rec_network_folder_description
@@ -504,6 +507,7 @@ private sealed interface LiveDialog {
     /** The PIN before playlist logins are shown or handed out; [then] runs once it's right. */
     data class LoginPin(val then: () -> Unit) : LiveDialog
     data object NetworkFolder : LiveDialog
+    data object RecordStorage : LiveDialog
     data object ParentalGroups : LiveDialog
     data object Reminders : LiveDialog
     data object ReminderLead : LiveDialog
@@ -1131,14 +1135,22 @@ private fun LiveTvSettingsBody(isTablet: Boolean, onlyRecordings: Boolean = fals
                     onClick = { dialog = LiveDialog.RecordKeep },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
+                // Where new recordings go: this phone, or the network folder (recorded here, then copied there).
+                val toNetwork = NetworkLibraryPlatform.available && settings.recordingStorage == NetworkUploads.STORAGE_ID &&
+                    NetworkFolderConfig.fromJson(networkFolderJson) != null
                 SettingsNavigationRow(
                     title = stringResource(Res.string.livetv_rec_storage),
-                    description = stringResource(Res.string.livetv_rec_storage_description),
+                    description = stringResource(if (toNetwork) Res.string.livetv_rec_storage_network_description else Res.string.livetv_rec_storage_description),
                     isTablet = isTablet,
-                    trailingContent = { ValueLabel(stringResource(Res.string.livetv_rec_this_device) + " · " + RecordingRules.sizeLabel(LiveTvRecorder.freeBytes())) },
-                    onClick = {},
+                    trailingContent = {
+                        ValueLabel(
+                            if (toNetwork) stringResource(Res.string.livetv_rec_network_folder)
+                            else stringResource(Res.string.livetv_rec_this_device) + " · " + RecordingRules.sizeLabel(LiveTvRecorder.freeBytes())
+                        )
+                    },
+                    onClick = { if (NetworkLibraryPlatform.available) dialog = LiveDialog.RecordStorage },
                 )
-                // The network folder the TVs record to (synced): set up or changed here too.
+                // The network folder (its address kept on this phone only): set up or changed here.
                 if (NetworkLibraryPlatform.available) {
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
@@ -1323,6 +1335,24 @@ private fun LiveTvSettingsBody(isTablet: Boolean, onlyRecordings: Boolean = fals
         }
         is LiveDialog.EditEpg -> EpgForm(d.source, onDismiss = close)
         LiveDialog.NetworkFolder -> NetworkFolderForm(onDismiss = close)
+        LiveDialog.RecordStorage -> {
+            val folderSetUp = NetworkFolderConfig.fromJson(networkFolderJson) != null
+            ChoiceDialog(
+                title = stringResource(Res.string.livetv_rec_storage),
+                options = listOf(
+                    "" to stringResource(Res.string.livetv_rec_this_device),
+                    NetworkUploads.STORAGE_ID to stringResource(Res.string.livetv_rec_network_folder) +
+                        (if (folderSetUp) "" else " (" + stringResource(Res.string.livetv_rec_network_not_set_up).lowercase() + ")"),
+                ),
+                selected = if (settings.recordingStorage == NetworkUploads.STORAGE_ID && folderSetUp) NetworkUploads.STORAGE_ID else "",
+                onDismiss = close,
+                message = stringResource(Res.string.livetv_rec_storage_choice_message),
+            ) { v ->
+                update { it.copy(recordingStorage = v) }
+                // Not set up yet: straight to setting it up (once this list has closed).
+                if (v == NetworkUploads.STORAGE_ID && !folderSetUp) scope.launch { withLogins { dialog = LiveDialog.NetworkFolder } }
+            }
+        }
         is LiveDialog.PlaylistActions -> ActionsDialog(
             title = d.source.name,
             subtitle = playlistStatus(d.source, accounts[d.source.id]),
