@@ -349,8 +349,6 @@ import nuvio.composeapp.generated.resources.livetv_reminder_lead
 import nuvio.composeapp.generated.resources.livetv_reminder_lead_description
 import nuvio.composeapp.generated.resources.livetv_reminder_lead_at_start
 import nuvio.composeapp.generated.resources.livetv_reminder_lead_minutes
-import nuvio.composeapp.generated.resources.livetv_continue_watching
-import nuvio.composeapp.generated.resources.livetv_continue_watching_description
 import com.nuvio.app.features.livetv.reminders.LiveTvReminders
 import androidx.compose.material.icons.filled.Notifications
 import nuvio.composeapp.generated.resources.livetv_parental_pin
@@ -552,7 +550,6 @@ private fun LiveTvSettingsBody(isTablet: Boolean, onlyRecordings: Boolean = fals
     val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
     val profiles = profileState.profiles
     val reminderLead by LiveTvPreferences.reminderLeadMinutes.collectAsStateWithLifecycle()
-    val showInContinueWatching by LiveTvPreferences.showInContinueWatching.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<LiveDialog?>(null) }
     /** Runs [go] now, or after the PIN when playlist logins are locked. */
     fun withLogins(go: () -> Unit) {
@@ -816,14 +813,6 @@ private fun LiveTvSettingsBody(isTablet: Boolean, onlyRecordings: Boolean = fals
                     checked = settings.autoBackupChannel,
                     isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(autoBackupChannel = on) } },
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.livetv_continue_watching),
-                    description = stringResource(Res.string.livetv_continue_watching_description),
-                    checked = showInContinueWatching,
-                    isTablet = isTablet,
-                    onCheckedChange = { on -> LiveTvPreferences.setShowInContinueWatching(on) },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
