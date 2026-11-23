@@ -4,13 +4,21 @@ import com.nuvio.app.features.livetv.data.LiveTvKeys
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /** The parts of the Live TV setup that Setup Sync can leave out on one device. */
 internal enum class SyncPart(val label: String, val description: String, val defaultOn: Boolean) {
     LOGINS("Playlists and logins", "Your IPTV links, usernames and passwords. Stored encrypted.", true),
     VPN("VPN profiles and protection", "VPN configurations, selected profile and automatic protection scope.", true),
     FAVORITES("Favorites and groups", "Favorite channels, hidden channels and group order.", true),
+    HOME_ROWS("Home rows", "Live TV, Sports and On Demand rows you added to Home. Shared with your TVs too.", true),
     SPORTS("Sports", "Followed teams and leagues, and your league list.", true),
     CALENDAR("Calendar", "Followed and hidden shows.", true),
     BEHAVIOR("Behavior and options", "How often lists and guides refresh, recording and catch-up options, sorting, search sources and Calendar choices. Not the look, so it is shared with your phone too.", true),
@@ -36,6 +44,8 @@ internal object SyncParts {
         LiveTvKeys.vodHiddenCategories, LiveTvKeys.vodGroupOrder, LiveTvKeys.vodGroupNames, LiveTvKeys.titleMatchFixes,
     )
     private val SPORTS_KEYS = setOf(LiveTvKeys.sports, LiveTvKeys.sportsMine)
+    /** The Home rows and the "add the playlist's name" choice for them (shared with TVs). */
+    private val HOME_ROWS_KEYS = setOf(LiveTvKeys.homeRows, LiveTvKeys.homeRowPlaylistNames)
     /** Options that act the same on any device (not how the app looks), so phones and TVs share them. */
     private val BEHAVIOR_KEYS = setOf(
         "playlist_refresh_hours", "epg_refresh_hours", "epg_future_days", "epg_past_hours", "epg_offset_minutes",
@@ -64,6 +74,12 @@ internal object SyncParts {
             store.putBoolean(BEHAVIOR_SEEN, true)
             store.putBoolean(FRESH + SyncPart.BEHAVIOR.name, true)
         }
+        // Home rows weren't synced on the phone before: the first time, the saved rows are combined
+        // with the rows this phone already had.
+        if (!store.getBoolean(HOME_ROWS_SEEN, false)) {
+            store.putBoolean(HOME_ROWS_SEEN, true)
+            store.putBoolean(FRESH + SyncPart.HOME_ROWS.name, true)
+        }
     }
 
     private val _revision = MutableStateFlow(0)
@@ -79,6 +95,7 @@ internal object SyncParts {
             base in ALWAYS_KEYS -> null
             base in LOGIN_KEYS -> SyncPart.LOGINS
             base in FAVORITE_KEYS -> SyncPart.FAVORITES
+            base in HOME_ROWS_KEYS -> SyncPart.HOME_ROWS
             base in SPORTS_KEYS -> SyncPart.SPORTS
             base in CALENDAR_KEYS -> SyncPart.CALENDAR
             base in BEHAVIOR_KEYS -> SyncPart.BEHAVIOR
@@ -133,10 +150,25 @@ internal object SyncParts {
         local.keys.forEach { k ->
             val base = k.replace(PROFILE_SUFFIX, "")
             if (base == LiveTvKeys.playlists || base == LiveTvKeys.epgs) return@forEach
-            if (partOf(k)?.let { it in fresh } == true) remote[k]?.let { out[k] = it }
+            if (partOf(k)?.let { it in fresh } == true) remote[k]?.let { saved ->
+                // Home rows: the saved rows, plus this phone's own rows the saved copy doesn't have.
+                out[k] = if (base == LiveTvKeys.homeRows) combinedRows(local[k], saved) ?: saved else saved
+            }
         }
         return JsonObject(out)
     }
+
+    /** Both stored row lists ({"t":"str","v":"[…]"}) as one: [remote]'s rows, then [local]'s other rows. */
+    private fun combinedRows(local: JsonElement?, remote: JsonElement): JsonElement? = runCatching {
+        fun rows(e: JsonElement?): List<JsonElement> =
+            Json.parseToJsonElement(e!!.jsonObject["v"]!!.jsonPrimitive.content).jsonArray
+        fun id(e: JsonElement): String? = (e as? JsonObject)?.get("id")?.jsonPrimitive?.content
+        val saved = rows(remote)
+        val ids = saved.mapNotNull(::id).toSet()
+        val extra = rows(local).filter { r -> id(r)?.let { it !in ids } == true }
+        if (extra.isEmpty()) null
+        else JsonObject(remote.jsonObject + ("v" to JsonPrimitive(JsonArray(saved + extra).toString())))
+    }.getOrNull()
 
     /** Called after a sync round finished: the parts switched on are now part of the agreed copy. */
     fun clearFresh() {
@@ -146,4 +178,5 @@ internal object SyncParts {
     private const val KEY = "sync_part_"
     private const val FRESH = "sync_part_fresh_"
     private const val BEHAVIOR_SEEN = "sync_part_behavior_seen"
+    private const val HOME_ROWS_SEEN = "sync_part_home_rows_seen"
 }
