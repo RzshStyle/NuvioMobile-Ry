@@ -23,7 +23,6 @@
 ## 🆕 New in this update
 
 - **🏆 A new Sports hub:** a search bar, a big swipe card, **Live on your channels**, leagues as folding groups, game cards in team colours, and a game page with the day's games, a scoreboard, a Watch button and replays first once a game ends. [More below](#-sports-hub).
-- **🏟️ Pick Leagues:** see several leagues together on All Events, with a Live only switch.
 - **🎬 More highlights:** races, fights, golf, tennis, darts and more, from the sports' own YouTube channels, with **Show Highlights** and **Show Condensed Games** switches in Sports settings.
 - **⏺️ Recordings from your network folder:** the TVs' recordings on a NAS or shared folder show up on your phone and play from there. Set the folder up on the phone too. **Recorded, Scheduled and Series** tabs with posters, and **Fix Match** to pick the right show or movie.
 - **🏠 Home rows:** add Live TV, Sports and On Demand rows to Home, including Continue Watching for On Demand.
@@ -74,7 +73,7 @@ Sports shows scores and schedules, and works out **which of your own channels ar
   - **Live streams in the channel list:** a game that's on shows the addons' streams after your own channels.
   - **Replays & highlights:** a finished game gets its own list of replays, highlights and recaps, including official highlights and condensed games (ESPN, NHL, MLB) and YouTube highlights.
   - **Recording and picking a channel** work on your own playlist channels, not on an addon's streams.
-- **Choose leagues:** a row on All Events turns any league on or off, and **Pick Leagues** shows several together, with a Live only switch.
+- **Edit League List:** a row on All Events removes leagues you never want to see (and brings them back).
 - **Tables:** league tables with form, place changes and playoff lines, and your team marked.
 - **Game pages:** the score by period, scoring as it happens, team stats, line-ups, leaderboards and fight cards.
 - **Never miss it:** reminders, **Game Alerts** (offered when you first follow a team) with the live score while your team plays, a heads-up when a game starts and the **final score at full time**, even with the app closed, and **Record a game** with extra time for overtime.

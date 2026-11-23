@@ -1979,7 +1979,7 @@ internal object SportsRepository {
         prefs.editSportsSettings { raw -> transform(SportsSettings.fromJson(raw)).toJson() }
     }
 
-    /** Turn a league on or off for All Events (Choose leagues); a league just turned on is fetched right away. */
+    /** Turn a league on or off for All Events (Edit League List); a league just turned on is fetched right away. */
     fun toggleLeagueShown(league: League) {
         updateSettings { SportsCatalog.toggleShown(league, it) }
         kick.value++

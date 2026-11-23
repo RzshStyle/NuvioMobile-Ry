@@ -5,7 +5,6 @@
 ### Sports
 - **A new Sports hub.** A search bar, a big swipe card, **Live on your channels**, leagues as folding groups with the next match day and a short table, and game cards in team colours. My Sports shows each team's place and form
 - **The game page** has a row of the day's games, a scoreboard, a Watch button and a line under every channel that says if it's showing the game now or later. After the final whistle the replays come first
-- **Pick Leagues:** on All Events, see several leagues together, with a Live only switch
 - **More highlights.** Races, fights, golf, tennis, darts and more get highlights and full replays from the sports' own YouTube channels. Older games and past races keep theirs, and race, fight and tournament rows go back through the whole season
 - **Show Highlights** and **Show Condensed Games** switches in Settings → Sports
 - **Handball** added. College tables have conference tabs and real records
