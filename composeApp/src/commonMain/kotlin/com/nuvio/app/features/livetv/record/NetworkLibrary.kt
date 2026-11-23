@@ -8,6 +8,7 @@ import com.nuvio.app.features.livetv.model.LiveTvClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -106,7 +107,46 @@ internal expect object NetworkLibraryPlatform {
      * ([onVpnWait] is called while it reconnects).
      */
     suspend fun test(config: NetworkFolderConfig, onVpnWait: () -> Unit): String?
+
+    // ── Find on network ──
+
+    /** Looks for computers and NAS boxes with file sharing on the home network (about ten seconds). */
+    fun search(): Flow<NetworkSearchState>
+
+    /** In Full app VPN mode, lets [host] past the VPN first ([onVpnWait] is called while it reconnects). */
+    suspend fun letPastVpn(host: String, onVpnWait: () -> Unit)
+
+    /** [host]'s shared folders (guest when [username] is blank). Throws (see [describe]) when it can't. */
+    suspend fun shares(host: String, username: String, password: String): List<SmbShare>
+
+    /** The folders inside [config]'s folder, by name. Throws when it can't. */
+    suspend fun folders(config: NetworkFolderConfig): List<String>
+
+    /** Makes folder [name] inside [config]'s folder. Throws when it can't. */
+    suspend fun makeFolder(config: NetworkFolderConfig, name: String)
 }
+
+/** A computer or NAS found on the home network that has file sharing. */
+data class FoundComputer(
+    /** Its IP address (what's saved in the folder's address). */
+    val host: String,
+    /** Its name, when it says one (like BRIAN-PC or DS920); null shows the address only. */
+    val name: String? = null,
+)
+
+/** What a search has found so far. */
+data class NetworkSearchState(
+    val found: List<FoundComputer> = emptyList(),
+    /** Still looking. */
+    val searching: Boolean = true,
+    /** A VPN carries this app's connections, so only devices that announce themselves can be found. */
+    val vpnInTheWay: Boolean = false,
+    /** The phone isn't on a home network (no Wi-Fi or Ethernet address). */
+    val noNetwork: Boolean = false,
+)
+
+/** A shared folder a computer or NAS offers. */
+data class SmbShare(val name: String, val remark: String = "")
 
 /**
  * The TVs' recordings on the network folder, shown in the phone's Recordings (watch only: the

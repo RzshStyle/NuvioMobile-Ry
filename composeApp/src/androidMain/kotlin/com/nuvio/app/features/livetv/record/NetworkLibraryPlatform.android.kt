@@ -3,6 +3,8 @@ package com.nuvio.app.features.livetv.record
 import android.net.Uri
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
@@ -69,19 +71,42 @@ internal actual object NetworkLibraryPlatform {
     actual suspend fun test(config: NetworkFolderConfig, onVpnWait: () -> Unit): String? = withContext(Dispatchers.IO) {
         val ctx = RecordingPlatform.context()
         // VPN in Full app mode: let this address past it first (it reconnects), like the TV.
-        if (ctx != null) runCatching {
-            if (com.nuvio.vpn.android.VpnHomeBypass.fullAppOn(ctx)) {
-                withContext(Dispatchers.Main) { onVpnWait() }
-                val host = config.host.trim().let { h -> if (h.count { it == ':' } == 1) h.substringBefore(':') else h }
-                com.nuvio.vpn.android.VpnHomeBypass.set(ctx, listOf(host))
-                com.nuvio.vpn.android.VpnHomeBypass.awaitConnected(ctx, 20_000)
-            }
-        }
+        letPastVpn(config.host, onVpnWait)
         val result = runCatching { SmbFolder(config).use { it.test() } }
         result.exceptionOrNull()?.let { e ->
             val tip = ctx?.let { runCatching { com.nuvio.vpn.android.VpnHomeBypass.hint(it, config.host) }.getOrNull() }
             SmbFolder.describe(e, config) + (tip?.let { "\n$it" } ?: "")
         }
+    }
+
+    actual suspend fun letPastVpn(host: String, onVpnWait: () -> Unit): Unit = withContext(Dispatchers.IO) {
+        val ctx = RecordingPlatform.context() ?: return@withContext
+        runCatching {
+            if (com.nuvio.vpn.android.VpnHomeBypass.fullAppOn(ctx)) {
+                withContext(Dispatchers.Main) { onVpnWait() }
+                val h = host.trim().let { h -> if (h.count { it == ':' } == 1) h.substringBefore(':') else h }
+                com.nuvio.vpn.android.VpnHomeBypass.set(ctx, listOf(h))
+                com.nuvio.vpn.android.VpnHomeBypass.awaitConnected(ctx, 20_000)
+            }
+        }
+        Unit
+    }
+
+    actual fun search(): Flow<NetworkSearchState> {
+        val ctx = RecordingPlatform.context() ?: return flowOf(NetworkSearchState(searching = false, noNetwork = true))
+        return NetworkFolderFinder.search(ctx)
+    }
+
+    actual suspend fun shares(host: String, username: String, password: String): List<SmbShare> =
+        withContext(Dispatchers.IO) { SmbDiscovery.listShares(host, username, password) }
+
+    actual suspend fun folders(config: NetworkFolderConfig): List<String> = withContext(Dispatchers.IO) {
+        SmbFolder(config).use { f -> f.listFolders("").filterNot { it.startsWith(".") }.sortedBy { it.lowercase() } }
+    }
+
+    actual suspend fun makeFolder(config: NetworkFolderConfig, name: String): Unit = withContext(Dispatchers.IO) {
+        SmbFolder(config).use { it.mkdirs(name) }
+        Unit
     }
 
     /** A whole (small) file from the folder. */
