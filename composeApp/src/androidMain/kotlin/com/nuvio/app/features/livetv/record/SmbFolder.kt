@@ -27,17 +27,7 @@ import java.util.concurrent.TimeUnit
  * Every call blocks, so call it off the main thread.
  */
 class SmbFolder(val config: NetworkFolderConfig) : Closeable {
-    private val client = SMBClient(
-        SmbConfig.builder()
-            // Android's own security library lacks a piece Windows logins need (MD4).
-            .withSecurityProvider(BCSecurityProvider())
-            .withAuthenticators(NtlmAuthenticator.Factory())
-            .withMultiProtocolNegotiate(true)
-            .withDfsEnabled(false)
-            .withTimeout(20, TimeUnit.SECONDS)
-            .withSoTimeout(45, TimeUnit.SECONDS)
-            .build()
-    )
+    private val client = newClient()
     private val lock = Any()
     private var connection: Connection? = null
     private var session: Session? = null
@@ -341,7 +331,20 @@ class SmbFolder(val config: NetworkFolderConfig) : Closeable {
         private fun fileThere(d: DiskShare, path: String): Boolean =
             try { d.fileExists(path) } catch (e: SMBApiException) { if (e.status in NOT_FOUND) false else throw e }
 
-        private fun hostAndPort(host: String): Pair<String, Int?> {
+        /** A file sharing client set up the way every network folder connection uses. */
+        internal fun newClient(): SMBClient = SMBClient(
+            SmbConfig.builder()
+                // Android's own security library lacks a piece Windows logins need (MD4).
+                .withSecurityProvider(BCSecurityProvider())
+                .withAuthenticators(NtlmAuthenticator.Factory())
+                .withMultiProtocolNegotiate(true)
+                .withDfsEnabled(false)
+                .withTimeout(20, TimeUnit.SECONDS)
+                .withSoTimeout(45, TimeUnit.SECONDS)
+                .build()
+        )
+
+        internal fun hostAndPort(host: String): Pair<String, Int?> {
             val h = host.trim()
             // [fe80::1]:445, or a plain IPv6 address (several colons) with no port.
             if (h.startsWith("[")) {

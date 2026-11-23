@@ -16,6 +16,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderShared
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.ListAlt
@@ -65,7 +72,10 @@ import com.nuvio.app.features.livetv.model.PlaylistSource
 import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
 import com.nuvio.app.features.livetv.ondemand.VodSort
 import com.nuvio.app.features.livetv.record.LiveTvRecorder
+import com.nuvio.app.features.livetv.record.FoundComputer
 import com.nuvio.app.features.livetv.record.NetworkFolderConfig
+import com.nuvio.app.features.livetv.record.NetworkSearchState
+import com.nuvio.app.features.livetv.record.SmbShare
 import com.nuvio.app.features.livetv.record.NetworkLibrary
 import com.nuvio.app.features.livetv.record.NetworkLibraryPlatform
 import com.nuvio.app.features.livetv.record.RecordingPlatform
@@ -269,6 +279,31 @@ import nuvio.composeapp.generated.resources.livetv_network_checking_vpn
 import nuvio.composeapp.generated.resources.livetv_network_bad_address
 import nuvio.composeapp.generated.resources.livetv_network_saved
 import nuvio.composeapp.generated.resources.livetv_network_removed
+import nuvio.composeapp.generated.resources.livetv_network_find
+import nuvio.composeapp.generated.resources.livetv_network_find_row_subtitle
+import nuvio.composeapp.generated.resources.livetv_network_find_subtitle
+import nuvio.composeapp.generated.resources.livetv_network_find_type_instead
+import nuvio.composeapp.generated.resources.livetv_network_find_searching
+import nuvio.composeapp.generated.resources.livetv_network_find_pick
+import nuvio.composeapp.generated.resources.livetv_network_find_none
+import nuvio.composeapp.generated.resources.livetv_network_find_no_network
+import nuvio.composeapp.generated.resources.livetv_network_find_vpn
+import nuvio.composeapp.generated.resources.livetv_network_find_again
+import nuvio.composeapp.generated.resources.livetv_network_find_back
+import nuvio.composeapp.generated.resources.livetv_network_find_login_subtitle
+import nuvio.composeapp.generated.resources.livetv_network_find_login_tip
+import nuvio.composeapp.generated.resources.livetv_network_find_show_shares
+import nuvio.composeapp.generated.resources.livetv_network_find_signing_in
+import nuvio.composeapp.generated.resources.livetv_network_find_shares_subtitle
+import nuvio.composeapp.generated.resources.livetv_network_find_no_shares
+import nuvio.composeapp.generated.resources.livetv_network_find_folders_subtitle
+import nuvio.composeapp.generated.resources.livetv_network_find_use_folder
+import nuvio.composeapp.generated.resources.livetv_network_find_new_folder
+import nuvio.composeapp.generated.resources.livetv_network_find_new_folder_name
+import nuvio.composeapp.generated.resources.livetv_network_find_new_folder_in
+import nuvio.composeapp.generated.resources.livetv_network_find_create
+import nuvio.composeapp.generated.resources.livetv_network_find_bad_folder_name
+import nuvio.composeapp.generated.resources.livetv_network_find_loading_folders
 import nuvio.composeapp.generated.resources.livetv_vod_default_sort
 import nuvio.composeapp.generated.resources.livetv_vod_default_sort_description
 import nuvio.composeapp.generated.resources.livetv_vod_autoplay
@@ -1890,11 +1925,17 @@ private fun StalkerForm(existing: PlaylistSource?, onDismiss: () -> Unit) {
 /** How a network folder address is typed (shown as the example). */
 private const val NETWORK_ADDRESS_EXAMPLE = "\\\\192.168.1.20\\Recordings"
 
+/** Where the network folder set-up is: the form, or a step of Find on network. */
+private enum class FolderStep { FORM, SEARCH, LOGIN, SHARES, FOLDERS }
+
 /**
  * Sets up the network folder (the one the TVs record to): address, username, password.
  * "Test and save" connects and saves a small test file first; if that fails it says why, and
  * "Save anyway" keeps it (a computer that's asleep right now). Saved here, it goes to the TVs
  * with Live TV sync. The password always shows as dots, like on the TV.
+ *
+ * "Find on network" fills it in instead, like on the TV: pick a computer or NAS from the ones
+ * found, sign in, pick one of its shared folders and a folder inside it, and it's tested and saved.
  */
 @Composable
 private fun NetworkFolderForm(onDismiss: () -> Unit) {
@@ -1912,6 +1953,21 @@ private fun NetworkFolderForm(onDismiss: () -> Unit) {
     val badAddressText = stringResource(Res.string.livetv_network_bad_address, NETWORK_ADDRESS_EXAMPLE)
     val savedText = stringResource(Res.string.livetv_network_saved)
     val removedText = stringResource(Res.string.livetv_network_removed)
+    val signingInText = stringResource(Res.string.livetv_network_find_signing_in)
+    val badFolderNameText = stringResource(Res.string.livetv_network_find_bad_folder_name)
+
+    // Find on network
+    var step by remember { mutableStateOf(FolderStep.FORM) }
+    var searchRun by remember { mutableStateOf(0) }
+    var search by remember { mutableStateOf(NetworkSearchState()) }
+    var computer by remember { mutableStateOf<FoundComputer?>(null) }
+    var shares by remember { mutableStateOf<List<SmbShare>>(emptyList()) }
+    var share by remember { mutableStateOf<String?>(null) }
+    var browsePath by remember { mutableStateOf("") }
+    var folders by remember { mutableStateOf<List<String>?>(null) }
+    var foldersRun by remember { mutableStateOf(0) }
+    var creatingFolder by remember { mutableStateOf(false) }
+    var newFolderName by remember { mutableStateOf("") }
 
     fun configOrNull(): NetworkFolderConfig? {
         val (host, share, path) = NetworkFolderConfig.parseAddress(address) ?: return null
@@ -1925,59 +1981,328 @@ private fun NetworkFolderForm(onDismiss: () -> Unit) {
     }
     fun edited() { failed = false; status = null }
 
+    fun testAndSave() {
+        val c = configOrNull()
+        if (c == null) { failed = false; status = badAddressText; return }
+        checking = true
+        failed = false
+        status = checkingText
+        scope.launch {
+            val problem = runCatching { NetworkLibraryPlatform.test(c) { status = checkingVpnText } }
+                .getOrElse { it.message ?: "The network folder didn't work" }
+            checking = false
+            if (problem == null) save(c)
+            else { failed = true; status = problem }
+        }
+    }
+
+    fun browsingConfig(path: String = browsePath): NetworkFolderConfig? {
+        val c = computer ?: return null
+        val s = share ?: return null
+        return NetworkFolderConfig(host = c.host, share = s, path = path, username = username.trim(), password = password)
+    }
+
+    fun signIn() {
+        val c = computer ?: return
+        checking = true
+        failed = false
+        status = signingInText
+        scope.launch {
+            val result = runCatching {
+                NetworkLibraryPlatform.letPastVpn(c.host) { status = checkingVpnText }
+                NetworkLibraryPlatform.shares(c.host, username, password)
+            }
+            checking = false
+            result.onSuccess {
+                shares = it
+                edited()
+                step = FolderStep.SHARES
+            }.onFailure { e ->
+                failed = true
+                status = NetworkLibraryPlatform.describe(e, NetworkFolderConfig(host = c.host, share = ""))
+            }
+        }
+    }
+
+    fun openFolder(path: String) {
+        browsePath = path
+        folders = null
+        creatingFolder = false
+        edited()
+        foldersRun++
+    }
+
+    LaunchedEffect(step, searchRun) {
+        if (step != FolderStep.SEARCH) return@LaunchedEffect
+        search = NetworkSearchState()
+        NetworkLibraryPlatform.search().collect { search = it }
+    }
+
+    LaunchedEffect(step, foldersRun) {
+        if (step != FolderStep.FOLDERS) return@LaunchedEffect
+        val config = browsingConfig() ?: return@LaunchedEffect
+        runCatching { NetworkLibraryPlatform.folders(config) }
+            .onSuccess { folders = it }
+            .onFailure { e ->
+                folders = emptyList()
+                failed = true
+                status = NetworkLibraryPlatform.describe(e, config)
+            }
+    }
+
+    fun back() {
+        if (checking) return
+        edited()
+        when (step) {
+            FolderStep.FORM -> onDismiss()
+            FolderStep.SEARCH -> step = FolderStep.FORM
+            FolderStep.LOGIN -> step = FolderStep.SEARCH
+            FolderStep.SHARES -> step = FolderStep.LOGIN
+            FolderStep.FOLDERS -> when {
+                creatingFolder -> creatingFolder = false
+                browsePath.isEmpty() -> step = FolderStep.SHARES
+                else -> openFolder(browsePath.substringBeforeLast('/', ""))
+            }
+        }
+    }
+
     // Closed without saving: the VPN goes back to the saved folder's address.
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { NetworkLibrary.restoreVpn() } }
 
+    val computerLabel = computer?.let { c -> c.name?.let { "$it (${c.host})" } ?: c.host }.orEmpty()
+    val backText = stringResource(Res.string.livetv_network_find_back)
+
+    @Composable
+    fun FindRow(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, description: String? = null, enabled: Boolean = true, onClick: () -> Unit) {
+        DialogOption(
+            text = text,
+            selected = false,
+            onClick = onClick,
+            description = description,
+            enabled = enabled,
+            role = androidx.compose.ui.semantics.Role.Button,
+            leading = {
+                androidx.compose.material3.Icon(icon, contentDescription = null, tint = tokens.colors.textSecondary)
+            },
+        )
+    }
+
+    @Composable
+    fun Note(text: String) {
+        Text(text, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted)
+    }
+
     DialogSurface(
-        onDismissRequest = { if (!checking) onDismiss() },
+        onDismissRequest = { back() },
         title = stringResource(Res.string.livetv_network_title),
-        message = stringResource(Res.string.livetv_network_subtitle),
+        message = when (step) {
+            FolderStep.FORM -> stringResource(Res.string.livetv_network_subtitle)
+            FolderStep.SEARCH -> stringResource(Res.string.livetv_network_find_subtitle)
+            FolderStep.LOGIN -> stringResource(Res.string.livetv_network_find_login_subtitle, computerLabel)
+            FolderStep.SHARES -> stringResource(Res.string.livetv_network_find_shares_subtitle, computerLabel)
+            FolderStep.FOLDERS -> stringResource(Res.string.livetv_network_find_folders_subtitle)
+        },
     ) {
-        NuvioInputField(value = address, onValueChange = { address = it; edited() },
-            placeholder = stringResource(Res.string.livetv_network_address, NETWORK_ADDRESS_EXAMPLE))
-        NuvioInputField(value = username, onValueChange = { username = it; edited() },
-            placeholder = stringResource(Res.string.livetv_network_username))
-        StalkerSecretField(password, { password = it; edited() }, stringResource(Res.string.livetv_network_password))
-        Text(stringResource(Res.string.livetv_network_tips), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted)
+        Column(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
+        ) {
+            when (step) {
+                FolderStep.FORM -> {
+                    FindRow(
+                        text = stringResource(Res.string.livetv_network_find),
+                        icon = androidx.compose.material.icons.Icons.Default.Search,
+                        description = stringResource(Res.string.livetv_network_find_row_subtitle),
+                        enabled = !checking,
+                    ) { edited(); searchRun++; step = FolderStep.SEARCH }
+                    NuvioInputField(value = address, onValueChange = { address = it; edited() },
+                        placeholder = stringResource(Res.string.livetv_network_address, NETWORK_ADDRESS_EXAMPLE))
+                    NuvioInputField(value = username, onValueChange = { username = it; edited() },
+                        placeholder = stringResource(Res.string.livetv_network_username))
+                    StalkerSecretField(password, { password = it; edited() }, stringResource(Res.string.livetv_network_password))
+                    Note(stringResource(Res.string.livetv_network_tips))
+                }
+
+                FolderStep.SEARCH -> {
+                    FindRow(
+                        text = stringResource(Res.string.livetv_network_find_type_instead),
+                        icon = androidx.compose.material.icons.Icons.Default.Edit,
+                    ) { step = FolderStep.FORM }
+                    Note(
+                        when {
+                            search.noNetwork -> stringResource(Res.string.livetv_network_find_no_network)
+                            search.searching -> stringResource(Res.string.livetv_network_find_searching)
+                            search.found.isEmpty() -> stringResource(Res.string.livetv_network_find_none)
+                            else -> stringResource(Res.string.livetv_network_find_pick)
+                        },
+                    )
+                    if (search.vpnInTheWay) Note(stringResource(Res.string.livetv_network_find_vpn))
+                    for (found in search.found) {
+                        FindRow(
+                            text = found.name ?: found.host,
+                            icon = androidx.compose.material.icons.Icons.Default.Dns,
+                            description = if (found.name != null) found.host else null,
+                        ) {
+                            // Signing in to the same computer again: keep the saved login.
+                            if (existing != null && existing.host.equals(found.host, ignoreCase = true) && computer?.host != found.host) {
+                                username = existing.username
+                                password = existing.password
+                            }
+                            computer = found
+                            edited()
+                            step = FolderStep.LOGIN
+                        }
+                    }
+                }
+
+                FolderStep.LOGIN -> {
+                    NuvioInputField(value = username, onValueChange = { username = it; edited() },
+                        placeholder = stringResource(Res.string.livetv_network_username))
+                    StalkerSecretField(password, { password = it; edited() }, stringResource(Res.string.livetv_network_password))
+                    Note(stringResource(Res.string.livetv_network_find_login_tip))
+                }
+
+                FolderStep.SHARES -> {
+                    if (shares.isEmpty()) {
+                        Note(stringResource(Res.string.livetv_network_find_no_shares))
+                        FindRow(
+                            text = stringResource(Res.string.livetv_network_find_type_instead),
+                            icon = androidx.compose.material.icons.Icons.Default.Edit,
+                        ) {
+                            computer?.let { address = "\\\\" + it.host + "\\" }
+                            step = FolderStep.FORM
+                        }
+                    }
+                    for (s in shares) {
+                        FindRow(
+                            text = s.name,
+                            icon = androidx.compose.material.icons.Icons.Default.FolderShared,
+                            description = s.remark.ifBlank { null },
+                        ) {
+                            share = s.name
+                            step = FolderStep.FOLDERS
+                            openFolder("")
+                        }
+                    }
+                }
+
+                FolderStep.FOLDERS -> {
+                    val here = browsingConfig()?.label.orEmpty()
+                    if (creatingFolder) {
+                        NuvioInputField(value = newFolderName, onValueChange = { newFolderName = it; edited() },
+                            placeholder = stringResource(Res.string.livetv_network_find_new_folder_name))
+                        Note(stringResource(Res.string.livetv_network_find_new_folder_in, here))
+                    } else {
+                        FindRow(
+                            text = stringResource(Res.string.livetv_network_find_use_folder),
+                            icon = androidx.compose.material.icons.Icons.Default.Check,
+                            description = here,
+                            enabled = !checking,
+                        ) {
+                            val config = browsingConfig() ?: return@FindRow
+                            address = config.address
+                            step = FolderStep.FORM
+                            testAndSave()
+                        }
+                        FindRow(
+                            text = stringResource(Res.string.livetv_network_find_new_folder),
+                            icon = androidx.compose.material.icons.Icons.Default.CreateNewFolder,
+                            enabled = !checking && folders != null,
+                        ) { newFolderName = ""; edited(); creatingFolder = true }
+                        val list = folders
+                        if (list == null) Note(stringResource(Res.string.livetv_network_find_loading_folders))
+                        else for (name in list) {
+                            FindRow(text = name, icon = androidx.compose.material.icons.Icons.Default.Folder) {
+                                openFolder(if (browsePath.isEmpty()) name else "$browsePath/$name")
+                            }
+                        }
+                    }
+                }
+            }
+        }
         status?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = if (failed) tokens.colors.danger else tokens.colors.textMuted)
         }
         DialogButtons {
-            DialogButton(text = stringResource(Res.string.action_cancel), onClick = onDismiss, enabled = !checking)
-            if (existing != null) DialogButton(
-                text = stringResource(Res.string.livetv_network_remove),
-                style = DialogButtonStyle.Destructive,
-                enabled = !checking,
-                onClick = {
-                    NetworkLibrary.save(null)
-                    com.nuvio.app.core.ui.NuvioToastController.show(removedText)
-                    onDismiss()
-                },
-            )
-            if (failed) DialogButton(
-                text = stringResource(Res.string.livetv_network_save_anyway),
-                enabled = !checking,
-                onClick = { configOrNull()?.let { save(it) } },
-            )
-            DialogButton(
-                text = stringResource(Res.string.livetv_network_test_save),
-                style = DialogButtonStyle.Primary,
-                loading = checking,
-                onClick = {
-                    val c = configOrNull()
-                    if (c == null) { failed = false; status = badAddressText; return@DialogButton }
-                    checking = true
-                    failed = false
-                    status = checkingText
-                    scope.launch {
-                        val problem = runCatching { NetworkLibraryPlatform.test(c) { status = checkingVpnText } }
-                            .getOrElse { it.message ?: "The network folder didn't work" }
-                        checking = false
-                        if (problem == null) save(c)
-                        else { failed = true; status = problem }
-                    }
-                },
-            )
+            when (step) {
+                FolderStep.FORM -> {
+                    DialogButton(text = stringResource(Res.string.action_cancel), onClick = onDismiss, enabled = !checking)
+                    if (existing != null) DialogButton(
+                        text = stringResource(Res.string.livetv_network_remove),
+                        style = DialogButtonStyle.Destructive,
+                        enabled = !checking,
+                        onClick = {
+                            NetworkLibrary.save(null)
+                            com.nuvio.app.core.ui.NuvioToastController.show(removedText)
+                            onDismiss()
+                        },
+                    )
+                    if (failed) DialogButton(
+                        text = stringResource(Res.string.livetv_network_save_anyway),
+                        enabled = !checking,
+                        onClick = { configOrNull()?.let { save(it) } },
+                    )
+                    DialogButton(
+                        text = stringResource(Res.string.livetv_network_test_save),
+                        style = DialogButtonStyle.Primary,
+                        loading = checking,
+                        onClick = { testAndSave() },
+                    )
+                }
+                FolderStep.SEARCH -> {
+                    DialogButton(text = backText, onClick = { back() })
+                    DialogButton(
+                        text = stringResource(Res.string.livetv_network_find_again),
+                        style = DialogButtonStyle.Primary,
+                        enabled = !search.searching,
+                        onClick = { searchRun++ },
+                    )
+                }
+                FolderStep.LOGIN -> {
+                    DialogButton(text = backText, onClick = { back() }, enabled = !checking)
+                    DialogButton(
+                        text = stringResource(Res.string.livetv_network_find_show_shares),
+                        style = DialogButtonStyle.Primary,
+                        loading = checking,
+                        onClick = { signIn() },
+                    )
+                }
+                FolderStep.SHARES -> {
+                    DialogButton(text = backText, onClick = { back() })
+                }
+                FolderStep.FOLDERS -> {
+                    DialogButton(
+                        text = if (creatingFolder) stringResource(Res.string.action_cancel) else backText,
+                        onClick = { back() },
+                        enabled = !checking,
+                    )
+                    if (creatingFolder) DialogButton(
+                        text = stringResource(Res.string.livetv_network_find_create),
+                        style = DialogButtonStyle.Primary,
+                        loading = checking,
+                        onClick = create@{
+                            val name = newFolderName.trim().trim('/', '\\')
+                            if (name.isEmpty() || name.any { it in "\\/:*?\"<>|" } || name == "." || name == "..") {
+                                failed = true
+                                status = badFolderNameText
+                                return@create
+                            }
+                            val config = browsingConfig() ?: return@create
+                            checking = true
+                            scope.launch {
+                                val result = runCatching { NetworkLibraryPlatform.makeFolder(config, name) }
+                                checking = false
+                                result.onSuccess {
+                                    openFolder(if (browsePath.isEmpty()) name else "$browsePath/$name")
+                                }.onFailure { e ->
+                                    failed = true
+                                    status = NetworkLibraryPlatform.describe(e, config)
+                                }
+                            }
+                        },
+                    )
+                }
+            }
         }
     }
 }

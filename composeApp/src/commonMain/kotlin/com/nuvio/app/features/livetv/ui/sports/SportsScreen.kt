@@ -92,8 +92,6 @@ import com.nuvio.app.features.livetv.sports.buildMySportsPage
 import com.nuvio.app.features.livetv.sports.buildSportsDayPage
 import com.nuvio.app.features.livetv.sports.prepareSportsPages
 import com.nuvio.app.features.livetv.sports.SportsSettings
-import com.nuvio.app.features.livetv.sports.SPORT_PICKED
-import com.nuvio.app.features.livetv.sports.pickedLeaguesLabel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import nuvio.composeapp.generated.resources.Res
@@ -423,9 +421,6 @@ private fun AllEventsTab(
     var sportFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var leaguePick by rememberSaveable { mutableStateOf<String?>(null) }
     var choosingLeagues by remember { mutableStateOf(false) }
-    // Pick Leagues: the ticked leagues together (any sports), and its sheet.
-    var pickingLeagues by remember { mutableStateOf(false) }
-    val pickedOn = sportFilter == SPORT_PICKED && settings.pickedLeagues.isNotEmpty()
     LaunchedEffect(day) { if (day < -1) repo.wantPast() }
     val dayStart = repo.dayStart(day)
     val dayEnd = repo.dayStart(day + 1)
@@ -478,7 +473,7 @@ private fun AllEventsTab(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        if (sports.isNotEmpty() || settings.pickedLeagues.isNotEmpty()) {
+        if (sports.isNotEmpty()) {
             LazyRow(
                 contentPadding = PaddingValues(horizontal = NuvioTokens.Space.s12, vertical = NuvioTokens.Space.s4),
                 horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
@@ -488,13 +483,6 @@ private fun AllEventsTab(
                     Chip(s.icon + " " + s.label, selected = sportFilter == s.name, onClick = {
                         if (sportFilter != s.name) leaguePick = null
                         sportFilter = s.name
-                    })
-                }
-                // Tap: show the ticked leagues (none yet, or already showing: the sheet to tick them).
-                item(key = "picked") {
-                    Chip("☰ " + pickedLeaguesLabel(settings), selected = pickedOn, onClick = {
-                        if (settings.pickedLeagues.isEmpty() || pickedOn) pickingLeagues = true
-                        else { sportFilter = SPORT_PICKED; leaguePick = null }
                     })
                 }
             }
@@ -582,8 +570,6 @@ private fun AllEventsTab(
                         Text(
                             when {
                                 ready == null || loading -> "Getting today's games…"
-                                pickedOn && settings.pickedLiveOnly && day == 0 -> "None of your picked leagues are playing right now."
-                                pickedOn -> "No games from your picked leagues this day."
                                 else -> stringResource(Res.string.livetv_sports_nothing_today)
                             },
                             style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textMuted, modifier = Modifier.padding(vertical = NuvioTokens.Space.s24),
@@ -629,15 +615,9 @@ private fun AllEventsTab(
         }
     }
     if (LocalScreenActive.current && choosingLeagues) LeaguesSheet(onDismiss = { choosingLeagues = false })
-    if (LocalScreenActive.current && pickingLeagues) PickLeaguesSheet(onDismiss = { ids ->
-        pickingLeagues = false
-        // Leagues ticked: show them; all cleared: back to every sport.
-        if (ids.isNotEmpty()) { sportFilter = SPORT_PICKED; leaguePick = null }
-        else if (sportFilter == SPORT_PICKED) sportFilter = null
-    })
 }
 
-/** "Leagues", how many are showing, Choose leagues, and Open all / Close all. */
+/** "Leagues", how many are showing, Edit League List, and Open all / Close all. */
 @Composable
 private fun LeaguesHeading(
     settings: SportsSettings,
@@ -659,7 +639,7 @@ private fun LeaguesHeading(
                 style = MaterialTheme.typography.labelSmall, color = tokens.colors.textMuted, maxLines = 1,
             )
         }
-        LinkButton("Choose leagues", onChoose)
+        LinkButton("Edit League List", onChoose)
         if (showToggle) LinkButton(if (allOpen) "Close all" else "Open all") { onToggleAll(!allOpen) }
     }
 }

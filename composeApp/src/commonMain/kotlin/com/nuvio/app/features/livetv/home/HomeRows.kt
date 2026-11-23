@@ -237,6 +237,9 @@ internal object HomeLiveRows {
 
     private var started = false
 
+    /** Each row's place the last time Home's order was looked at (row id → the row above it). */
+    private var seenAnchors: Map<String, String> = emptyMap()
+
     /** Hands the rows to Home's row list and keeps each row's place remembered (once, at app start). */
     fun start() {
         if (started) return
@@ -269,12 +272,18 @@ internal object HomeLiveRows {
                 .debounce(1_500)
                 .collect { (order, list) ->
                     if (list.isEmpty() || order.isEmpty()) return@collect
-                    val anchors = list.associate { r ->
+                    // Only rows moved on this phone: the TVs' Home has other rows, so a row can sit under
+                    // a different one there, and saving every difference would make them keep
+                    // overwriting each other's place.
+                    val anchors = list.mapNotNull { r ->
                         val i = order.indexOf(r.key)
-                        r.id to if (i < 0) null else order.subList(0, i).lastOrNull { !HomeLiveRow.isKey(it) }.orEmpty()
-                    }
-                    if (list.any { r -> anchors[r.id]?.let { it != r.after } == true }) {
-                        edit { rows -> rows.map { r -> anchors[r.id]?.let { r.copy(after = it) } ?: r } }
+                        if (i < 0) null else r.id to order.subList(0, i).lastOrNull { !HomeLiveRow.isKey(it) }.orEmpty()
+                    }.toMap()
+                    val seen = seenAnchors
+                    seenAnchors = anchors
+                    val moved = anchors.filter { (id, at) -> seen[id]?.let { it != at } == true }
+                    if (list.any { r -> moved[r.id]?.let { it != r.after } == true }) {
+                        edit { rows -> rows.map { r -> moved[r.id]?.let { r.copy(after = it) } ?: r } }
                     }
                 }
         }
