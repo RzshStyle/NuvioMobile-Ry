@@ -3085,6 +3085,9 @@
     <string name="livetv_parental_vod_groups">On Demand categories</string>
     <!-- Live TV: reminders -->
     <string name="livetv_remind_me">Remind me</string>
+    <string name="livetv_find_in_nuvio">Find in Nuvio</string>
+    <string name="livetv_find_in_nuvio_finding">Finding…</string>
+    <string name="livetv_find_in_nuvio_pick">Which one is it?</string>
     <string name="livetv_reminder_set">Reminder set</string>
     <string name="livetv_section_reminders">Reminders</string>
     <string name="livetv_reminders_list">Your reminders</string>

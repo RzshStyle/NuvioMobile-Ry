@@ -1464,6 +1464,29 @@ internal object LiveTvRepository {
             c.icon?.takeIf { it.isNotBlank() }?.let { logos[key] = it }
         }
         if (tvgShifts.isNotEmpty()) REPORT.add("Guide: ${tvgShifts.size} channels moved by the playlist's tvg-shift")
+        // Shows that already aired and the new guide no longer has (many guides start at "now", or
+        // put "No information" over yesterday): carried over from the stored guide, so the guide
+        // and catch-up still show them for as long as Past Shows Kept says. Only for channels still
+        // on the same guide channel.
+        runCatching {
+            val storedMatches = EpgStore.autoMatches()
+            val same = programs.keys.filter { key ->
+                val c = best[key] ?: return@filter false
+                val before = overrides[key] ?: storedMatches[key] ?: return@filter false
+                before.sourceId == c.sourceId && before.xmltvId == c.xmltvId
+            }
+            var carried = 0
+            for (part in same.chunked(400)) {
+                val old = EpgStore.range(windowStart, now, light = false, channels = part)
+                for (key in part) {
+                    val before = old[key] ?: continue
+                    carryAired(before, programs[key].orEmpty(), windowStart, now)?.let { (list, added) ->
+                        programs[key] = list; carried += added
+                    }
+                }
+            }
+            if (carried > 0) REPORT.add("Guide: kept $carried shows from before that the new guide no longer lists (within Past Shows Kept)")
+        }
         setStatus(loading = true, message = "Storing the guide…")
         runCatching { EpgStore.replaceAll(guideFingerprint(settings, targets), programs, auto) }
             .onFailure {
@@ -1509,6 +1532,25 @@ internal object LiveTvRepository {
     }
 
     private fun isPlaceholderListing(list: List<EpgProgram>): Boolean = list.all { isPlaceholderTitle(it.title) }
+
+    /**
+     * [new] with the real shows of [old] that ended between [from] and [until] added wherever
+     * [new] has no real show at that time (a placeholder there gives way, unless it's still on
+     * after [until]). Null when nothing was added.
+     */
+    private fun carryAired(old: List<EpgProgram>, new: List<EpgProgram>, from: Long, until: Long): Pair<List<EpgProgram>, Int>? {
+        val out = ArrayList(new)
+        var added = 0
+        for (o in old.sortedBy { it.startMs }) {
+            if (o.stopMs <= from || o.stopMs > until || o.stopMs <= o.startMs || isPlaceholderTitle(o.title)) continue
+            fun overlaps(p: EpgProgram) = p.startMs < o.stopMs && p.stopMs > o.startMs
+            if (out.any { overlaps(it) && (!isPlaceholderTitle(it.title) || it.stopMs > until) }) continue
+            out.removeAll { overlaps(it) }
+            out += o
+            added++
+        }
+        return if (added == 0) null else out.sortedBy { it.startMs } to added
+    }
 
     /** How many pickers (Assign EPG, Change logo) are open and want every guide's channel list. */
     @kotlin.concurrent.Volatile private var listsWanted = 0

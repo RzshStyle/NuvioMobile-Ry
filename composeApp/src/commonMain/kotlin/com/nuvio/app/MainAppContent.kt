@@ -1881,6 +1881,7 @@ internal fun MainAppContent(
                         onPlayChannel = ::openLiveChannel,
                         modifier = Modifier.fillMaxSize(),
                         onPlayCatchup = ::openLiveCatchup,
+                        onOpenTitle = { type, tmdbId, title -> navController.navigate(DetailRoute(type = type, id = "tmdb:$tmdbId", title = title)) },
                     )
                 }
                 entry<LiveTvRecordingsRoute> { route ->
