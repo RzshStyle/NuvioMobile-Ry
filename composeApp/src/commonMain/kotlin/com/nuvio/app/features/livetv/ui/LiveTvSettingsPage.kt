@@ -329,6 +329,8 @@ import nuvio.composeapp.generated.resources.livetv_vod_update_now_description
 import nuvio.composeapp.generated.resources.livetv_section_guides
 import nuvio.composeapp.generated.resources.livetv_section_playlists
 import nuvio.composeapp.generated.resources.livetv_section_watching
+import nuvio.composeapp.generated.resources.livetv_backup_order_title
+import nuvio.composeapp.generated.resources.livetv_backup_order_row_subtitle
 import nuvio.composeapp.generated.resources.livetv_section_channel_display
 import nuvio.composeapp.generated.resources.livetv_phone_logos
 import nuvio.composeapp.generated.resources.livetv_phone_logos_description
@@ -523,6 +525,7 @@ private sealed interface LiveDialog {
     data object FutureDays : LiveDialog
     data object PastHours : LiveDialog
     data object StreamFormat : LiveDialog
+    data object BackupOrder : LiveDialog
     data class CatchupZone(val source: PlaylistSource) : LiveDialog
     data class PlaylistGuideShift(val source: PlaylistSource) : LiveDialog
     data class PlaylistCatchupShift(val source: PlaylistSource) : LiveDialog
@@ -856,6 +859,14 @@ private fun LiveTvSettingsBody(isTablet: Boolean, onlyRecordings: Boolean = fals
                     checked = settings.autoBackupChannel,
                     isTablet = isTablet,
                     onCheckedChange = { on -> update { it.copy(autoBackupChannel = on) } },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.livetv_backup_order_title),
+                    description = stringResource(Res.string.livetv_backup_order_row_subtitle),
+                    isTablet = isTablet,
+                    trailingContent = { ValueLabel(backupGroupByLabel(com.nuvio.app.features.livetv.model.BackupOrder.groupBy(settings))) },
+                    onClick = { dialog = LiveDialog.BackupOrder },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
@@ -1541,6 +1552,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean, onlyRecordings: Boolean = fals
             selected = settings.epgPastHours,
             onDismiss = close,
         ) { v -> update { it.copy(epgPastHours = v) }; LiveTvRepository.refreshEpgOnly() }
+        LiveDialog.BackupOrder -> BackupOrderDialog(onDismiss = close)
         LiveDialog.StreamFormat -> ChoiceDialog(
             title = stringResource(Res.string.livetv_stream_format),
             options = listOf("auto" to "Auto", "ts" to "MPEG-TS", "m3u8" to "HLS (m3u8)"),
