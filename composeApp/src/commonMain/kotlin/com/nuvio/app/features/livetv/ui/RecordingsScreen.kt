@@ -443,17 +443,38 @@ private fun rememberRecordingPoster(title: String, channelName: String?): String
     val fixes by TitleMatchFixes.fixes.collectAsStateWithLifecycle()
     val pick = fixes[TitleMatchFixes.recordingKey(title)]
     val poster by produceState<String?>(null, title, wanted, pick) {
-        if (!wanted) { value = null; return@produceState }
-        pick?.poster?.let { value = it; return@produceState }
-        TitleMatchFixes.posterByCountry(title, channelName)?.let { value = it; return@produceState }
-        val key = title.trim().lowercase().replace(Regex("\\s+"), " ")
+        value = if (wanted) findRecordingPoster(title, channelName, pick?.poster) else null
+    }
+    return poster
+}
+
+/** Posters already found here, so the player shows the same one at once (used on the main thread). */
+private val recordingPosters = HashMap<String, String>()
+
+private suspend fun findRecordingPoster(title: String, channelName: String?, picked: String?): String? {
+    picked?.let { return it }
+    val key = title.trim().lowercase().replace(Regex("\\s+"), " ")
+    recordingPosters[key + "|" + channelName.orEmpty()]?.let { return it }
+    val found = TitleMatchFixes.posterByCountry(title, channelName) ?: run {
         val item = VodItem(
             playlistId = "rec", kind = VodKind.SERIES, id = key, name = title, icon = null, categoryId = "",
             ext = null, tmdbId = null, year = null, rating = null, addedSec = 0L,
         )
-        value = runCatching { OnDemandRepository.match(item) }.getOrNull()?.poster?.takeIf { it.isNotBlank() }
+        runCatching { OnDemandRepository.match(item) }.getOrNull()?.poster?.takeIf { it.isNotBlank() }
     }
-    return poster
+    if (found != null) recordingPosters[key + "|" + channelName.orEmpty()] = found
+    return found
+}
+
+/**
+ * The poster Recordings shows for [rec], for the player's picture: none for sports or with
+ * "Show posters" off (the channel's logo is used then, as in Recordings).
+ */
+internal suspend fun recordingPosterFor(rec: LiveTvRecording): String? {
+    val title = rec.title
+    if (!LiveTvPreferences.settings.value.showPosters || title.isBlank() || isSportsRecording(title, rec.channelName)) return null
+    val pick = TitleMatchFixes.fixes.value[TitleMatchFixes.recordingKey(title)]
+    return findRecordingPoster(title, rec.channelName, pick?.poster)
 }
 
 private val EPISODE_NUMBERS = Regex("""(?i)s\s*0*(\d{1,3})\s*[.\- ]?\s*e\s*0*(\d{1,4})""")

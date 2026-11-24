@@ -23,10 +23,11 @@
 ## 🆕 New in this update
 
 - **⏺️ Record to your network folder from the phone:** recordings are copied to your NAS or shared folder when they finish, so your TVs can watch them too. Each device keeps its own folder address.
-- **📝 Episode descriptions** in a recording's details, from TMDB when the guide has none.
+- **📝 Episode descriptions** in a recording's details, from TMDB when the guide has none, and the recording's poster in the player.
 - **🔁 Backups with headings:** grouped by playlist, add-on or quality, in the order you pick, shared with your TVs.
 - **📺 A steadier guide:** shows that already aired stay in the guide after an update, and **Find in Nuvio** opens the movie or series page straight away.
 - **🏆 Sports:** what you follow loads first when the app opens.
+- **⚡ Lighter:** big M3U playlists, On Demand updates and Sports use less memory.
 - **🇫🇷 French** for Live TV, the guide, On Demand, Recordings, the Calendar and Multiview.
 - **Built on Nuvio Mobile 1.1.0-beta.3,** with Traditional Chinese, better subtitles and better MKV, DTS and Blu-ray playback.
 
