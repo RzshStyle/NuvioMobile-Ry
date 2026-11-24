@@ -36,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import com.nuvio.app.features.tmdb.TmdbMetadataService
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -455,6 +456,48 @@ private fun rememberRecordingPoster(title: String, channelName: String?): String
     return poster
 }
 
+private val EPISODE_NUMBERS = Regex("""(?i)s\s*0*(\d{1,3})\s*[.\- ]?\s*e\s*0*(\d{1,4})""")
+private val aboutCache = HashMap<String, String>()
+
+/**
+ * What a recording is about: the guide's description, else TMDB's (the episode's own when the
+ * guide gave its season and episode, a movie's otherwise). The show is matched the same way as
+ * its poster (Fix match pick first). A show with no episode numbers gets nothing: its general
+ * description would read as if it were this episode's.
+ */
+@Composable
+private fun rememberRecordingAbout(rec: LiveTvRecording): String? {
+    val guide = rec.description?.trim()?.takeIf { it.isNotBlank() }
+    val fixes by TitleMatchFixes.fixes.collectAsStateWithLifecycle()
+    val pick = fixes[TitleMatchFixes.recordingKey(rec.title)]
+    val found by produceState(aboutCache[rec.id], rec.id, guide, pick) {
+        if (guide != null || rec.title.isBlank() || isSportsRecording(rec.title, rec.channelName)) return@produceState
+        if (value != null && pick == null) return@produceState
+        val key = rec.title.trim().lowercase().replace(Regex("\\s+"), " ")
+        fun item(kind: VodKind) = VodItem(
+            playlistId = "rec", kind = kind, id = key, name = rec.title, icon = null, categoryId = "",
+            ext = null, tmdbId = null, year = null, rating = null, addedSec = 0L,
+        )
+        val numbers = rec.episode?.let { EPISODE_NUMBERS.find(it) }?.let { it.groupValues[1].toInt() to it.groupValues[2].toInt() }
+        val text = runCatching {
+            if (numbers != null) {
+                val id = pick?.takeIf { it.series }?.tmdbId ?: OnDemandRepository.match(item(VodKind.SERIES))?.tmdbId
+                id?.let { TmdbMetadataService.episodeOverview(it, numbers.first, numbers.second) }
+            } else if (pick != null) {
+                pick.tmdbId?.takeIf { !pick.series }?.let { TmdbMetadataService.movieOverview(it) }
+            } else {
+                // Only when it's a movie and not a show of the same name.
+                val show = OnDemandRepository.match(item(VodKind.SERIES))?.tmdbId
+                if (show != null) null
+                else OnDemandRepository.match(item(VodKind.MOVIE))?.tmdbId?.let { TmdbMetadataService.movieOverview(it) }
+            }
+        }.getOrNull()?.trim()?.takeIf { it.isNotBlank() }
+        if (text != null) aboutCache[rec.id] = text else aboutCache.remove(rec.id)
+        value = text
+    }
+    return guide ?: found
+}
+
 /** A portrait poster, or the channel's logo on the card color when there's none. */
 @Composable
 private fun PosterBox(poster: String?, channelLogo: String?, modifier: Modifier) {
@@ -533,7 +576,7 @@ private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: 
                 listOfNotNull(rec.channelName, formatLocalDateTime(rec.startedAtMs), rec.endedAtMs?.let { formatClock(it) }, RecordingRules.sizeLabel(rec.sizeBytes).takeIf { rec.sizeBytes > 0 }).joinToString("  ·  "),
                 style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted,
             )
-            rec.description?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = NuvioTokens.Space.s6)) }
+            rememberRecordingAbout(rec)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary, maxLines = 6, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = NuvioTokens.Space.s6)) }
         }
         NuvioBottomSheetDivider()
         if (rec.status != RecordingStatus.FAILED) {
