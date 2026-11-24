@@ -133,7 +133,9 @@ internal object LiveTvRepository {
             // The channel list saved last time goes on screen first; only playlists that changed
             // since are read again (quietly, the channels already showing).
             runCatching { mutex.withLock { runCatching { loadSavedChannels() }; rebuildLocked() } }
-            if (updateCheckDelayMs > 0) delay(updateCheckDelayMs)
+            // Nothing saved to show yet (first start, or the saved list couldn't be used): read the
+            // playlists now rather than wait.
+            if (updateCheckDelayMs > 0 && _channels.value.isNotEmpty()) delay(updateCheckDelayMs)
             autoCheck()
             firstCheckDone = true
             // Keep checking while the app stays open: the guide runs out after a day or two.
