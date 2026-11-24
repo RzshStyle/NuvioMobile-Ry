@@ -243,6 +243,7 @@ fun LiveTvScreen(
     }
     val playlistChoices = playlistGroupCounts.map { (p, n) -> PlaylistChoice(p.id, p.name, pluralStringResource(Res.plurals.livetv_ui_groups, n, n)) }
     val playlistId = PlaylistFilter.effective(savedPlaylist, playlistChoices.map { it.id })
+    val hiddenPlaylists = rememberHiddenPlaylists(playlists, remember(playlistGroupCounts) { playlistGroupCounts.mapTo(HashSet()) { it.first.id } })
     val playlistNames = remember(playlists) { playlists.associate { it.id to it.name } }
     val sections = remember(state.sections, playlistId) {
         if (playlistId == null) state.sections
@@ -323,6 +324,8 @@ fun LiveTvScreen(
                         allDetail = (state.sections.count { it.group.sourceId != null }).let { pluralStringResource(Res.plurals.livetv_ui_groups, it, it) },
                         onSelect = PlaylistFilter::select,
                         modifier = Modifier.padding(bottom = NuvioTokens.Space.s8),
+                        hidden = hiddenPlaylists,
+                        onOpenHidden = { h -> if (h.profileHidden) onOpenSettings() else onOpenManage() },
                     )
                     AnimatedVisibility(visible = searching) {
                         NuvioInputField(
