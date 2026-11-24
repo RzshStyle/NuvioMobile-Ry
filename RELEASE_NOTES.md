@@ -5,6 +5,7 @@
 ### Recordings
 - **Record to your network folder from the phone:** set Storage to the network folder and each recording is copied there when it finishes, one file per show, so your TVs can watch it too. Until the folder can be reached, recordings wait on the phone and still play here
 - **Episode descriptions** in a recording's details. When the guide had none, the description comes from TMDB
+- The player shows the **recording's poster** on the pause screen and in the notification, instead of the channel logo
 
 ### Live TV
 - **Backups with headings:** the Backups list groups channels by playlist, add-on or quality, in the order you pick (Settings → Live TV → Watching → Backups & Game Channels). The order is shared with your TVs
@@ -14,6 +15,9 @@
 
 ### Sports
 - **What you follow loads first** when the app opens, and followed leagues' rows (UFC, F1, golf) are saved between launches, with last week's results
+
+### Faster and lighter
+- Big M3U playlists reload without holding a second copy, On Demand catalogue updates and Sports channel matching use less memory, and VPN streams waste less (thanks to bArKEr)
 
 ### Nuvio Mobile 1.1.0-beta.3
 - Built on Nuvio Mobile 1.1.0-beta.3: Traditional Chinese, subtitle names in the subtitle list, a badge for styled subtitles, bigger subtitle sizes (up to 60), Jellyfin and Emby sign-ins kept per profile, and better MKV, DTS and Blu-ray playback
@@ -30,4 +34,4 @@
 - On a first start, playlists load straight away
 
 ## Special thanks
-- [@ghbarker](https://github.com/ghbarker) (bArKEr) for the VPN fixes
+- [@ghbarker](https://github.com/ghbarker) (bArKEr) for the VPN fixes and the speed and memory work
