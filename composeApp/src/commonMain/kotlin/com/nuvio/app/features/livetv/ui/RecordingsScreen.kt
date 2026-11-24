@@ -210,7 +210,7 @@ internal fun RecordingsScreen(
         if (netAway) {
             Text(
                 (if (network.recordings.isNotEmpty()) stringResource(Res.string.livetv_ui_rec_away_has)
-                else stringResource(Res.string.livetv_ui_rec_away_none, network.folderLabel)) +
+                else stringResource(Res.string.livetv_ui_rec_away_none, network.folderLabel.orEmpty())) +
                     (network.problem?.let { " ${it.trimEnd('.')}." } ?: ""),
                 style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted,
                 modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16).padding(bottom = NuvioTokens.Space.s8),
