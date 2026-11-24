@@ -3,6 +3,7 @@ package com.nuvio.app.features.livetv.record
 import com.nuvio.app.features.livetv.data.LiveTvDirs
 import com.nuvio.app.features.livetv.data.LiveTvFiles
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
+import com.nuvio.app.features.livetv.data.optLong
 import com.nuvio.app.features.livetv.data.optString
 import com.nuvio.app.features.livetv.model.LiveTvClock
 import kotlinx.coroutines.CoroutineScope
@@ -189,6 +190,14 @@ internal object NetworkLibrary {
     @Volatile private var config: NetworkFolderConfig? = null
     @Volatile private var started = false
     @Volatile private var lastRefreshAt = 0L
+    /**
+     * Each recording's details as last read, and when they last changed / were last read
+     * (kept with the saved list). A TV's recording sends new details every few seconds, so one
+     * still saying "recording" that hasn't changed for [STALL_MS] while being looked at was given
+     * up on by that TV (closed, asleep, off the network).
+     */
+    private data class Seen(val info: String, val changedAt: Long, val checkedAt: Long)
+    private val seen = HashMap<String, Seen>()
 
     fun isNetwork(rec: LiveTvRecording): Boolean = rec.dir.startsWith(DIR_PREFIX)
     private fun idOf(rec: LiveTvRecording): String = rec.dir.removePrefix(DIR_PREFIX)
@@ -204,6 +213,7 @@ internal object NetworkLibrary {
                 config = c
                 runCatching { NetworkLibraryPlatform.configChanged(c) }
                 if (c == null) {
+                    synchronized(seen) { seen.clear() }
                     _state.value = State()
                     runCatching { LiveTvFiles.delete(LiveTvDirs.STATE, CACHE) }
                 } else {
@@ -226,6 +236,14 @@ internal object NetworkLibrary {
                 _state.update { it.copy(checking = true) }
                 try {
                     val found = NetworkLibraryPlatform.list(c)
+                    val checkedAt = LiveTvClock.nowMs()
+                    synchronized(seen) {
+                        seen.keys.retainAll(found.keys)
+                        found.forEach { (id, text) ->
+                            val before = seen[id]
+                            seen[id] = Seen(text, if (before == null || before.info != text) checkedAt else before.changedAt, checkedAt)
+                        }
+                    }
                     val list = found.mapNotNull { (id, text) -> parse(id, text) }.sortedByDescending { it.startedAtMs }
                     if (config != c) return@withLock
                     _state.value = State(folderLabel = c.label, recordings = list, reachable = true)
@@ -295,17 +313,44 @@ internal object NetworkLibrary {
     private fun parse(id: String, text: String): LiveTvRecording? = runCatching {
         LiveTvRecording.fromJson(Json.parseToJsonElement(text).jsonObject, DIR_PREFIX + id)
             ?.copy(id = id, fileName = "index.m3u8")
+            ?.let(::givenUpOn)
     }.getOrNull()
+
+    /**
+     * A TV's recording that stopped being updated before it finished shows as ended, so it can
+     * be watched as far as it got, or deleted. If that TV carries on, its next details bring it
+     * back as recording.
+     */
+    private fun givenUpOn(rec: LiveTvRecording): LiveTvRecording {
+        if (!rec.isRecording) return rec
+        val s = synchronized(seen) { seen[rec.id] } ?: return rec
+        if (s.checkedAt - s.changedAt < STALL_MS) return rec
+        return rec.copy(
+            status = RecordingStatus.DONE,
+            endedAtMs = rec.endedAtMs?.takeIf { it > 0L } ?: s.changedAt,
+            problem = "The TV stopped sending this before it finished, so it may stop early",
+        )
+    }
+
+    /** A recording whose details haven't changed this long is taken as given up on. */
+    private const val STALL_MS = 10L * 60_000
 
     // ---- the last list read, for when the folder can't be reached
 
     private fun readCache(label: String): List<LiveTvRecording> = runCatching {
         val o = Json.parseToJsonElement(LiveTvFiles.readSmall(LiveTvDirs.STATE, CACHE) ?: return emptyList()).jsonObject
         if (o.optString("folder") != label) return emptyList()
-        o["items"]!!.jsonArray.mapNotNull { e ->
-            val item = e.jsonObject
-            parse(item.optString("id"), item.optString("info"))
-        }.sortedByDescending { it.startedAtMs }
+        val items = o["items"]!!.jsonArray.map { it.jsonObject }
+        synchronized(seen) {
+            items.forEach { item ->
+                val id = item.optString("id")
+                val changedAt = item.optLong("changedAt")
+                if (id.isNotEmpty() && changedAt > 0L && id !in seen)
+                    seen[id] = Seen(item.optString("info"), changedAt, item.optLong("checkedAt", changedAt))
+            }
+        }
+        items.mapNotNull { item -> parse(item.optString("id"), item.optString("info")) }
+            .sortedByDescending { it.startedAtMs }
     }.getOrDefault(emptyList())
 
     private fun writeCache(label: String, found: Map<String, String>) {
@@ -313,7 +358,13 @@ internal object NetworkLibrary {
             val o: JsonObject = buildJsonObject {
                 put("folder", label)
                 put("items", buildJsonArray {
-                    found.forEach { (id, info) -> add(buildJsonObject { put("id", id); put("info", info) }) }
+                    found.forEach { (id, info) ->
+                        val s = synchronized(seen) { seen[id] }
+                        add(buildJsonObject {
+                            put("id", id); put("info", info)
+                            if (s != null) { put("changedAt", s.changedAt); put("checkedAt", s.checkedAt) }
+                        })
+                    }
                 })
             }
             LiveTvFiles.writeSmall(LiveTvDirs.STATE, CACHE, o.toString())
