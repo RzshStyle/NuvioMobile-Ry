@@ -141,6 +141,9 @@ import com.nuvio.app.core.ui.MenuItem
 import nuvio.composeapp.generated.resources.livetv_title
 import nuvio.composeapp.generated.resources.livetv_update_now
 import org.jetbrains.compose.resources.stringResource
+import nuvio.composeapp.generated.resources.livetv_ui_groups
+import nuvio.composeapp.generated.resources.livetv_ui_pick_favorites
+import org.jetbrains.compose.resources.pluralStringResource
 
 /**
  * The Live TV tab: channels grouped (favorites first), each with what's on now and how far
@@ -227,12 +230,13 @@ fun LiveTvScreen(
     }
 
     // Playlist dropdown: only playlists that have groups here; hidden with fewer than two.
-    val playlistChoices = remember(state.sections, playlists) {
+    val playlistGroupCounts = remember(state.sections, playlists) {
         playlists.mapNotNull { p ->
             val n = state.sections.count { it.group.sourceId == p.id }
-            if (n > 0) PlaylistChoice(p.id, p.name, if (n == 1) "1 group" else "$n groups") else null
+            if (n > 0) p to n else null
         }
     }
+    val playlistChoices = playlistGroupCounts.map { (p, n) -> PlaylistChoice(p.id, p.name, pluralStringResource(Res.plurals.livetv_ui_groups, n, n)) }
     val playlistId = PlaylistFilter.effective(savedPlaylist, playlistChoices.map { it.id })
     val playlistNames = remember(playlists) { playlists.associate { it.id to it.name } }
     val sections = remember(state.sections, playlistId) {
@@ -311,7 +315,7 @@ fun LiveTvScreen(
                     PlaylistDropdown(
                         choices = playlistChoices,
                         selectedId = playlistId,
-                        allDetail = (state.sections.count { it.group.sourceId != null }).let { if (it == 1) "1 group" else "$it groups" },
+                        allDetail = (state.sections.count { it.group.sourceId != null }).let { pluralStringResource(Res.plurals.livetv_ui_groups, it, it) },
                         onSelect = PlaylistFilter::select,
                         modifier = Modifier.padding(bottom = NuvioTokens.Space.s8),
                     )
@@ -558,7 +562,7 @@ private fun GroupCard(
         if (!group.locked && onPickFavorites != null) {
             Icon(
                 imageVector = Icons.Filled.StarBorder,
-                contentDescription = "Pick favorites",
+                contentDescription = stringResource(Res.string.livetv_ui_pick_favorites),
                 tint = tokens.colors.textMuted,
                 modifier = Modifier.size(36.dp).clip(CircleShape).clickable(onClick = onPickFavorites).padding(6.dp),
             )

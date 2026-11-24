@@ -85,6 +85,12 @@ import nuvio.composeapp.generated.resources.action_close
 import nuvio.composeapp.generated.resources.livetv_player_channels
 import nuvio.composeapp.generated.resources.livetv_player_guide
 import org.jetbrains.compose.resources.stringResource
+import nuvio.composeapp.generated.resources.livetv_ui_addon_stream
+import nuvio.composeapp.generated.resources.livetv_ui_also_showing
+import nuvio.composeapp.generated.resources.livetv_ui_backups
+import nuvio.composeapp.generated.resources.livetv_ui_multiview
+import nuvio.composeapp.generated.resources.livetv_ui_same_channel_other
+import nuvio.composeapp.generated.resources.livetv_ui_this_game
 
 private const val HOUR_MS = 60L * 60L * 1000L
 private const val SLOT_MS = 30L * 60L * 1000L
@@ -230,7 +236,7 @@ internal fun LiveTvPlayerOverlay(
                 horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
             ) {
                 Icon(Icons.Filled.SwapHoriz, contentDescription = null, tint = Color.White, modifier = Modifier.size(NuvioTokens.Icon.md))
-                Text("Backups", style = MaterialTheme.typography.labelLarge, color = Color.White)
+                Text(stringResource(Res.string.livetv_ui_backups), style = MaterialTheme.typography.labelLarge, color = Color.White)
             }
             if (onOpenMultiview != null) Row(
                 modifier = Modifier.clip(RoundedCornerShape(NuvioTokens.Radius.full))
@@ -242,7 +248,7 @@ internal fun LiveTvPlayerOverlay(
                 horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
             ) {
                 Icon(Icons.Filled.GridView, contentDescription = null, tint = Color.White, modifier = Modifier.size(NuvioTokens.Icon.md))
-                Text("Multiview", style = MaterialTheme.typography.labelLarge, color = Color.White)
+                Text(stringResource(Res.string.livetv_ui_multiview), style = MaterialTheme.typography.labelLarge, color = Color.White)
             }
             Row(
                 modifier = Modifier
@@ -574,7 +580,7 @@ private fun BackupsPanel(backups: PlayerBackups, currentKey: String?, onClose: (
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().padding(start = NuvioTokens.Space.s14, end = NuvioTokens.Space.s8, bottom = NuvioTokens.Space.s6),
     ) {
-        Text("Backups", style = MaterialTheme.typography.titleMedium, color = tokens.colors.textPrimary,
+        Text(stringResource(Res.string.livetv_ui_backups), style = MaterialTheme.typography.titleMedium, color = tokens.colors.textPrimary,
             fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
         Box(
             modifier = Modifier.size(34.dp).clip(CircleShape).background(tokens.colors.surface).clickable(onClick = onClose),
@@ -589,14 +595,14 @@ private fun BackupsPanel(backups: PlayerBackups, currentKey: String?, onClose: (
         verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
     ) {
         if (backups.gameChannels.isNotEmpty()) {
-            item(key = "h:game") { BackupsHeading("Also showing " + (backups.gameTitle ?: "this game")) }
+            item(key = "h:game") { BackupsHeading(stringResource(Res.string.livetv_ui_also_showing, backups.gameTitle ?: stringResource(Res.string.livetv_ui_this_game))) }
             items(backups.gameChannels, key = { "g:" + it.first.key }) { (c, addonLine) ->
-                BackupRow(c, subtitle = if (addonLine != null) "Add-on stream · " + c.sourceName else c.group,
+                BackupRow(c, subtitle = if (addonLine != null) stringResource(Res.string.livetv_ui_addon_stream, c.sourceName) else c.group,
                     playing = c.key == currentKey) { onPick(c) }
             }
         }
         if (backups.copies.isNotEmpty()) {
-            item(key = "h:copies") { BackupsHeading("Same channel, other streams") }
+            item(key = "h:copies") { BackupsHeading(stringResource(Res.string.livetv_ui_same_channel_other)) }
             items(backups.copies, key = { "c:" + it.key }) { c ->
                 BackupRow(c, subtitle = listOf(c.sourceName, c.group).filter { it.isNotBlank() }.distinct().joinToString(" · "),
                     playing = c.key == currentKey) { onPick(c) }

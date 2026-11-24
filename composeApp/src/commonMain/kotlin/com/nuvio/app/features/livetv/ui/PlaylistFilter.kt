@@ -32,6 +32,11 @@ import com.nuvio.app.features.livetv.sync.LiveTvDriveHttp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import nuvio.composeapp.generated.resources.livetv_ui_all
+import nuvio.composeapp.generated.resources.livetv_ui_all_playlists
+import nuvio.composeapp.generated.resources.Res
+import org.jetbrains.compose.resources.stringResource
+import org.jetbrains.compose.resources.getString
 
 /**
  * Which playlist the group view, the guide and On Demand show ("All playlists" = null). One choice
@@ -85,7 +90,7 @@ internal fun PlaylistDropdown(
         ) {
             if (!compact) Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = null, tint = tokens.colors.textMuted, modifier = Modifier.size(NuvioTokens.Icon.md))
             Text(
-                text = current?.name ?: if (compact) "All" else "All playlists",
+                text = current?.name ?: stringResource(if (compact) Res.string.livetv_ui_all else Res.string.livetv_ui_all_playlists),
                 style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium,
                 color = tokens.colors.textPrimary,
                 maxLines = 1,
@@ -96,7 +101,7 @@ internal fun PlaylistDropdown(
             Icon(Icons.Filled.ExpandMore, contentDescription = null, tint = tokens.colors.textMuted, modifier = if (compact) Modifier.size(NuvioTokens.Icon.sm) else Modifier)
         }
         Menu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            MenuItem(text = "All playlists", selected = current == null, onClick = { menuOpen = false; onSelect(null) })
+            MenuItem(text = stringResource(Res.string.livetv_ui_all_playlists), selected = current == null, onClick = { menuOpen = false; onSelect(null) })
             choices.forEach { c ->
                 MenuItem(text = c.name, selected = current?.id == c.id, onClick = { menuOpen = false; onSelect(c.id) })
             }

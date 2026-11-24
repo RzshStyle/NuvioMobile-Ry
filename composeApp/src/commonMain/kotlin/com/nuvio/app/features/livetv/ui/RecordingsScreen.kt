@@ -131,6 +131,14 @@ import nuvio.composeapp.generated.resources.livetv_rec_none_recorded
 import nuvio.composeapp.generated.resources.livetv_rec_none_scheduled
 import nuvio.composeapp.generated.resources.livetv_rec_none_series
 import org.jetbrains.compose.resources.stringResource
+import nuvio.composeapp.generated.resources.livetv_ui_rec_away
+import nuvio.composeapp.generated.resources.livetv_ui_rec_away_has
+import nuvio.composeapp.generated.resources.livetv_ui_rec_away_none
+import nuvio.composeapp.generated.resources.livetv_ui_rec_copying
+import nuvio.composeapp.generated.resources.livetv_ui_rec_net_unreachable
+import nuvio.composeapp.generated.resources.livetv_ui_rec_network
+import nuvio.composeapp.generated.resources.livetv_ui_rec_settings
+import nuvio.composeapp.generated.resources.livetv_ui_rec_waiting_net
 
 /**
  * Recordings: what's recording now above three tabs: Recorded (posters), Scheduled (by day) and
@@ -168,7 +176,7 @@ internal fun RecordingsScreen(
 
     val recordingNow = recordings.filter { it.isRecording } + network.recordings.filter { it.isRecording }
     val recorded = recordings.filter { !it.isRecording } + network.recordings.filter { !it.isRecording }
-    val awayText = "Your network folder can't be reached right now"
+    val awayText = stringResource(Res.string.livetv_ui_rec_away)
     // A recording on the network folder: plays from there, only when it can be reached.
     fun play(r: LiveTvRecording) {
         if (NetworkLibrary.isNetwork(r) && netAway) NuvioToastController.show(awayText) else onPlay(r)
@@ -192,7 +200,7 @@ internal fun RecordingsScreen(
             modifier = Modifier.padding(horizontal = NuvioTokens.Space.s8),
             actions = {
                 androidx.compose.material3.IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Filled.Settings, contentDescription = "Recording settings", tint = tokens.colors.textPrimary)
+                    Icon(Icons.Filled.Settings, contentDescription = stringResource(Res.string.livetv_ui_rec_settings), tint = tokens.colors.textPrimary)
                 }
             },
         )
@@ -200,8 +208,8 @@ internal fun RecordingsScreen(
         // here (a blank list looked like the folder was empty).
         if (netAway) {
             Text(
-                (if (network.recordings.isNotEmpty()) "Recordings on your network folder play when it can be reached (at home, or through your VPN)."
-                else "Your network folder (${network.folderLabel}) can't be reached, so its recordings can't be listed. Check its address with the gear above.") +
+                (if (network.recordings.isNotEmpty()) stringResource(Res.string.livetv_ui_rec_away_has)
+                else stringResource(Res.string.livetv_ui_rec_away_none, network.folderLabel)) +
                     (network.problem?.let { " ${it.trimEnd('.')}." } ?: ""),
                 style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted,
                 modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16).padding(bottom = NuvioTokens.Space.s8),
@@ -244,10 +252,10 @@ internal fun RecordingsScreen(
                         posterTitle = r.title,
                         channelName = r.channelName,
                         channelLogo = r.channelLogo,
-                        line = if (failed) (r.problem ?: stringResource(Res.string.livetv_rec_failed_short)) else if (fromTv && netAway) "Network folder unreachable"
-                        else if (uploads.copyingId == r.id) "Copying to network folder · ${(uploads.progress * 100).toInt()}%"
-                        else if (r.id in waitingForNetwork) "Waiting for network folder" else listOfNotNull(
-                            "Network".takeIf { fromTv },
+                        line = if (failed) (r.problem ?: stringResource(Res.string.livetv_rec_failed_short)) else if (fromTv && netAway) stringResource(Res.string.livetv_ui_rec_net_unreachable)
+                        else if (uploads.copyingId == r.id) stringResource(Res.string.livetv_ui_rec_copying, (uploads.progress * 100).toInt())
+                        else if (r.id in waitingForNetwork) stringResource(Res.string.livetv_ui_rec_waiting_net) else listOfNotNull(
+                            stringResource(Res.string.livetv_ui_rec_network).takeIf { fromTv },
                             SportsDates.dayLabel(r.programStartMs.takeIf { it > 0 } ?: r.startedAtMs),
                             RecordingRules.durationLabel(r.durationSec).takeIf { r.durationSec >= 60 },
                         ).joinToString(" · "),
