@@ -970,7 +970,9 @@ internal fun MainAppContent(
 
         androidx.compose.runtime.SideEffect { com.nuvio.app.features.livetv.ui.OnDemandSearchBridge.actions = onDemandActions }
 
-        fun openRecording(rec: LiveTvRecording) {
+        fun openRecording(rec: LiveTvRecording) { coroutineScope.launch {
+            // The poster Recordings showed (already found there, so no wait), not the channel's logo.
+            val poster = withTimeoutOrNull(1_500) { runCatching { com.nuvio.app.features.livetv.ui.recordingPosterFor(rec) }.getOrNull() }
             val playerLaunch = PlayerLaunch(
                 profileId = activePlaybackProfileId,
                 title = rec.title,
@@ -978,7 +980,7 @@ internal fun MainAppContent(
                 // A TV's recording from the network folder is served as an HLS playlist.
                 streamType = if (com.nuvio.app.features.livetv.record.NetworkLibrary.isNetwork(rec)) "hls" else null,
                 logo = rec.channelLogo,
-                poster = rec.channelLogo,
+                poster = poster ?: rec.channelLogo,
                 streamTitle = rec.title,
                 streamSubtitle = rec.channelName,
                 pauseDescription = rec.description,
@@ -992,7 +994,7 @@ internal fun MainAppContent(
             )
             val launchId = PlayerLaunchStore.put(playerLaunch)
             navController.navigate(PlayerRoute(launchId = launchId, title = rec.title))
-        }
+        } }
 
         fun openLiveCatchup(channel: LiveChannel, program: EpgProgram) {
             liveChannelOpenJob?.cancel()
