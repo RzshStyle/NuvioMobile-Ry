@@ -503,7 +503,18 @@ private fun MiniGuide(channels: List<LiveChannel>, currentKey: String?, now: Lon
         }
     }
     detail?.let { (c, p) ->
-        ProgramDetailsDialog(c, p, now, onDismiss = { detail = null }, onPlay = { detail = null; onSwitch(c, p.title) }, onReplay = null)
+        val openTitle = com.nuvio.app.features.livetv.multiview.LocalOpenNuvioTitle.current
+        val onOpenTitle: ((String, Int, String) -> Unit)? = if (openTitle == null) null else { type, id, name ->
+            detail = null
+            openTitle(type, id, name)
+        }
+        ProgramDetailsDialog(
+            channel = c, program = p, now = now,
+            onDismiss = { detail = null },
+            onPlay = { detail = null; onSwitch(c, p.title) },
+            onReplay = null,
+            onOpenTitle = onOpenTitle,
+        )
     }
 }
 

@@ -146,6 +146,7 @@ import com.nuvio.app.features.livetv.player.LiveTvPlayback
 import com.nuvio.app.features.livetv.multiview.MultiviewScreen
 import com.nuvio.app.features.livetv.multiview.MultiviewSession
 import com.nuvio.app.features.livetv.multiview.LocalOpenMultiview
+import com.nuvio.app.features.livetv.multiview.LocalOpenNuvioTitle
 import com.nuvio.app.features.livetv.multiview.MultiviewQueue
 import com.nuvio.app.features.livetv.sports.SportsWatchController
 import com.nuvio.app.features.livetv.multiview.isMultiviewSupported
@@ -1033,6 +1034,14 @@ internal fun MainAppContent(
             }
         }
 
+        /** Find in Nuvio from the player's guide: the title's page, in place of the player. */
+        fun openNuvioTitleFromPlayer(type: String, tmdbId: Int, title: String) {
+            navController.navigate(DetailRoute(type = type, id = "tmdb:$tmdbId", title = title)) {
+                if (navController.currentRoute is PlayerRoute) popUpTo<PlayerRoute> { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+
         val sportsActions = SportsActions(
             onPlay = ::openLiveChannel,
             onPlayCatchup = ::openLiveCatchup,
@@ -1544,6 +1553,7 @@ internal fun MainAppContent(
             SharedTransitionLayout {
                 CompositionLocalProvider(
                     LocalOpenMultiview provides ::openMultiviewWith,
+                    LocalOpenNuvioTitle provides ::openNuvioTitleFromPlayer,
                     LocalPosterClickAnchor provides if (posterNavigationEnabled) posterNavigation::prepare else null,
                     LocalUseNativeNavigation provides useNativeNavigation,
                     LocalNativeNavigationBarHidden provides (currentRoute?.hidesNavigationBar == true),
