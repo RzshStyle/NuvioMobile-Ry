@@ -1,7 +1,7 @@
 <resources>
     <string name="compose_settings_page_media_servers">Serveurs multimédias</string>
     <string name="compose_settings_page_media_server">Serveur</string>
-    <string name="settings_content_discovery_media_servers_description">Connectez Jellyfin ou Emby pour parcourir et lire votre propre bibliothèque.</string>
+    <string name="settings_content_discovery_media_servers_description">Connectez Jellyfin, Emby, Plex ou Silo pour parcourir et lire votre propre bibliothèque.</string>
     <string name="servers_section_connected">SERVEURS</string>
     <string name="servers_section_add">AJOUTER UN SERVEUR</string>
     <string name="servers_empty">Aucun serveur connecté pour le moment.</string>
@@ -66,7 +66,7 @@
     <string name="plex_browser_waiting">Terminez la connexion sur plex.tv, puis revenez ici.</string>
     <string name="plex_use_code">Se connecter sur un autre appareil</string>
     <string name="plex_use_browser">Se connecter sur cet appareil</string>
-    <string name="plex_code_starting">Préparation…</string>
+    <string name="plex_code_starting">Préparation en cours…</string>
     <string name="plex_code_instructions">Sur un autre appareil, ouvrez %1$s, connectez-vous à Plex et saisissez ce code.</string>
     <string name="plex_code_waiting">En attente de la saisie du code…</string>
     <string name="servers_code_copied">Code copié</string>
@@ -82,9 +82,9 @@
     <string name="plex_reach_local">Réseau local</string>
     <string name="plex_reach_remote">Internet</string>
     <string name="plex_reach_relay_detail">Plex Relay limite la qualité vidéo</string>
-    <string name="plex_reach_offline_detail">Injoignable depuis cet appareil</string>
+    <string name="plex_reach_offline_detail">Inaccessible depuis cet appareil</string>
     <string name="plex_users_title">Choisir un utilisateur Plex Home</string>
-    <string name="plex_users_subtitle">Qui regarde sur %1$s ?</string>
+    <string name="plex_users_subtitle">Qui regarde sur %1$s&#160;?</string>
     <string name="plex_user_admin">Administrateur</string>
     <string name="plex_user_managed">Utilisateur géré</string>
     <string name="servers_has_pin">Code PIN</string>
@@ -108,7 +108,7 @@
     <string name="silo_use_password">Utiliser un mot de passe</string>
     <string name="silo_use_code">Utiliser un code</string>
     <string name="silo_password_subtitle">Connectez-vous avec votre compte %1$s.</string>
-    <string name="silo_profiles_title">Qui regarde ?</string>
+    <string name="silo_profiles_title">Qui regarde&#160;?</string>
     <string name="silo_profile_kids">Enfants</string>
     <string name="silo_error_not_silo">Aucun serveur Silo n’a répondu à cette adresse.</string>
     <string name="silo_error_temporary_password">Modifiez d’abord votre mot de passe temporaire dans l’application web de Silo, puis reconnectez-vous.</string>
