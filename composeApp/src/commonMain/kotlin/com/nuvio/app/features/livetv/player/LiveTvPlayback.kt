@@ -216,6 +216,9 @@ internal object LiveTvPlayback {
 
     fun noteRecording(url: String) { synchronized(lock) { recordings += url } }
 
+    /** A recording handed to the player (read from the same storage as the video). */
+    fun isRecording(url: String): Boolean = synchronized(lock) { url in recordings }
+
     /**
      * Whether the player should look for closed captions hidden inside the video: live channels,
      * catch-up and recordings (not Sports highlight clips).

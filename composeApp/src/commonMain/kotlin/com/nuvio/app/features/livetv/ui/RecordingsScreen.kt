@@ -1,6 +1,7 @@
 package com.nuvio.app.features.livetv.ui
 
 import com.nuvio.app.features.livetv.record.NetworkLibrary
+import com.nuvio.app.features.livetv.record.NetworkUploads
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -35,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import com.nuvio.app.features.tmdb.TmdbMetadataService
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -130,6 +132,14 @@ import nuvio.composeapp.generated.resources.livetv_rec_none_recorded
 import nuvio.composeapp.generated.resources.livetv_rec_none_scheduled
 import nuvio.composeapp.generated.resources.livetv_rec_none_series
 import org.jetbrains.compose.resources.stringResource
+import nuvio.composeapp.generated.resources.livetv_ui_rec_away
+import nuvio.composeapp.generated.resources.livetv_ui_rec_away_has
+import nuvio.composeapp.generated.resources.livetv_ui_rec_away_none
+import nuvio.composeapp.generated.resources.livetv_ui_rec_copying
+import nuvio.composeapp.generated.resources.livetv_ui_rec_net_unreachable
+import nuvio.composeapp.generated.resources.livetv_ui_rec_network
+import nuvio.composeapp.generated.resources.livetv_ui_rec_settings
+import nuvio.composeapp.generated.resources.livetv_ui_rec_waiting_net
 
 /**
  * Recordings: what's recording now above three tabs: Recorded (posters), Scheduled (by day) and
@@ -153,6 +163,10 @@ internal fun RecordingsScreen(
     // The TVs' recordings on the network folder (watch only), read now and every few minutes while open.
     val network by remember { NetworkLibrary.start(); NetworkLibrary.state }.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { while (true) { NetworkLibrary.refresh(force = true); delay(180_000) } }
+    // Recordings made here for the network folder: copying across, or waiting until it can be reached.
+    val uploads by NetworkUploads.state.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { NetworkUploads.kick(force = true) }
+    val waitingForNetwork = remember(recordings, uploads) { recordings.filter { NetworkUploads.isPending(it) }.map { it.id }.toSet() }
     val netAway = network.folderLabel != null && network.reachable == false
     var sheet by remember { mutableStateOf<Any?>(null) }
     // Fix match: the show's name, and whether it's surely a show (null = don't know).
@@ -163,8 +177,8 @@ internal fun RecordingsScreen(
 
     val recordingNow = recordings.filter { it.isRecording } + network.recordings.filter { it.isRecording }
     val recorded = recordings.filter { !it.isRecording } + network.recordings.filter { !it.isRecording }
-    val awayText = "Available at home: your network folder can't be reached right now"
-    // A TV's recording: plays from the network folder, only when it can be reached.
+    val awayText = stringResource(Res.string.livetv_ui_rec_away)
+    // A recording on the network folder: plays from there, only when it can be reached.
     fun play(r: LiveTvRecording) {
         if (NetworkLibrary.isNetwork(r) && netAway) NuvioToastController.show(awayText) else onPlay(r)
     }
@@ -187,13 +201,17 @@ internal fun RecordingsScreen(
             modifier = Modifier.padding(horizontal = NuvioTokens.Space.s8),
             actions = {
                 androidx.compose.material3.IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Filled.Settings, contentDescription = "Recording settings", tint = tokens.colors.textPrimary)
+                    Icon(Icons.Filled.Settings, contentDescription = stringResource(Res.string.livetv_ui_rec_settings), tint = tokens.colors.textPrimary)
                 }
             },
         )
-        if (netAway && network.recordings.isNotEmpty()) {
+        // The network folder can't be reached: said even when its recordings were never listed
+        // here (a blank list looked like the folder was empty).
+        if (netAway) {
             Text(
-                "Recordings from your TVs play when you're home (on the same Wi-Fi as the network folder)." + (network.problem?.let { " $it." } ?: ""),
+                (if (network.recordings.isNotEmpty()) stringResource(Res.string.livetv_ui_rec_away_has)
+                else stringResource(Res.string.livetv_ui_rec_away_none, network.folderLabel.orEmpty())) +
+                    (network.problem?.let { " ${it.trimEnd('.')}." } ?: ""),
                 style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted,
                 modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16).padding(bottom = NuvioTokens.Space.s8),
             )
@@ -235,8 +253,10 @@ internal fun RecordingsScreen(
                         posterTitle = r.title,
                         channelName = r.channelName,
                         channelLogo = r.channelLogo,
-                        line = if (failed) (r.problem ?: stringResource(Res.string.livetv_rec_failed_short)) else if (fromTv && netAway) "Available at home" else listOfNotNull(
-                            "TV".takeIf { fromTv },
+                        line = if (failed) (r.problem ?: stringResource(Res.string.livetv_rec_failed_short)) else if (fromTv && netAway) stringResource(Res.string.livetv_ui_rec_net_unreachable)
+                        else if (uploads.copyingId == r.id) stringResource(Res.string.livetv_ui_rec_copying, (uploads.progress * 100).toInt())
+                        else if (r.id in waitingForNetwork) stringResource(Res.string.livetv_ui_rec_waiting_net) else listOfNotNull(
+                            stringResource(Res.string.livetv_ui_rec_network).takeIf { fromTv },
                             SportsDates.dayLabel(r.programStartMs.takeIf { it > 0 } ?: r.startedAtMs),
                             RecordingRules.durationLabel(r.durationSec).takeIf { r.durationSec >= 60 },
                         ).joinToString(" · "),
@@ -436,6 +456,48 @@ private fun rememberRecordingPoster(title: String, channelName: String?): String
     return poster
 }
 
+private val EPISODE_NUMBERS = Regex("""(?i)s\s*0*(\d{1,3})\s*[.\- ]?\s*e\s*0*(\d{1,4})""")
+private val aboutCache = HashMap<String, String>()
+
+/**
+ * What a recording is about: the guide's description, else TMDB's (the episode's own when the
+ * guide gave its season and episode, a movie's otherwise). The show is matched the same way as
+ * its poster (Fix match pick first). A show with no episode numbers gets nothing: its general
+ * description would read as if it were this episode's.
+ */
+@Composable
+private fun rememberRecordingAbout(rec: LiveTvRecording): String? {
+    val guide = rec.description?.trim()?.takeIf { it.isNotBlank() }
+    val fixes by TitleMatchFixes.fixes.collectAsStateWithLifecycle()
+    val pick = fixes[TitleMatchFixes.recordingKey(rec.title)]
+    val found by produceState(aboutCache[rec.id], rec.id, guide, pick) {
+        if (guide != null || rec.title.isBlank() || isSportsRecording(rec.title, rec.channelName)) return@produceState
+        if (value != null && pick == null) return@produceState
+        val key = rec.title.trim().lowercase().replace(Regex("\\s+"), " ")
+        fun item(kind: VodKind) = VodItem(
+            playlistId = "rec", kind = kind, id = key, name = rec.title, icon = null, categoryId = "",
+            ext = null, tmdbId = null, year = null, rating = null, addedSec = 0L,
+        )
+        val numbers = rec.episode?.let { EPISODE_NUMBERS.find(it) }?.let { it.groupValues[1].toInt() to it.groupValues[2].toInt() }
+        val text = runCatching {
+            if (numbers != null) {
+                val id = pick?.takeIf { it.series }?.tmdbId ?: OnDemandRepository.match(item(VodKind.SERIES))?.tmdbId
+                id?.let { TmdbMetadataService.episodeOverview(it, numbers.first, numbers.second) }
+            } else if (pick != null) {
+                pick.tmdbId?.takeIf { !pick.series }?.let { TmdbMetadataService.movieOverview(it) }
+            } else {
+                // Only when it's a movie and not a show of the same name.
+                val show = OnDemandRepository.match(item(VodKind.SERIES))?.tmdbId
+                if (show != null) null
+                else OnDemandRepository.match(item(VodKind.MOVIE))?.tmdbId?.let { TmdbMetadataService.movieOverview(it) }
+            }
+        }.getOrNull()?.trim()?.takeIf { it.isNotBlank() }
+        if (text != null) aboutCache[rec.id] = text else aboutCache.remove(rec.id)
+        value = text
+    }
+    return guide ?: found
+}
+
 /** A portrait poster, or the channel's logo on the card color when there's none. */
 @Composable
 private fun PosterBox(poster: String?, channelLogo: String?, modifier: Modifier) {
@@ -514,7 +576,7 @@ private fun RecordingSheet(rec: LiveTvRecording, onDismiss: () -> Unit, onPlay: 
                 listOfNotNull(rec.channelName, formatLocalDateTime(rec.startedAtMs), rec.endedAtMs?.let { formatClock(it) }, RecordingRules.sizeLabel(rec.sizeBytes).takeIf { rec.sizeBytes > 0 }).joinToString("  ·  "),
                 style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted,
             )
-            rec.description?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = NuvioTokens.Space.s6)) }
+            rememberRecordingAbout(rec)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = tokens.colors.textSecondary, maxLines = 6, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = NuvioTokens.Space.s6)) }
         }
         NuvioBottomSheetDivider()
         if (rec.status != RecordingStatus.FAILED) {

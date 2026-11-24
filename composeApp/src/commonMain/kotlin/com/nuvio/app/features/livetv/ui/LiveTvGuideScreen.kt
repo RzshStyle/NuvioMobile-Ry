@@ -82,6 +82,7 @@ import com.nuvio.app.features.livetv.model.LiveChannel
 import com.nuvio.app.features.livetv.model.LiveTvClock
 import com.nuvio.app.features.livetv.player.LiveTvCatchup
 import com.nuvio.app.features.livetv.record.LiveTvRecordingScheduler
+import com.nuvio.app.features.livetv.record.RecordingRules
 import com.nuvio.app.features.livetv.reminders.LiveTvReminders
 import com.nuvio.app.features.livetv.calendar.CalendarRepository
 import com.nuvio.app.features.livetv.calendar.CalendarSources
@@ -103,6 +104,9 @@ import nuvio.composeapp.generated.resources.livetv_rec_series
 import nuvio.composeapp.generated.resources.livetv_rec_series_new_only
 import nuvio.composeapp.generated.resources.livetv_replay
 import nuvio.composeapp.generated.resources.livetv_remind_me
+import nuvio.composeapp.generated.resources.livetv_find_in_nuvio
+import nuvio.composeapp.generated.resources.livetv_find_in_nuvio_finding
+import nuvio.composeapp.generated.resources.livetv_find_in_nuvio_pick
 import nuvio.composeapp.generated.resources.livetv_reminder_set
 import nuvio.composeapp.generated.resources.livetv_watch_from_start
 import org.jetbrains.compose.resources.stringResource
@@ -125,6 +129,8 @@ fun LiveTvGuideScreen(
     modifier: Modifier = Modifier,
     /** Replay a show from the provider's catch-up (a past show, or the one on now from its start). */
     onPlayCatchup: (LiveChannel, EpgProgram) -> Unit = { _, _ -> },
+    /** Find in Nuvio: the show's movie or series page ("movie"/"series", TMDB id, name). */
+    onOpenTitle: ((type: String, tmdbId: Int, title: String) -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
     val state by remember {
@@ -333,6 +339,7 @@ fun LiveTvGuideScreen(
             onDismiss = { detail = null },
             onPlay = { detail = null; onPlayChannel(channel, program.title.takeIf { program.isLive(now) }) },
             onReplay = if (LiveTvCatchup.isReplayable(channel, program, now)) ({ detail = null; onPlayCatchup(channel, program) }) else null,
+            onOpenTitle = onOpenTitle?.let { open -> { type, id, name -> detail = null; open(type, id, name) } },
         )
     }
 }
@@ -557,9 +564,18 @@ internal fun ProgramDetailsDialog(
     onPlay: () -> Unit,
     /** Set when the show can be replayed from catch-up. */
     onReplay: (() -> Unit)? = null,
+    /** Find in Nuvio: opens the show's movie or series page ("movie"/"series", TMDB id, name). */
+    onOpenTitle: ((type: String, tmdbId: Int, title: String) -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
     var full by remember { mutableStateOf(program) }
+    val findable = onOpenTitle != null && NuvioTitleFind.canLookUp(program, channel.name)
+    var finding by remember(program) { mutableStateOf(false) }
+    var pickFor by remember(program) { mutableStateOf<EpgProgram?>(null) }
+    val findScope = rememberCoroutineScope()
+    fun openPick(c: com.nuvio.app.features.livetv.data.TitleMatchFixes.Candidate) {
+        onOpenTitle?.invoke(if (c.series) "series" else "movie", c.tmdbId, c.name)
+    }
     LaunchedEffect(program) {
         LiveTvRepository.programDetails(channel.key, program.startMs)?.let { full = it }
     }
@@ -586,8 +602,22 @@ internal fun ProgramDetailsDialog(
             style = MaterialTheme.typography.bodyMedium,
             color = tokens.colors.textSecondary,
         )
-        if (recordable || upcoming || bellShow != null) {
+        if (recordable || upcoming || bellShow != null || findable) {
             Row(horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                // One clear match: its page. Otherwise a short list of likely titles to pick from.
+                if (findable) Chip(
+                    label = stringResource(if (finding) Res.string.livetv_find_in_nuvio_finding else Res.string.livetv_find_in_nuvio),
+                    selected = false,
+                    onClick = {
+                        if (finding) return@Chip
+                        finding = true
+                        findScope.launch {
+                            val match = NuvioTitleFind.clearMatch(full)
+                            finding = false
+                            if (match != null) openPick(match) else pickFor = full
+                        }
+                    },
+                )
                 bellShow?.let { b ->
                     Chip(
                         label = if (bellOn) "Following on Calendar" else "Follow on Calendar",
@@ -644,6 +674,20 @@ internal fun ProgramDetailsDialog(
         }
         if (full.people.isNotEmpty()) {
             Text(full.people.joinToString(", "), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        }
+        pickFor?.let { p ->
+            val series = NuvioTitleFind.seriesHint(p)
+            FixMatchSheet(
+                title = channel.name,
+                scopeNote = RecordingRules.shownTitle(p.title),
+                key = "",
+                initialQuery = NuvioTitleFind.queryOf(p, series),
+                initialSeries = series,
+                initialYear = NuvioTitleFind.yearOf(p, series),
+                onDismiss = { pickFor = null },
+                heading = stringResource(Res.string.livetv_find_in_nuvio_pick),
+                onPicked = { c -> pickFor = null; openPick(c) },
+            )
         }
         DialogButtons {
             DialogButton(text = stringResource(Res.string.action_close), onClick = onDismiss)
