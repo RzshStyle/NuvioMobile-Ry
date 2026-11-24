@@ -164,6 +164,8 @@ internal object NetworkPublish {
         private val buf = ByteArray(CHUNK)
         private var fill = 0
         private var committed = 0L
+        /** When writing started, to keep it under the copy speed limit. */
+        private val startNs = System.nanoTime()
 
         /** Bytes written so far (the next one goes here). */
         val position: Long get() = committed + fill
@@ -195,6 +197,7 @@ internal object NetworkPublish {
             }
             committed += fill
             fill = 0
+            SmbFolder.pace(startNs, committed)
         }
 
         private companion object { const val CHUNK = 4 shl 20 }
