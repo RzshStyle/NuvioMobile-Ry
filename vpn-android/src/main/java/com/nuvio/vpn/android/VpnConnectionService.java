@@ -14,6 +14,7 @@ import com.wireguard.config.Config;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -27,6 +28,14 @@ public final class VpnConnectionService extends android.net.VpnService {
     private static final String RELEASE_PROXY = "com.nuvio.vpn.RELEASE_PROXY";
     private static final String CHANNEL = "nuvio-vpn";
     private static final int NOTIFICATION = 7341;
+    /** While not (yet) verified, the connection is checked this often for the first minute... */
+    private static final long QUICK_CHECK_MS = 2000;
+    private static final long QUICK_CHECK_FOR_MS = 60000;
+    /** ...and this often after that. */
+    private static final long SLOW_CHECK_MS = 10000;
+    /** Set when someone presses play while the connection isn't verified: check on the next tick. */
+    private static volatile boolean checkSoon;
+    static void checkSoon() { checkSoon = true; }
     private static volatile Snapshot current = new Snapshot(Phase.IDLE, 0, 0);
     private static volatile boolean running;
     private static volatile String requestedProfile;
@@ -105,9 +114,23 @@ public final class VpnConnectionService extends android.net.VpnService {
         VpnPlaybackProtection.requestAutomaticAppWide(false);
     }
 
-    // SDK/JNI calls are serialized across service destruction and recreation.
+    // Tunnel control SDK/JNI calls are serialized across service destruction and recreation.
     private static final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
+    // This display-only network request must not delay verification, monitoring or disconnect.
+    // Cancelling an old connection also removes its queued lookup rather than building a backlog.
+    private static final ScheduledThreadPoolExecutor displayWorker = displayWorker();
+    private static ScheduledThreadPoolExecutor displayWorker() {
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, task -> {
+            Thread thread = new Thread(task, "vpn-public-ip");
+            thread.setDaemon(true);
+            return thread;
+        });
+        executor.setRemoveOnCancelPolicy(true);
+        return executor;
+    }
     private ScheduledFuture<?> monitor;
+    private java.util.concurrent.Future<?> egressLookup;
+    private long egressLookupId;
     private final AtomicLong generation = new AtomicLong();
     private TunnelEngine engine;
     private String profile;
@@ -117,6 +140,8 @@ public final class VpnConnectionService extends android.net.VpnService {
     private volatile boolean destroyed;
     private long started, lastProbe, lastStatsLog, lastEgressProbe;
     private boolean probeVerified;
+    /** When the connection last stopped being verified (0 while verified). */
+    private long unverifiedSince;
     private long verifiedSession;
     private boolean demandFailed;
     private String egress;
@@ -216,6 +241,7 @@ public final class VpnConnectionService extends android.net.VpnService {
             started = SystemClock.elapsedRealtime();
             lastProbe = lastStatsLog = lastEgressProbe = 0;
             probeVerified = false;
+            unverifiedSince = started;
             demandFailed = false;
             failureReason = null;
             egress = null;
@@ -289,8 +315,20 @@ public final class VpnConnectionService extends android.net.VpnService {
             }
             long now = SystemClock.elapsedRealtime();
             TunnelTraffic stats = engine.statistics();
-            if (!stats.authenticated || stats.session != verifiedSession) probeVerified = false;
-            if (!probeVerified && (stats.session > 0 && stats.session != verifiedSession || now - lastProbe >= 10000)) {
+            if (!stats.authenticated || stats.session != verifiedSession) {
+                probeVerified = false;
+                egress = null;
+                lastEgressProbe = 0;
+                cancelEgressLookup();
+            }
+            if (probeVerified) unverifiedSince = 0;
+            else if (unverifiedSince == 0) unverifiedSince = now;
+            // Not verified: check every 2 s for the first minute (then every 10 s), and at once when
+            // someone presses play, instead of one try every 10 s.
+            long checkEvery = now - unverifiedSince < QUICK_CHECK_FOR_MS ? QUICK_CHECK_MS : SLOW_CHECK_MS;
+            boolean asked = checkSoon;
+            if (!probeVerified && (stats.session > 0 && stats.session != verifiedSession || asked || now - lastProbe >= checkEvery)) {
+                checkSoon = false;
                 lastProbe = now;
                 verifiedSession = stats.session;
                 probeVerified = engine.probe();
@@ -303,14 +341,15 @@ public final class VpnConnectionService extends android.net.VpnService {
                         ? "The VPN connected, but nothing could be reached through it."
                         : "The VPN server hasn't answered. Its address, port or protocol may not suit this app.");
             }
-            if (verified && egress == null && (lastEgressProbe == 0 || now - lastEgressProbe >= 60000)) {
-                lastEgressProbe = now;
-                egress = engine.egress();
-            }
             if (destroyed || generation.get() != token || !engine.isUp()) return;
             Phase phase = verified ? Phase.CONNECTED : now - started > 30000 ? Phase.WAITING : Phase.CONNECTING;
             if (phase != current.phase) event(verified ? "vpn_handshake_and_tunneled_probe_verified" : "vpn_waiting_for_verified_connection");
             current = new Snapshot(phase, stats.received, stats.sent, verified ? egress : null);
+            if (verified && egress == null && egressLookup == null
+                    && (lastEgressProbe == 0 || now - lastEgressProbe >= 60000)) {
+                lastEgressProbe = now;
+                loadEgress(token, engine, verifiedSession);
+            }
             if (verified && now - lastStatsLog >= 10000) {
                 lastStatsLog = now;
                 event("vpn_traffic: received=" + stats.received + "; sent=" + stats.sent);
@@ -323,7 +362,34 @@ public final class VpnConnectionService extends android.net.VpnService {
             updateNotification();
         }
     }
+    private void loadEgress(long token, TunnelEngine connection, long session) {
+        long lookupId = ++egressLookupId;
+        egressLookup = displayWorker.submit(() -> {
+            String address;
+            try { address = connection.egress(); }
+            catch (Exception | LinkageError ignored) { address = null; }
+            String result = address;
+            worker.execute(() -> {
+                if (lookupId != egressLookupId) return;
+                egressLookup = null;
+                // Results belong to the verified session that asked for them. A replaced profile,
+                // disconnected tunnel or new OpenVPN handshake cannot inherit an old address.
+                if (destroyed || generation.get() != token || engine != connection
+                        || verifiedSession != session || !probeVerified
+                        || current.phase != Phase.CONNECTED || !connection.isUp()) return;
+                egress = result;
+                Snapshot latest = current;
+                current = new Snapshot(latest.phase, latest.received, latest.sent, result);
+            });
+        });
+    }
+    private void cancelEgressLookup() {
+        egressLookupId++;
+        if (egressLookup != null) egressLookup.cancel(true);
+        egressLookup = null;
+    }
     private void closeEngine() {
+        cancelEgressLookup();
         TunnelEngine closing = engine;
         engine = null;
         httpProxy = null;
