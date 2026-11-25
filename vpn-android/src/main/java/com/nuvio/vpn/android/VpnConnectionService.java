@@ -297,6 +297,8 @@ public final class VpnConnectionService extends android.net.VpnService {
     private void poll() {
         if (destroyed || engine == null) return;
         long token = generation.get();
+        long previousSession = verifiedSession;
+        boolean previouslyConnected = current.phase == Phase.CONNECTED;
         try {
             if (!matchesSettings()) { end(); return; }
             if (engine instanceof HttpStreamTunnel && !((HttpStreamTunnel) engine).isConfigured()) {
@@ -345,6 +347,10 @@ public final class VpnConnectionService extends android.net.VpnService {
             Phase phase = verified ? Phase.CONNECTED : now - started > 30000 ? Phase.WAITING : Phase.CONNECTING;
             if (phase != current.phase) event(verified ? "vpn_handshake_and_tunneled_probe_verified" : "vpn_waiting_for_verified_connection");
             current = new Snapshot(phase, stats.received, stats.sent, verified ? egress : null);
+            if (verified && scope == ProtectionMode.APP_WIDE
+                    && (!previouslyConnected || previousSession != verifiedSession)) {
+                VpnPlaybackProtection.networkRecovered();
+            }
             if (verified && egress == null && egressLookup == null
                     && (lastEgressProbe == 0 || now - lastEgressProbe >= 60000)) {
                 lastEgressProbe = now;
