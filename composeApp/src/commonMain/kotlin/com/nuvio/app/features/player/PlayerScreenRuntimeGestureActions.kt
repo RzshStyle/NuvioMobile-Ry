@@ -169,12 +169,16 @@ internal fun PlayerScreenRuntime.togglePlayback() {
         toggleOwnPlayback()
         return
     }
-    if (playbackSnapshot.isPlaying) {
+    if (playbackSnapshot.isPlaying || liveEndReconnectJob?.isActive == true) {
+        cancelLiveEndReconnect()
         shouldPlay = false
         playerController?.pause()
     } else {
         if (playbackSnapshot.isEnded) {
-            playerController?.seekTo(0L)
+            if (isContinuousLivePlayback) {
+                cancelLiveEndReconnect(resetAttempts = true)
+                reopenLiveSource()
+            } else playerController?.seekTo(0L)
         }
         shouldPlay = true
         playerController?.play()
@@ -185,13 +189,19 @@ internal fun PlayerScreenRuntime.togglePlayback() {
 
 /** Sets the requested state; system controls may send pause, skip and play in a row. */
 internal fun PlayerScreenRuntime.setPlaybackPlaying(playing: Boolean) {
+    if (!playing) cancelLiveEndReconnect()
     if (playing == shouldPlay) return
     if (isPartyControlLocked) {
         toggleOwnPlayback()
         return
     }
     val restart = playing && playbackSnapshot.isEnded
-    if (restart) playerController?.seekTo(0L)
+    if (restart) {
+        if (isContinuousLivePlayback) {
+            cancelLiveEndReconnect(resetAttempts = true)
+            reopenLiveSource()
+        } else playerController?.seekTo(0L)
+    }
     shouldPlay = playing
     if (playing) playerController?.play() else playerController?.pause()
     // A seek issued just before may not be reflected in the playback snapshot yet.

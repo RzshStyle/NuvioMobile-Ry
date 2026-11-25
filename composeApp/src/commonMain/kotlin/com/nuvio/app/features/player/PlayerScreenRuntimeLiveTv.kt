@@ -20,6 +20,9 @@ import kotlinx.coroutines.launch
 internal val PlayerScreenRuntime.isLiveTv: Boolean
     get() = LiveTvPlayback.owns(activeProviderAddonId)
 
+internal val PlayerScreenRuntime.isContinuousLivePlayback: Boolean
+    get() = LiveTvPlayback.isContinuousLive(activeProviderAddonId, activeSourceUrl)
+
 /**
  * Where the caption and audio choices are kept: per title, and for Live TV per channel — the one
  * now on screen, which changes as you switch channels in the player (the title it was opened
@@ -43,6 +46,7 @@ internal fun PlayerScreenRuntime.liveLogoOr(fallback: String?): String? {
 /** Changes channel in place (the channel panel or a swipe), keeping the player open. */
 internal fun PlayerScreenRuntime.switchLiveChannel(channel: LiveChannel, nowTitle: String?) {
     if (channel.key == activeVideoId && LiveTvPlayback.owns(activeProviderAddonId) && errorMessage == null) return
+    cancelLiveEndReconnect(resetAttempts = true)
     credentialRefreshJob?.cancel()
     credentialRefreshJob = scope.launch {
         try {
@@ -88,7 +92,7 @@ internal fun PlayerScreenRuntime.applyLiveCaptionDefaults() {
     if (!isLiveTv) return
     val captions = subtitleTracks.filter { it.id in LiveTvCaptions.ids }
     if (captions.isEmpty()) return
-    val key = activePlaybackIdentity
+    val key = "$activePlaybackIdentity:$livePlaybackGeneration"
     if (LiveCaptionDefaults.appliedFor == key) return
     LiveCaptionDefaults.appliedFor = key
     if (!LiveTvPreferences.currentSettings().captionsByDefault) return
@@ -121,6 +125,10 @@ private fun PlayerScreenRuntime.switchToCaptionsWithText() {
 @Composable
 internal fun PlayerScreenRuntime.RenderLiveTvChannels() {
     if (!isLiveTv) return
+    val settings by LiveTvPreferences.settings.collectAsStateWithLifecycle()
+    LaunchedEffect(settings.autoReconnect, shouldPlay) {
+        if (!settings.autoReconnect || !shouldPlay) cancelLiveEndReconnect()
+    }
     // Caption types seen carrying text: offer them in the Subtitles menu as they turn up.
     val captionsFound by LiveTvCaptions.found.collectAsStateWithLifecycle()
     LaunchedEffect(captionsFound, activeSourceUrl) {
@@ -142,6 +150,8 @@ internal fun PlayerScreenRuntime.RenderLiveTvChannels() {
         onOpenMultiview = if (!isMultiviewSupported || openMultiview == null) null else {
             {
                 // Release the single audible source before navigation creates any pane owners.
+                cancelLiveEndReconnect()
+                shouldPlay = false
                 playerController?.setMuted(true)
                 playerController?.pause()
                 openMultiview(activeVideoId)
