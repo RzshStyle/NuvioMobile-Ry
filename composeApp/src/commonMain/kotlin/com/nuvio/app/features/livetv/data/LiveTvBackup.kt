@@ -53,7 +53,9 @@ internal object LiveTvBackup {
                     }
                     buildJsonObject { put("t", "str"); put("v", v) }
                 }
-                is PrefValue.UnavailableBackupSecret -> throw IllegalStateException("Saved TV source settings could not be opened")
+                // This phone lost the key to its copy. Leave it out instead of stopping sync: the
+                // combine step keeps the copy other devices and the cloud have, which then repairs it.
+                is PrefValue.UnavailableBackupSecret -> return@forEach
             }
             put(name, entry)
         }

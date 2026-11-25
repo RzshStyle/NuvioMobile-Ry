@@ -16,6 +16,7 @@ headings as changes land on dev. Typing in the box uses the box instead and leav
 - Live channels connect to the provider once instead of three times (full screen and Multiview), which may stop streams cutting out when Multiview or another device starts
 - When a provider drops a live channel, the player reconnects by itself (with Auto-reconnect on), keeping your audio and subtitle choices, instead of stopping
 - Live TV player error messages (can't open a channel, provider refused, too many connections, connection lost and the rest) now show in the phone's language
+- The phone keeps the TVs' Usenet providers and indexers (stored protected) when it syncs or backs up, so they aren't lost on the way to another TV; a phone that can't open that copy keeps syncing everything else
 
 ## Recordings
 - A series can have its own Start early and Keep recording after times (long-press it in Recordings › Series); Default keeps using the Recordings setting, and episodes already set change too

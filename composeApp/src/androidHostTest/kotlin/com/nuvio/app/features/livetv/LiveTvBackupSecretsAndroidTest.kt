@@ -69,8 +69,8 @@ class LiveTvBackupSecretsAndroidTest {
         assertEquals(damaged, preferences.getString(profile, null))
         assertEquals(PrefValue.UnavailableBackupSecret(damaged), phone.rawData.value[profile])
         assertEquals("existing", phone.currentPlaylists().single().id)
-        assertEquals("Saved TV source settings could not be opened",
-            assertFailsWith<IllegalStateException> { phone.exportForSync() }.message)
+        // Left out of sync instead of stopping it; the other devices' copy repairs this one.
+        assertFalse(phone.exportForSync().containsKey(profile))
         assertEquals("UnavailableBackupSecret", phone.rawData.value[profile].toString())
     }
 
@@ -110,7 +110,7 @@ class LiveTvBackupSecretsAndroidTest {
         assertEquals("existing", phone.currentPlaylists().single().id)
         assertEquals(PrefValue.UnavailableBackupSecret(original.value), phone.rawData.value[profile])
         assertEquals(original.value, originalPreferences.getString(profile, null))
-        assertFailsWith<IllegalStateException> { phone.exportForSync() }
+        assertFalse(phone.exportForSync().containsKey(profile))
     }
 
     /** Models commit(false) after SharedPreferences has already replaced its in-memory map. */

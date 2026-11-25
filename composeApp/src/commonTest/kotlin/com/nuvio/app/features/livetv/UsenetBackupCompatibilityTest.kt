@@ -8,6 +8,7 @@ import com.nuvio.app.features.livetv.data.exportForSync
 import com.nuvio.app.features.livetv.data.importBackupFile
 import com.nuvio.app.features.livetv.data.importFromSync
 import com.nuvio.app.features.livetv.data.parseBackupFile
+import com.nuvio.app.features.livetv.sync.LiveTvDriveSync
 import com.nuvio.app.features.livetv.sync.SyncPart
 import com.nuvio.app.features.livetv.sync.SyncParts
 import kotlinx.coroutines.test.runTest
@@ -133,9 +134,6 @@ class UsenetBackupCompatibilityTest {
             }
         }
         val before = phone.rawData.value.toMap()
-        assertTrue(importBackupFile(buildJsonObject { put("playlists", entry("""[{"id":"other","url":"https://example.test/new"}]""")) }.toString(), phone) {}.isFailure)
-        assertEquals(before, phone.rawData.value)
-        assertEquals(unavailable, durable[key])
         assertTrue(importBackupFile(data().toString(), phone) {}.isFailure)
         assertEquals(before, phone.rawData.value)
         assertEquals("existing", phone.currentPlaylists().single().id)
@@ -145,5 +143,35 @@ class UsenetBackupCompatibilityTest {
         assertEquals(config, (durable[key] as PrefValue.Str).value)
         assertEquals(data()[key], phone.exportForSync()[key])
         assertEquals("existing", phone.currentPlaylists().single().id)
+    }
+
+    @Test fun aDeviceMissingItsCopyKeepsTheCloudCopyInEveryCombine() {
+        val remote = JsonObject(data() + ("playlists" to entry("[]")))
+        val local = buildJsonObject { put("playlists", entry("[]")) }
+        // With and without an earlier agreed copy: absence here never removes the cloud's copy.
+        assertEquals(remote[key], LiveTvDriveSync.merge(remote, local, remote, false, emptySet())[key])
+        assertEquals(remote[key], LiveTvDriveSync.merge(null, local, remote, true, emptySet())[key])
+        assertEquals(remote[key], LiveTvDriveSync.merge(null, local, remote, false, emptySet())[key])
+        // A copy only this device has is still sent up.
+        assertEquals(remote[key], LiveTvDriveSync.merge(local, remote, local, false, emptySet())[key])
+    }
+
+    @Test fun anUnopenedCopyIsLeftOutOfSyncAndABackupWithoutItStillRestores() = runTest {
+        val unavailable = PrefValue.UnavailableBackupSecret("synthetic-preserved-ciphertext")
+        var durable: Map<String, PrefValue> = emptyMap()
+        val phone = object : LiveTvPreferencesStore() {
+            init {
+                installPersistence(load = {
+                    mapOf(key to unavailable, "playlists" to PrefValue.Str("""[{"id":"existing","name":"Local","url":"https://example.test/list.m3u"}]"""))
+                }, save = { durable = it.toMap() })
+            }
+        }
+        assertFalse(phone.exportForSync().containsKey(key))
+        assertTrue(phone.exportForSync().containsKey("playlists"))
+        val file = buildJsonObject { put("playlists", entry("""[{"id":"other","name":"Other","url":"https://example.test/new"}]""")) }
+        importBackupFile(file.toString(), phone) {}.getOrThrow()
+        assertEquals("other", phone.currentPlaylists().single().id)
+        assertEquals(unavailable, phone.rawData.value[key])
+        assertEquals(unavailable, durable[key])
     }
 }

@@ -110,13 +110,12 @@ internal suspend fun importBackupFile(
     val settingsOnly = !info.hasSources && DeviceSettingsBackupCompatibility.containsValidSettings(info.data)
     if (!info.hasSources && !settingsOnly) throw BackupFileException(BackupFileException.Reason.NO_SOURCES)
     val unavailable = prefs.rawData.value.filterValues { it is PrefValue.UnavailableBackupSecret }.keys
-    if (unavailable.isNotEmpty()) {
-        // Explicit recovery only: all replacements were shape-validated above, and all must be present.
-        check(unavailable.all { UsenetBackupCompatibility.isKey(it) && info.data.containsKey(it) }) {
-            "Saved TV source settings could not be opened"
-        }
+    // Explicit recovery: the file's copies (shape-validated above) replace the ones this phone
+    // can't open. Any the file doesn't have stay as they are, so the rest of the file still restores.
+    val replacements = unavailable.filter { UsenetBackupCompatibility.isKey(it) && info.data.containsKey(it) }
+    if (replacements.isNotEmpty()) {
         prefs.edit { local ->
-            unavailable.forEach { key -> local[key] = PrefValue.Str(info.data.optJSONObject(key)!!.optString("v")) }
+            replacements.forEach { key -> local[key] = PrefValue.Str(info.data.optJSONObject(key)!!.optString("v")) }
         }
         // The platform has sealed and committed the replacements before any VPN or full setup restore.
     }
