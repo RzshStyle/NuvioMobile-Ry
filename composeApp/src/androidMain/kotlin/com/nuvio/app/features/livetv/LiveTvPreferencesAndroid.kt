@@ -13,6 +13,8 @@ import com.nuvio.app.features.livetv.ondemand.OnDemandStore
 import com.nuvio.app.features.livetv.record.RecordingPlatform
 import com.nuvio.app.features.livetv.sync.LiveTvDriveHttp
 
+internal typealias BackupPreferenceProtection = (String, PrefValue, String?) -> String
+
 /**
  * Persists Live TV's preferences in SharedPreferences. Each stored value keeps its own type
  * (boolean, int, long, string, string set), the same five the TV app's DataStore holds, so the
@@ -23,6 +25,9 @@ internal object LiveTvPreferencesAndroid {
     private const val devicePreferencesName = "livetv_device_prefs"
 
     private var initialized = false
+    private val protectBackupPreference: BackupPreferenceProtection = { key, value, stored ->
+        LiveTvBackupSecretsAndroid.seal(key, value, stored)
+    }
 
     /** Sets Live TV up once (the activity, a recording alarm or the recording service may each be first). */
     fun initialize(context: Context) {
@@ -48,10 +53,11 @@ internal object LiveTvPreferencesAndroid {
         initialized = true
     }
 
-    private fun read(preferences: SharedPreferences): Map<String, PrefValue> {
+    internal fun read(preferences: SharedPreferences, protect: BackupPreferenceProtection = protectBackupPreference): Map<String, PrefValue> {
         val out = HashMap<String, PrefValue>()
         var migrateSecrets = false
-        preferences.all.forEach { (key, value) ->
+        val original = preferences.all
+        original.forEach { (key, value) ->
             val v = if (UsenetBackupCompatibility.isKey(key)) {
                 require(value is String) { "Invalid saved TV source settings" }
                 if (!LiveTvBackupSecretsAndroid.isSealed(value)) migrateSecrets = true
@@ -66,13 +72,25 @@ internal object LiveTvPreferencesAndroid {
             }
             if (v != null) out[key] = v
         }
-        UsenetBackupCompatibility.validate(LiveTvBackup.exportForSync(out.filterValues { it !is PrefValue.UnavailableBackupSecret }))
-        // Adopt an older phone's plaintext pass-through only after every entry was read successfully.
-        if (migrateSecrets) write(preferences, out)
+        fun validateReadable() = UsenetBackupCompatibility.validate(
+            LiveTvBackup.exportForSync(out.filterValues { it !is PrefValue.UnavailableBackupSecret }))
+        if (migrateSecrets) {
+            try {
+                validateReadable()
+                // Adopt legacy plaintext only after the complete protected map is durably saved.
+                write(preferences, out, protect)
+            } catch (_: Exception) {
+                original.forEach { (key, value) ->
+                    if (UsenetBackupCompatibility.isKey(key) && value is String && !LiveTvBackupSecretsAndroid.isSealed(value)) {
+                        out[key] = PrefValue.UnavailableBackupSecret(value)
+                    }
+                }
+            }
+        } else validateReadable()
         return out
     }
 
-    private fun write(preferences: SharedPreferences, data: Map<String, PrefValue>) {
+    internal fun write(preferences: SharedPreferences, data: Map<String, PrefValue>, protect: BackupPreferenceProtection = protectBackupPreference) {
         data.forEach { (key, value) ->
             if (UsenetBackupCompatibility.isReserved(key)) {
                 require(UsenetBackupCompatibility.isKey(key) &&
@@ -86,7 +104,7 @@ internal object LiveTvPreferencesAndroid {
                 if (value is PrefValue.UnavailableBackupSecret) {
                     check(value.stored == previous[key]) { "Saved TV source settings could not be opened" }
                     PrefValue.Str(value.stored)
-                } else PrefValue.Str(LiveTvBackupSecretsAndroid.seal(key, value, previous[key] as? String))
+                } else PrefValue.Str(protect(key, value, previous[key] as? String))
             } else value
         }
         val secretsChanged = sealedData.any { (key, value) ->
@@ -104,6 +122,25 @@ internal object LiveTvPreferencesAndroid {
             }
         }
         // Watching another channel does not need another Keystore round trip or a synchronous disk write.
-        if (secretsChanged) check(editor.commit()) { "Could not save TV source settings" } else editor.apply()
+        if (secretsChanged) {
+            if (!runCatching { editor.commit() }.getOrDefault(false)) {
+                // commit(false) can still replace SharedPreferences' in-memory map. Restore the exact
+                // old values so ordinary edits preserve existing opaque input after a failed migration.
+                val rollback = preferences.edit().clear()
+                previous.forEach { (key, value) ->
+                    when (value) {
+                        is Boolean -> rollback.putBoolean(key, value)
+                        is Int -> rollback.putInt(key, value)
+                        is Long -> rollback.putLong(key, value)
+                        is Float -> rollback.putFloat(key, value)
+                        is String -> rollback.putString(key, value)
+                        is Set<*> -> rollback.putStringSet(key, value.filterIsInstance<String>().toSet())
+                        else -> Unit
+                    }
+                }
+                rollback.apply()
+                error("Could not save TV source settings")
+            }
+        } else editor.apply()
     }
 }

@@ -51,7 +51,7 @@ sealed class PrefValue {
     data class Long(val value: kotlin.Long) : PrefValue()
     data class StringSet(val value: Set<String>) : PrefValue()
     data class Str(val value: String) : PrefValue()
-    /** Local ciphertext retained when its key cannot be opened; never a portable value. */
+    /** Original local value retained when it cannot be protected or opened; never portable. */
     data class UnavailableBackupSecret(val stored: String) : PrefValue() {
         override fun toString(): String = "UnavailableBackupSecret"
     }
