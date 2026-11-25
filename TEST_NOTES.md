@@ -17,6 +17,9 @@ headings as changes land on dev. Typing in the box uses the box instead and leav
 - When a provider drops a live channel, the player reconnects by itself (with Auto-reconnect on), keeping your audio and subtitle choices, instead of stopping
 - Live TV player error messages (can't open a channel, provider refused, too many connections, connection lost and the rest) now show in the phone's language
 - The phone keeps the TVs' Usenet providers and indexers (stored protected) when it syncs or backs up, so they aren't lost on the way to another TV; a phone that can't open that copy keeps syncing everything else
+- Sources that failed while the VPN (Full app) or network was still connecting are searched again once it's ready, so a missing add-on shows up by itself
+- Posters load when the phone is on a VPN that Android doesn't mark as having internet
+- The copied Live TV report now shows VPN speed and how each Multiview screen is playing (buffering, dropped frames), to help work out slow Multiview with the VPN on
 
 ## Recordings
 - A series can have its own Start early and Keep recording after times (long-press it in Recordings › Series); Default keeps using the Recordings setting, and episodes already set change too
