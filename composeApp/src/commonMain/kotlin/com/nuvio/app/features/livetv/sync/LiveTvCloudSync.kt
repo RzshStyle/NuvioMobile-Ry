@@ -476,7 +476,7 @@ internal object LiveTvCloudSync {
 
     /** Remembers what both sides now agree on: the starting point for the next combine. */
     private fun saved(uid: String, data: JsonObject, removedHere: Set<String>) {
-        runCatching { LiveTvFiles.writeSmall(LiveTvDirs.STATE, BASE_FILE, SyncParts.strip(data).toString()) }
+        LiveTvFiles.writeSmall(LiveTvDirs.STATE, BASE_FILE, SyncParts.strip(data).toString())
         store.putString(KEY_BASE_USER, uid)
         store.putLong(KEY_LAST_SYNC, LiveTvClock.nowMs())
         store.putString(KEY_LOCAL_HASH, store.sha256(localView().toString()))

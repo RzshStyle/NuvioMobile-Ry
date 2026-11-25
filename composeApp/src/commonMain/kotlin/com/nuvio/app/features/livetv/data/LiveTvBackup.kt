@@ -64,7 +64,8 @@ internal object LiveTvBackup {
         fun raw(key: String) = data.optJSONObject(key)?.optString("v")
         return runCatching { parseObject(raw("vpn_profiles_v1").orEmpty()).optJSONArray("profiles")?.isNotEmpty() == true }.getOrDefault(false) ||
             runCatching { LiveTvCodec.decodePlaylists(raw(LiveTvKeys.playlists)).isNotEmpty() }.getOrDefault(false) ||
-            runCatching { LiveTvCodec.decodeEpgs(raw(LiveTvKeys.epgs)).isNotEmpty() }.getOrDefault(false)
+            runCatching { LiveTvCodec.decodeEpgs(raw(LiveTvKeys.epgs)).isNotEmpty() }.getOrDefault(false) ||
+            UsenetBackupCompatibility.hasSources(data)
     }
 
     /** The result of [importInto]: the new map, and the playlists that need downloading again. */
@@ -76,6 +77,7 @@ internal object LiveTvBackup {
      * download status. [Imported.changed] lists playlists whose address or login changed.
      */
     fun importInto(local: Map<String, PrefValue>, data: JsonObject): Imported {
+        UsenetBackupCompatibility.validate(data)
         val changed = HashSet<String>()
         val p = local.toMutableMap()
         val localPlaylists = LiveTvCodec.decodePlaylists(local.str(LiveTvKeys.playlists)).associateBy { it.id }
@@ -179,6 +181,8 @@ internal fun LiveTvPreferencesStore.exportForSync(): JsonObject {
  * state. Returns the playlists whose address or login changed: they need downloading again.
  */
 internal fun LiveTvPreferencesStore.importFromSync(data: JsonObject): Set<String> {
+    // Validate before native VPN restore or any preference changes.
+    UsenetBackupCompatibility.validate(data)
     val nativeVpnRestored = usesPlatformVpnBackup &&
         data.optJSONObject("vpn_profiles_v1")?.optString("v")?.let { restoreVpnBackup(it) } == true
     val preferences = if (nativeVpnRestored) JsonObject(data.filterKeys { it != "vpn_profiles_v1" }) else data

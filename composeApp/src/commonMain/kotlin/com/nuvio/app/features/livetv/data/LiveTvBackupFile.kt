@@ -20,7 +20,7 @@ internal class BackupFileInfo(
     val epgCount: Int,
     val data: JsonObject,
 ) {
-    val hasSources: Boolean get() = playlistCount > 0 || epgCount > 0
+    val hasSources: Boolean get() = playlistCount > 0 || epgCount > 0 || UsenetBackupCompatibility.hasSources(data)
 }
 
 /** What an import did. */
@@ -35,7 +35,7 @@ internal class BackupFileException(val reason: Reason, cause: Throwable? = null)
         NOT_BACKUP,
         /** Written by a newer app with a format this one doesn't know. */
         NEWER_FORMAT,
-        /** A valid backup with no playlist or guide in it: importing it would empty this device. */
+        /** A valid backup with no IPTV or TV Usenet sources: importing it would empty this device. */
         NO_SOURCES,
     }
 }
@@ -60,6 +60,9 @@ internal fun parseBackupFile(text: String): Result<BackupFileInfo> = runCatching
         info = null
     }
     if (!looksLikeBackupData(data)) throw BackupFileException(BackupFileException.Reason.NOT_BACKUP)
+    runCatching { UsenetBackupCompatibility.validate(data) }.getOrElse {
+        throw BackupFileException(BackupFileException.Reason.NOT_BACKUP)
+    }
     val playlists = runCatching { LiveTvCodec.decodePlaylists(data.optJSONObject(LiveTvKeys.playlists)?.optString("v")) }.getOrDefault(emptyList())
     val epgs = runCatching { LiveTvCodec.decodeEpgs(data.optJSONObject(LiveTvKeys.epgs)?.optString("v")) }.getOrDefault(emptyList())
     BackupFileInfo(
@@ -83,7 +86,7 @@ private val TYPE_TAGS = setOf("b", "i", "l", "s", "str")
 
 /**
  * Replaces this device's Live TV setup with the backup in [text], the way Restore from Google
- * Drive does: same import, same reload afterwards. A backup with no playlist or guide is refused.
+ * Drive does: same import, same reload afterwards. A backup without sources is refused.
  */
 internal suspend fun importBackupFile(
     text: String,

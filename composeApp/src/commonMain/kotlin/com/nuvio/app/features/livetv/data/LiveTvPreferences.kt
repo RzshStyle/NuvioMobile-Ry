@@ -769,12 +769,15 @@ internal open class LiveTvPreferencesStore {
 
     /** Changes the main store atomically and saves it. */
     fun edit(block: (MutableMap<String, PrefValue>) -> Unit) {
-        val saved: Map<String, PrefValue>? = synchronized(lock) {
+        synchronized(lock) {
             val m = _data.value.toMutableMap()
             block(m)
-            if (m == _data.value) null else { _data.value = m; m }
+            if (m != _data.value) {
+                // A failed protected backup write must leave the last saved setup exportable.
+                savePersisted?.invoke(m)
+                _data.value = m
+            }
         }
-        if (saved != null) savePersisted?.invoke(saved)
     }
 
     /** Changes the per-device store atomically and saves it. */

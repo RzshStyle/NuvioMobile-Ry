@@ -5,7 +5,10 @@ import android.content.SharedPreferences
 import com.nuvio.app.features.livetv.data.EpgStore
 import com.nuvio.app.features.livetv.data.LiveTvFiles
 import com.nuvio.app.features.livetv.data.LiveTvPreferences
+import com.nuvio.app.features.livetv.data.LiveTvBackup
+import com.nuvio.app.features.livetv.data.LiveTvBackupSecretsAndroid
 import com.nuvio.app.features.livetv.data.PrefValue
+import com.nuvio.app.features.livetv.data.UsenetBackupCompatibility
 import com.nuvio.app.features.livetv.ondemand.OnDemandStore
 import com.nuvio.app.features.livetv.record.RecordingPlatform
 import com.nuvio.app.features.livetv.sync.LiveTvDriveHttp
@@ -24,7 +27,6 @@ internal object LiveTvPreferencesAndroid {
     /** Sets Live TV up once (the activity, a recording alarm or the recording service may each be first). */
     fun initialize(context: Context) {
         if (initialized) return
-        initialized = true
         LiveTvFiles.initialize(context)
         // The DNS setting, before any Live TV request.
         com.nuvio.app.features.livetv.data.ForkDns.init(context)
@@ -43,12 +45,18 @@ internal object LiveTvPreferencesAndroid {
             loadDevice = { read(devicePreferences) },
             saveDevice = { data -> write(devicePreferences, data) },
         )
+        initialized = true
     }
 
     private fun read(preferences: SharedPreferences): Map<String, PrefValue> {
         val out = HashMap<String, PrefValue>()
+        var migrateSecrets = false
         preferences.all.forEach { (key, value) ->
-            val v = when (value) {
+            val v = if (UsenetBackupCompatibility.isKey(key)) {
+                require(value is String) { "Invalid saved TV source settings" }
+                if (!LiveTvBackupSecretsAndroid.isSealed(value)) migrateSecrets = true
+                LiveTvBackupSecretsAndroid.open(key, value)
+            } else when (value) {
                 is Boolean -> PrefValue.Bool(value)
                 is Int -> PrefValue.Int(value)
                 is Long -> PrefValue.Long(value)
@@ -58,12 +66,22 @@ internal object LiveTvPreferencesAndroid {
             }
             if (v != null) out[key] = v
         }
+        UsenetBackupCompatibility.validate(LiveTvBackup.exportForSync(out))
+        // Adopt an older phone's plaintext pass-through only after every entry was read successfully.
+        if (migrateSecrets) write(preferences, out)
         return out
     }
 
     private fun write(preferences: SharedPreferences, data: Map<String, PrefValue>) {
+        UsenetBackupCompatibility.validate(LiveTvBackup.exportForSync(data))
+        // Finish all encryption before clearing the editor or publishing the candidate map.
+        val sealedData = data.mapValues { (key, value) ->
+            if (UsenetBackupCompatibility.isKey(key)) PrefValue.Str(LiveTvBackupSecretsAndroid.seal(key, value)) else value
+        }
+        val hasSecrets = data.keys.any(UsenetBackupCompatibility::isKey) ||
+            preferences.all.keys.any(UsenetBackupCompatibility::isKey)
         val editor = preferences.edit().clear()
-        data.forEach { (key, value) ->
+        sealedData.forEach { (key, value) ->
             when (value) {
                 is PrefValue.Bool -> editor.putBoolean(key, value.value)
                 is PrefValue.Int -> editor.putInt(key, value.value)
@@ -72,6 +90,6 @@ internal object LiveTvPreferencesAndroid {
                 is PrefValue.StringSet -> editor.putStringSet(key, value.value)
             }
         }
-        editor.apply()
+        if (hasSecrets) check(editor.commit()) { "Could not save TV source settings" } else editor.apply()
     }
 }
