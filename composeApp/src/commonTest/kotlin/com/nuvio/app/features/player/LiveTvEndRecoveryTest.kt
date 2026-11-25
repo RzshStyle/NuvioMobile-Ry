@@ -92,12 +92,61 @@ class LiveTvEndRecoveryTest {
     @Test fun stablePlaybackRestoresTheRetryBudgetWithoutResettingItForShortBursts() {
         val policy = LiveTvEndRecovery()
         assertEquals(1, policy.observe(0, ended, 0L)?.attempt)
-        policy.observe(1, PlayerPlaybackSnapshot(isLoading = false, isPlaying = true), 0L)
-        policy.observe(1, PlayerPlaybackSnapshot(isLoading = false, isPlaying = true), 59_999L)
-        assertEquals(2, policy.observe(1, ended, 60_000L)?.attempt)
-        policy.observe(2, PlayerPlaybackSnapshot(isLoading = false, isPlaying = true), 61_000L)
-        policy.observe(2, PlayerPlaybackSnapshot(isLoading = false, isPlaying = true), 121_000L)
-        assertEquals(1, policy.observe(2, ended, 122_000L)?.attempt)
+        for (position in 0L..9_000L step 1_000L) {
+            policy.observe(1, playing(position), position)
+        }
+        assertEquals(2, policy.observe(1, ended, 10_000L)?.attempt)
+        for (position in 0L..10_000L step 1_000L) {
+            policy.observe(2, playing(position), 11_000L + position)
+        }
+        assertEquals(1, policy.observe(2, ended, 22_000L)?.attempt)
+    }
+
+    @Test fun twentyFourAndThirtyFiveSecondLiveChunksKeepRecoveringPastSixCloses() = runTest {
+        for (duration in listOf(24_000L, 35_000L)) {
+            val runtime = liveRuntime("healthy-$duration")
+            repeat(10) { cycle ->
+                for (position in 0L..duration step 1_000L) {
+                    val snapshot = playing(position)
+                    runtime.updatePlaybackSnapshot(snapshot)
+                    runtime.handleLivePlaybackEnd(snapshot, runtime.activePlaybackKey, runtime.livePlaybackGeneration,
+                        autoReconnect = { true }, nowMs = testScheduler.currentTime)
+                    advanceTimeBy(1_000L)
+                }
+                eof(runtime, snapshot = ended.copy(positionMs = duration, durationMs = duration))
+                // Successful chunks return to the first retry's delay, not an increasing penalty.
+                advanceTimeBy(2_000L)
+                runCurrent()
+                assertEquals(cycle + 1, runtime.livePlaybackGeneration)
+                assertTrue(runtime.shouldPlay)
+                assertNull(runtime.errorMessage)
+            }
+        }
+    }
+
+    @Test fun playingFlagWithoutPositionProgressDoesNotRefreshTheRetryBudget() {
+        val policy = LiveTvEndRecovery()
+        for (generation in 0..6) {
+            val start = generation * 40_000L
+            for (offset in 0L..35_000L step 1_000L) policy.observe(generation, playing(0L), start + offset)
+            val retry = policy.observe(generation, ended, start + 36_000L)
+            if (generation < 6) assertEquals(generation + 1, retry?.attempt) else assertNull(retry)
+        }
+    }
+
+    @Test fun slidingWindowPositionResetsDoNotDiscardHealthyForwardPlayback() {
+        val policy = LiveTvEndRecovery()
+        assertEquals(1, policy.observe(0, ended, 0L)?.attempt)
+        for (time in 0L..24_000L step 1_000L) policy.observe(1, playing(time % 6_000L), time)
+        assertEquals(1, policy.observe(1, ended, 25_000L)?.attempt)
+    }
+
+    @Test fun aTimestampJumpCannotReplaceSustainedPlaybackProgress() {
+        val policy = LiveTvEndRecovery()
+        assertEquals(1, policy.observe(0, ended, 0L)?.attempt)
+        policy.observe(1, playing(0L), 0L)
+        for (time in 1_000L..20_000L step 1_000L) policy.observe(1, playing(1_000_000L), time)
+        assertEquals(2, policy.observe(1, ended, 21_000L)?.attempt)
     }
 
     @Test fun disabledAutoReconnectLeavesTheEndFinal() = runTest {
@@ -207,9 +256,11 @@ class LiveTvEndRecoveryTest {
         assertNull(runtime.liveEndReconnectJob)
     }
 
-    private fun TestScope.eof(runtime: PlayerScreenRuntime, enabled: () -> Boolean = { true }) {
-        runtime.updatePlaybackSnapshot(ended)
-        runtime.handleLivePlaybackEnd(ended, runtime.activePlaybackKey, runtime.livePlaybackGeneration, enabled)
+    private fun playing(position: Long) = PlayerPlaybackSnapshot(isLoading = false, isPlaying = true, positionMs = position)
+
+    private fun TestScope.eof(runtime: PlayerScreenRuntime, enabled: () -> Boolean = { true }, snapshot: PlayerPlaybackSnapshot = ended) {
+        runtime.updatePlaybackSnapshot(snapshot)
+        runtime.handleLivePlaybackEnd(snapshot, runtime.activePlaybackKey, runtime.livePlaybackGeneration, enabled, testScheduler.currentTime)
         runCurrent()
     }
 

@@ -10,6 +10,9 @@ import kotlin.time.TimeSource
 internal class LiveTvEndRecovery {
     private val started = TimeSource.Monotonic.markNow()
     private var playingSinceMs: Long? = null
+    private var lastPlayingSampleMs: Long? = null
+    private var lastPlayingPositionMs: Long? = null
+    private var playingProgressMs = 0L
     private var handledGeneration: Int? = null
     private var attempts = 0
 
@@ -18,8 +21,19 @@ internal class LiveTvEndRecovery {
     fun observe(generation: Int, snapshot: PlayerPlaybackSnapshot, nowMs: Long = started.elapsedNow().inWholeMilliseconds): Retry? {
         if (snapshot.isPlaying) {
             val since = playingSinceMs ?: nowMs.also { playingSinceMs = it }
-            if (nowMs - since >= 60_000L) attempts = 0
-        } else playingSinceMs = null
+            val previousSample = lastPlayingSampleMs
+            val previousPosition = lastPlayingPositionMs
+            if (previousSample != null && previousPosition != null) {
+                // Sliding live windows can move backwards. Count forward playback rather
+                // than position from the first sample; timestamp jumps cannot buy health.
+                val elapsed = (nowMs - previousSample).coerceAtLeast(0L)
+                val advanced = (snapshot.positionMs - previousPosition).coerceIn(0L, elapsed)
+                playingProgressMs = (playingProgressMs + advanced).coerceAtMost(HEALTHY_PLAYBACK_MS)
+            }
+            lastPlayingSampleMs = nowMs
+            lastPlayingPositionMs = snapshot.positionMs
+            if (nowMs - since >= HEALTHY_PLAYBACK_MS && playingProgressMs >= HEALTHY_PLAYBACK_MS) attempts = 0
+        } else clearPlayingProgress()
         if (!snapshot.isEnded || handledGeneration == generation || attempts >= 6) return null
         handledGeneration = generation
         return Retry(++attempts, (attempts * 2_000L).coerceAtMost(10_000L))
@@ -29,8 +43,19 @@ internal class LiveTvEndRecovery {
 
     fun cancel(resetAttempts: Boolean) {
         handledGeneration = null
-        playingSinceMs = null
+        clearPlayingProgress()
         if (resetAttempts) attempts = 0
+    }
+
+    private fun clearPlayingProgress() {
+        playingSinceMs = null
+        lastPlayingSampleMs = null
+        lastPlayingPositionMs = null
+        playingProgressMs = 0L
+    }
+
+    private companion object {
+        const val HEALTHY_PLAYBACK_MS = 10_000L
     }
 }
 
@@ -96,6 +121,6 @@ internal fun PlayerScreenRuntime.handleLivePlaybackEnd(
         shouldPlay = false
         controlsVisible = !playerControlsLocked
         errorMessage = "Lost the connection to this live channel. Select play or choose another channel."
-        LiveTvLoadReport.add("Live TV: stopped after six unsuccessful reconnects")
+        LiveTvLoadReport.add("Live TV: stopped after six reconnects without sustained playback")
     }
 }
