@@ -237,7 +237,8 @@ internal actual object LiveTvFiles {
 
     actual fun readSmall(dir: String, name: String): String? {
         val target = file(dir, name).takeIf { it.isFile } ?: return null
-        // An unreadable protected baseline is a sync failure, not permission to replace it.
+        // Keep protected-cache reads strict; each sync owner handles an unreadable comparison
+        // copy as absent without weakening encryption or private preference exports.
         if (name == "cloud_base.json" || name == "drive_base.json") {
             return com.nuvio.vpn.android.VpnBackup.openCache(target.readText())
         }
