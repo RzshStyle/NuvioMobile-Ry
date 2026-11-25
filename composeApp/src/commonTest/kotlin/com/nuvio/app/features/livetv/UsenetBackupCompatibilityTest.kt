@@ -117,4 +117,33 @@ class UsenetBackupCompatibilityTest {
         assertTrue(parseBackupFile(JsonObject(tvFile + ("version" to JsonPrimitive(2))).toString()).isFailure)
         assertTrue(parseBackupFile(JsonObject(incoming + ("device_settings_v1" to entry("{}"))).toString()).isFailure)
     }
+
+    @Test fun explicitRecoveryNeedsEveryReplacementAndACompletedProtectedWrite() = runTest {
+        val unavailable = PrefValue.UnavailableBackupSecret("synthetic-preserved-ciphertext")
+        val initial = mapOf(key to unavailable, "playlists" to PrefValue.Str(
+            """[{"id":"existing","name":"Local","url":"https://example.test/list.m3u"}]"""))
+        var keyAvailable = false
+        var durable: Map<String, PrefValue> = initial
+        val phone = object : LiveTvPreferencesStore() {
+            init {
+                installPersistence(load = { initial }, save = { candidate ->
+                    if (candidate[key] is PrefValue.Str && !keyAvailable) error("Synthetic key unavailable")
+                    durable = candidate.toMap()
+                })
+            }
+        }
+        val before = phone.rawData.value.toMap()
+        assertTrue(importBackupFile(buildJsonObject { put("playlists", entry("""[{"id":"other","url":"https://example.test/new"}]""")) }.toString(), phone) {}.isFailure)
+        assertEquals(before, phone.rawData.value)
+        assertEquals(unavailable, durable[key])
+        assertTrue(importBackupFile(data().toString(), phone) {}.isFailure)
+        assertEquals(before, phone.rawData.value)
+        assertEquals("existing", phone.currentPlaylists().single().id)
+        keyAvailable = true
+        val recoveryFile = JsonObject(data() + ("playlists" to entry((before["playlists"] as PrefValue.Str).value)))
+        importBackupFile(recoveryFile.toString(), phone) {}.getOrThrow()
+        assertEquals(config, (durable[key] as PrefValue.Str).value)
+        assertEquals(data()[key], phone.exportForSync()[key])
+        assertEquals("existing", phone.currentPlaylists().single().id)
+    }
 }

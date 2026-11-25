@@ -53,6 +53,7 @@ internal object LiveTvBackup {
                     }
                     buildJsonObject { put("t", "str"); put("v", v) }
                 }
+                is PrefValue.UnavailableBackupSecret -> throw IllegalStateException("Saved TV source settings could not be opened")
             }
             put(name, entry)
         }
@@ -83,7 +84,9 @@ internal object LiveTvBackup {
         val localPlaylists = LiveTvCodec.decodePlaylists(local.str(LiveTvKeys.playlists)).associateBy { it.id }
         val localEpgs = LiveTvCodec.decodeEpgs(local.str(LiveTvKeys.epgs)).associateBy { it.id }
         // Remove synced keys the other device doesn't have, then write everything it does.
-        local.keys.filter { it !in LiveTvKeys.SYNC_EXCLUDED && !data.containsKey(it) }.forEach { p.remove(it) }
+        local.keys.filter {
+            it !in LiveTvKeys.SYNC_EXCLUDED && !data.containsKey(it) && local[it] !is PrefValue.UnavailableBackupSecret
+        }.forEach { p.remove(it) }
         data.forEach { (name, element) ->
             if (name in LiveTvKeys.SYNC_EXCLUDED) return@forEach
             val e = element as? JsonObject ?: return@forEach

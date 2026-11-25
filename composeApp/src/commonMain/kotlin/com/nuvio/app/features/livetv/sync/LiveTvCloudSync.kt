@@ -375,7 +375,10 @@ internal object LiveTvCloudSync {
     }
 
     private suspend fun syncIfChanged() {
-        val hash = store.sha256(localView().toString())
+        val hash = runCatching { store.sha256(localView().toString()) }.getOrElse {
+            _state.value = _state.value.copy(message = NETWORK_TEXT)
+            return
+        }
         if (hash == store.getString(KEY_LOCAL_HASH)) return
         mutex.withLock {
             val uid = userId ?: return@withLock

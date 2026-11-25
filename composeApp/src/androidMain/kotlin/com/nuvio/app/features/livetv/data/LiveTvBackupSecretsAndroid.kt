@@ -24,7 +24,7 @@ internal object LiveTvBackupSecretsAndroid {
     }
 
     @Synchronized
-    fun open(key: String, stored: String, unprotect: (String) -> String = VpnBackup::openCache): PrefValue.Str {
+    fun open(key: String, stored: String, unprotect: (String) -> String = VpnBackup::openCache): PrefValue {
         if (!isSealed(stored)) return PrefValue.Str(stored) // Migrated by the preference reader.
         return try {
             val data = parseObject(unprotect(stored.removePrefix(PREFIX)))
@@ -32,8 +32,9 @@ internal object LiveTvBackupSecretsAndroid {
             val entry = data[key] as? JsonObject ?: error("Missing protected entry")
             PrefValue.Str(entry.optString("v")).also { cached[key] = it to stored }
         } catch (_: Exception) {
-            // No empty fallback: the next backup must not replace unreadable credentials.
-            throw IllegalStateException("Saved TV source settings could not be opened")
+            cached.remove(key)
+            // Keep IPTV usable while the portable exporter refuses this redacted local marker.
+            PrefValue.UnavailableBackupSecret(stored)
         }
     }
 }

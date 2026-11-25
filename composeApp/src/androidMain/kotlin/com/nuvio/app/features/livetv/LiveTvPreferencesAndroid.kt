@@ -66,7 +66,7 @@ internal object LiveTvPreferencesAndroid {
             }
             if (v != null) out[key] = v
         }
-        UsenetBackupCompatibility.validate(LiveTvBackup.exportForSync(out))
+        UsenetBackupCompatibility.validate(LiveTvBackup.exportForSync(out.filterValues { it !is PrefValue.UnavailableBackupSecret }))
         // Adopt an older phone's plaintext pass-through only after every entry was read successfully.
         if (migrateSecrets) write(preferences, out)
         return out
@@ -75,14 +75,18 @@ internal object LiveTvPreferencesAndroid {
     private fun write(preferences: SharedPreferences, data: Map<String, PrefValue>) {
         data.forEach { (key, value) ->
             if (UsenetBackupCompatibility.isReserved(key)) {
-                require(UsenetBackupCompatibility.isKey(key) && value is PrefValue.Str) { "Invalid Usenet backup entry" }
+                require(UsenetBackupCompatibility.isKey(key) &&
+                    (value is PrefValue.Str || value is PrefValue.UnavailableBackupSecret)) { "Invalid Usenet backup entry" }
             }
         }
         val previous = preferences.all
         // Finish all encryption before clearing the editor or publishing the candidate map.
         val sealedData = data.mapValues { (key, value) ->
             if (UsenetBackupCompatibility.isKey(key)) {
-                PrefValue.Str(LiveTvBackupSecretsAndroid.seal(key, value, previous[key] as? String))
+                if (value is PrefValue.UnavailableBackupSecret) {
+                    check(value.stored == previous[key]) { "Saved TV source settings could not be opened" }
+                    PrefValue.Str(value.stored)
+                } else PrefValue.Str(LiveTvBackupSecretsAndroid.seal(key, value, previous[key] as? String))
             } else value
         }
         val secretsChanged = sealedData.any { (key, value) ->
@@ -96,6 +100,7 @@ internal object LiveTvPreferencesAndroid {
                 is PrefValue.Long -> editor.putLong(key, value.value)
                 is PrefValue.Str -> editor.putString(key, value.value)
                 is PrefValue.StringSet -> editor.putStringSet(key, value.value)
+                is PrefValue.UnavailableBackupSecret -> error("Unavailable source settings cannot be written as a portable value")
             }
         }
         // Watching another channel does not need another Keystore round trip or a synchronous disk write.
