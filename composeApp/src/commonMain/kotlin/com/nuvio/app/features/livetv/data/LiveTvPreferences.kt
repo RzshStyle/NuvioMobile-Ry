@@ -1689,6 +1689,9 @@ internal open class LiveTvPreferencesStore {
         }
     }
 
+    /** Shows playlist [playlistId] on the profile in use (for when it's hidden there with no other profiles to pick). */
+    fun showPlaylistOnThisProfile(playlistId: String) = setPlaylistShownOn(playlistId, currentProfile, true)
+
     /** Stars a group (or takes the star off), for this profile. */
     fun setGroupFavorite(groupId: String, favorite: Boolean) = edit { p ->
         val cur = p.strSet(my(LiveTvKeys.favoriteGroups)) ?: emptySet()
