@@ -2,7 +2,10 @@ package com.nuvio.app.features.livetv.data
 
 import com.nuvio.app.features.livetv.model.LiveTvClock
 import com.nuvio.app.features.livetv.sync.LiveTvDriveSync
+import com.nuvio.app.features.livetv.sync.SyncPart
+import com.nuvio.app.features.livetv.sync.SyncParts
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Live TV backups as files the user keeps themselves: the same JSON the Google Drive backup
@@ -51,16 +54,26 @@ internal fun parseBackupFile(text: String): Result<BackupFileInfo> = runCatching
     val data: JsonObject
     val info: LiveTvBackup.EnvelopeInfo?
     if (envelope != null) {
-        val format = json.optInt("format", LiveTvBackup.FORMAT)
+        val marker = json["format"] as? JsonPrimitive
+        val isTvFile = marker == JsonPrimitive("nuvio-plus-iptv-backup")
+        if (marker?.isString == true && !isTvFile && marker.content.toIntOrNull() == null) {
+            throw BackupFileException(BackupFileException.Reason.NOT_BACKUP)
+        }
+        val format = if (isTvFile) json.optInt("version", 0) else json.optInt("format", LiveTvBackup.FORMAT)
         if (format > LiveTvBackup.FORMAT) throw BackupFileException(BackupFileException.Reason.NEWER_FORMAT)
+        if (format < 1) throw BackupFileException(BackupFileException.Reason.NOT_BACKUP)
         data = envelope
-        info = LiveTvBackup.readEnvelope(json)
+        info = if (isTvFile) LiveTvBackup.EnvelopeInfo(json.optLong("createdAt"), "", json.optString("device"), data)
+            else LiveTvBackup.readEnvelope(json)
     } else {
         data = json
         info = null
     }
     if (!looksLikeBackupData(data)) throw BackupFileException(BackupFileException.Reason.NOT_BACKUP)
-    runCatching { UsenetBackupCompatibility.validate(data) }.getOrElse {
+    runCatching {
+        UsenetBackupCompatibility.validate(data)
+        DeviceSettingsBackupCompatibility.containsValidSettings(data)
+    }.getOrElse {
         throw BackupFileException(BackupFileException.Reason.NOT_BACKUP)
     }
     val playlists = runCatching { LiveTvCodec.decodePlaylists(data.optJSONObject(LiveTvKeys.playlists)?.optString("v")) }.getOrDefault(emptyList())
@@ -94,9 +107,20 @@ internal suspend fun importBackupFile(
     reload: (changedPlaylists: Set<String>) -> Unit = LiveTvRepository::reloadAfterSync,
 ): Result<ImportSummary> = runCatching {
     val info = parseBackupFile(text).getOrThrow()
-    if (!info.hasSources) throw BackupFileException(BackupFileException.Reason.NO_SOURCES)
-    val applied = LiveTvBackupApply.apply(info.data, prefs, reload)
-    ImportSummary(playlistCount = info.playlistCount, epgCount = info.epgCount, changedPlaylists = applied.changedPlaylists)
+    val settingsOnly = !info.hasSources && DeviceSettingsBackupCompatibility.containsValidSettings(info.data)
+    if (!info.hasSources && !settingsOnly) throw BackupFileException(BackupFileException.Reason.NO_SOURCES)
+    val changed = if (settingsOnly) {
+        val before = prefs.exportForSync()
+        // A hardware-settings-only file must not clear this phone's existing source setup.
+        val options = info.data.filterKeys {
+            SyncParts.partOf(it) !in setOf(SyncPart.LOGINS, SyncPart.VPN) && !UsenetBackupCompatibility.isKey(it)
+        }
+        val merged = JsonObject(before + options)
+        val sources = prefs.importFromSync(merged, applyVpnBackup = false)
+        if (LiveTvBackup.changedKeys(before, prefs.exportForSync()).isNotEmpty()) reload(sources)
+        sources
+    } else LiveTvBackupApply.apply(info.data, prefs, reload).changedPlaylists
+    ImportSummary(playlistCount = info.playlistCount, epgCount = info.epgCount, changedPlaylists = changed)
 }
 
 /** The backup file for this device: the Drive envelope around its setup, as text. */

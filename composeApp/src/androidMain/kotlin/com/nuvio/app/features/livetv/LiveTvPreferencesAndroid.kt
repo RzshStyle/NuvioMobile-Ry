@@ -73,13 +73,21 @@ internal object LiveTvPreferencesAndroid {
     }
 
     private fun write(preferences: SharedPreferences, data: Map<String, PrefValue>) {
-        UsenetBackupCompatibility.validate(LiveTvBackup.exportForSync(data))
+        data.forEach { (key, value) ->
+            if (UsenetBackupCompatibility.isReserved(key)) {
+                require(UsenetBackupCompatibility.isKey(key) && value is PrefValue.Str) { "Invalid Usenet backup entry" }
+            }
+        }
+        val previous = preferences.all
         // Finish all encryption before clearing the editor or publishing the candidate map.
         val sealedData = data.mapValues { (key, value) ->
-            if (UsenetBackupCompatibility.isKey(key)) PrefValue.Str(LiveTvBackupSecretsAndroid.seal(key, value)) else value
+            if (UsenetBackupCompatibility.isKey(key)) {
+                PrefValue.Str(LiveTvBackupSecretsAndroid.seal(key, value, previous[key] as? String))
+            } else value
         }
-        val hasSecrets = data.keys.any(UsenetBackupCompatibility::isKey) ||
-            preferences.all.keys.any(UsenetBackupCompatibility::isKey)
+        val secretsChanged = sealedData.any { (key, value) ->
+            UsenetBackupCompatibility.isKey(key) && (value as PrefValue.Str).value != previous[key]
+        } || previous.keys.any { UsenetBackupCompatibility.isKey(it) && it !in data }
         val editor = preferences.edit().clear()
         sealedData.forEach { (key, value) ->
             when (value) {
@@ -90,6 +98,7 @@ internal object LiveTvPreferencesAndroid {
                 is PrefValue.StringSet -> editor.putStringSet(key, value.value)
             }
         }
-        if (hasSecrets) check(editor.commit()) { "Could not save TV source settings" } else editor.apply()
+        // Watching another channel does not need another Keystore round trip or a synchronous disk write.
+        if (secretsChanged) check(editor.commit()) { "Could not save TV source settings" } else editor.apply()
     }
 }

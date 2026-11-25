@@ -23,6 +23,9 @@ class LiveTvBackupSecretsAndroidTest {
         val sealed = LiveTvBackupSecretsAndroid.seal(profile, original) { VpnBackup.sealCache(it, key) }
         assertFalse(sealed.contains("synthetic-provider-secret"))
         assertFalse(sealed.contains("synthetic-indexer-secret"))
+        assertEquals(sealed, LiveTvBackupSecretsAndroid.seal(profile, original, sealed) {
+            error("Unchanged source settings must reuse their ciphertext")
+        })
         assertEquals(original, LiveTvBackupSecretsAndroid.open(profile, sealed) { VpnBackup.openCache(it, key) })
         assertEquals(original, LiveTvBackupSecretsAndroid.open(profile, original.value))
     }

@@ -47,7 +47,7 @@ class UsenetBackupCompatibilityTest {
     }
 
     @Test fun unsupportedSourcesStayOutOfCloudButRemoteCopyAndDeviceOptionsSurvive() {
-        val device = entry("""{"transparent_letterbox":true}""")
+        val device = entry("""{"version":1,"liveTv":{},"playback":{"transparent_letterbox":true}}""")
         val incoming = JsonObject(data() + ("device_settings_v1" to device))
         assertEquals(SyncPart.LOOK, SyncParts.partOf(key))
         assertEquals(SyncPart.LOOK, SyncParts.partOf("device_settings_v1"))
@@ -86,5 +86,35 @@ class UsenetBackupCompatibilityTest {
         fail = true
         assertFailsWith<IllegalStateException> { phone.importFromSync(data("{}")) }
         assertEquals(before, phone.exportForSync())
+    }
+
+    @Test fun settingsOnlyTvFileKeepsEveryExistingSourceAndDoesNotBecomeAnAutomaticSource() = runTest {
+        val phone = store()
+        phone.importFromSync(JsonObject(data() + mapOf(
+            "playlists" to entry("""[{"id":"existing","name":"Local","url":"https://example.test/list.m3u"}]"""),
+            "vpn_profiles_v1" to entry("synthetic-existing-vpn"),
+        )))
+        val before = phone.exportForSync()
+        val device = entry("""{"version":1,"liveTv":{"adaptive_live_buffer":{"t":"b","v":true}},"playback":{"futureHardwareOption":true}}""")
+        val incoming = buildJsonObject {
+            put("device_settings_v1", device)
+            put("playlists", entry("[]"))
+            put("vpn_profiles_v1", entry("""{"profiles":[]}"""))
+            put(key, entry("{}"))
+        }
+        val tvFile = buildJsonObject {
+            put("format", "nuvio-plus-iptv-backup"); put("version", 1)
+            put("createdAt", 123L); put("device", "Synthetic TV"); put("data", incoming)
+        }
+        val info = parseBackupFile(tvFile.toString()).getOrThrow()
+        assertEquals(123L, info.savedAtMs)
+        assertFalse(info.hasSources)
+        assertFalse(LiveTvBackup.syncHasSources(incoming))
+        importBackupFile(tvFile.toString(), phone) {}.getOrThrow()
+        val after = phone.exportForSync()
+        for (source in listOf("playlists", "vpn_profiles_v1", key)) assertEquals(before[source], after[source])
+        assertEquals(device, after["device_settings_v1"])
+        assertTrue(parseBackupFile(JsonObject(tvFile + ("version" to JsonPrimitive(2))).toString()).isFailure)
+        assertTrue(parseBackupFile(JsonObject(incoming + ("device_settings_v1" to entry("{}"))).toString()).isFailure)
     }
 }

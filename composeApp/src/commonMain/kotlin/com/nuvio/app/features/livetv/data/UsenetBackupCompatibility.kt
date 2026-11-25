@@ -12,12 +12,12 @@ internal object UsenetBackupCompatibility {
 
     fun isKey(key: String): Boolean = KEY.matches(key) && key.substringAfterLast("_p").toIntOrNull() != null
 
-    private fun reserved(key: String): Boolean = key.startsWith(BASE)
+    fun isReserved(key: String): Boolean = key.startsWith(BASE)
 
     /** Validate only the portable shape; the TV owns the source configuration's schema. */
     fun validate(data: JsonObject) {
         data.forEach { (key, value) ->
-            if (reserved(key)) configuration(key, value as? JsonObject)
+            if (isReserved(key)) configuration(key, value as? JsonObject)
         }
     }
 

@@ -180,12 +180,14 @@ internal fun LiveTvPreferencesStore.exportForSync(): JsonObject {
  * Replaces this device's Live TV setup with [data] from [exportForSync], keeping per-device
  * state. Returns the playlists whose address or login changed: they need downloading again.
  */
-internal fun LiveTvPreferencesStore.importFromSync(data: JsonObject): Set<String> {
+internal fun LiveTvPreferencesStore.importFromSync(data: JsonObject, applyVpnBackup: Boolean = true): Set<String> {
     // Validate before native VPN restore or any preference changes.
     UsenetBackupCompatibility.validate(data)
-    val nativeVpnRestored = usesPlatformVpnBackup &&
+    val nativeVpnRestored = applyVpnBackup && usesPlatformVpnBackup &&
         data.optJSONObject("vpn_profiles_v1")?.optString("v")?.let { restoreVpnBackup(it) } == true
-    val preferences = if (nativeVpnRestored) JsonObject(data.filterKeys { it != "vpn_profiles_v1" }) else data
+    val preferences = if (usesPlatformVpnBackup && (nativeVpnRestored || !applyVpnBackup)) {
+        JsonObject(data.filterKeys { it != "vpn_profiles_v1" })
+    } else data
     var changed: Set<String> = emptySet()
     edit { p ->
         val imported = LiveTvBackup.importInto(p, preferences)
