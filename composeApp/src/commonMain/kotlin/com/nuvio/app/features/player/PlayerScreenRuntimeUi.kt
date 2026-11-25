@@ -239,6 +239,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
                     sourceResponseHeaders = activeSourceResponseHeaders,
                     externalSubtitles = externalSubtitles,
                     streamType = activeStreamType,
+                    continuousLive = isContinuousLivePlayback,
                     modifier = videoModifier,
                     playWhenReady = shouldPlay,
                     initialPositionMs = activeInitialPositionMs.takeIf { it > 0L },
