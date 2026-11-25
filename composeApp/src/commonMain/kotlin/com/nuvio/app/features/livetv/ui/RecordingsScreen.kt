@@ -86,6 +86,15 @@ import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.livetv_fix_match
 import nuvio.composeapp.generated.resources.livetv_fix_match_rec_scope
+import nuvio.composeapp.generated.resources.livetv_rec_pad_after
+import nuvio.composeapp.generated.resources.livetv_rec_pad_before
+import nuvio.composeapp.generated.resources.livetv_rec_pad_default
+import nuvio.composeapp.generated.resources.livetv_rec_pad_hint
+import nuvio.composeapp.generated.resources.livetv_rec_pad_line_after
+import nuvio.composeapp.generated.resources.livetv_rec_pad_line_before
+import nuvio.composeapp.generated.resources.livetv_ui_minutes
+import nuvio.composeapp.generated.resources.livetv_ui_none
+import org.jetbrains.compose.resources.pluralStringResource
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.action_delete
 import nuvio.composeapp.generated.resources.action_play
@@ -296,12 +305,14 @@ internal fun RecordingsScreen(
             ) {
                 gridItems(series, key = { "s:" + it.id }) { r ->
                     val keep = if (r.keepLast > 0) stringResource(Res.string.livetv_rec_keep_last, r.keepLast) else stringResource(Res.string.livetv_rec_keep_all)
+                    val padBefore = if (r.preMin >= 0) " · " + stringResource(Res.string.livetv_rec_pad_line_before, r.preMin) else ""
+                    val padAfter = if (r.postMin >= 0) " · " + stringResource(Res.string.livetv_rec_pad_line_after, r.postMin) else ""
                     RecordingPosterCard(
                         title = r.title,
                         posterTitle = r.title,
                         channelName = r.channel.name,
                         channelLogo = r.channel.logo,
-                        line = (if (r.newOnly) stringResource(Res.string.livetv_rec_series_new_only) + " · " else "") + keep,
+                        line = (if (r.newOnly) stringResource(Res.string.livetv_rec_series_new_only) + " · " else "") + keep + padBefore + padAfter,
                         lineIsError = false,
                         onClick = { sheet = r },
                         onLongClick = { sheet = r },
@@ -649,6 +660,24 @@ private fun ScheduleSheet(s: RecordingSchedule, onDismiss: () -> Unit, onFixMatc
 }
 
 private val KEEP_CHOICES = listOf(0, 1, 2, 3, 5, 10, 20)
+private val PRE_PAD_CHOICES = listOf(0, 1, 2, 5, 10, 15, 30)
+private val POST_PAD_CHOICES = listOf(0, 2, 5, 10, 15, 20, 30, 45, 60)
+
+@Composable
+private fun padMinutes(m: Int): String =
+    if (m <= 0) stringResource(Res.string.livetv_ui_none) else pluralStringResource(Res.plurals.livetv_ui_minutes, m, m)
+
+/** Default (the Recordings setting) or this series' own minutes; [selected] -1 = Default. */
+@Composable
+private fun PadChips(choices: List<Int>, selected: Int, default: Int, onPick: (Int) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8)
+    ) {
+        Chip(label = stringResource(Res.string.livetv_rec_pad_default, padMinutes(default)), selected = selected < 0, onClick = { onPick(-1) })
+        choices.forEach { m -> Chip(label = padMinutes(m), selected = selected == m, onClick = { onPick(m) }) }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -671,6 +700,15 @@ private fun SeriesSheet(r: SeriesRule, onDismiss: () -> Unit, onFixMatch: () -> 
                     Chip(label = if (n == 0) stringResource(Res.string.livetv_rec_keep_all) else n.toString(), selected = n == r.keepLast, onClick = { LiveTvRecordingScheduler.setKeep(r.id, n) })
                 }
             }
+            // This series' own extra time (Default = Settings › Live TV › Recordings).
+            val settings by LiveTvPreferences.settings.collectAsStateWithLifecycle()
+            var preMin by remember(r.id) { mutableStateOf(r.preMin) }
+            var postMin by remember(r.id) { mutableStateOf(r.postMin) }
+            Text(stringResource(Res.string.livetv_rec_pad_before), style = MaterialTheme.typography.labelMedium, color = tokens.colors.textSecondary)
+            PadChips(PRE_PAD_CHOICES, preMin, settings.recordPreMinutes) { m -> preMin = m; LiveTvRecordingScheduler.setPadding(r.id, m, postMin) }
+            Text(stringResource(Res.string.livetv_rec_pad_after), style = MaterialTheme.typography.labelMedium, color = tokens.colors.textSecondary)
+            PadChips(POST_PAD_CHOICES, postMin, settings.recordPostMinutes) { m -> postMin = m; LiveTvRecordingScheduler.setPadding(r.id, preMin, m) }
+            Text(stringResource(Res.string.livetv_rec_pad_hint), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted)
         }
         NuvioBottomSheetDivider()
         if (!isSportsRecording(r.title, r.channel.name)) {

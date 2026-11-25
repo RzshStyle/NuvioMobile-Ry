@@ -131,6 +131,9 @@
     <string name="livetv_ui_rec_network">Network</string>
     <string name="livetv_ui_all">All</string>
     <string name="livetv_ui_all_playlists">All playlists</string>
+    <string name="livetv_ui_playlist_all_hidden">All groups hidden</string>
+    <string name="livetv_ui_playlist_profile_hidden">Hidden on this profile</string>
+    <string name="livetv_ui_tap_to_manage">Tap to manage</string>
     <string name="livetv_ui_add_multiview">Add to Multiview</string>
     <string name="livetv_ui_backups">Backups</string>
     <string name="livetv_ui_also_showing">Also showing %1$s</string>

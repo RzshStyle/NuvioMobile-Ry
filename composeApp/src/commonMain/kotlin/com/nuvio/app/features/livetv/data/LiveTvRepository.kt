@@ -1247,10 +1247,13 @@ internal object LiveTvRepository {
             val urls = mutableListOf<String>()
             pl.xtreamEpgUrl()?.let { urls += it }
             urls += embeddedEpgUrls[pl.id].orEmpty()
-            urls.distinct().forEach { url ->
-                // The same link as a guide already in the list: that one is this playlist's built-in guide too.
+            urls.distinctBy { guideKey(it) }.forEach { link ->
+                // The same guide as one already in the list (even written differently): that one
+                // is this playlist's built-in guide too, so it isn't downloaded and read twice.
+                val existing = targets.firstOrNull { it.stalkerSource == null && it.url.isNotBlank() && guideKey(it.url) == guideKey(link) }
+                val url = existing?.url ?: link
                 ownersByUrl.getOrPut(url) { HashSet() } += pl.id
-                if (targets.none { it.url == url }) {
+                if (existing == null) {
                     targets += EpgTarget(
                         "auto_" + stableHash(url), null, "${pl.name} (built-in)", url, pl.effectiveUserAgent,
                         playlistId = pl.id, shiftMs = pl.guideShiftMinutes * MINUTE,
@@ -1274,6 +1277,22 @@ internal object LiveTvRepository {
         guideUsers = users.filter { (id, set) -> set != everyone && targets.any { it.fileId == id } }
         targetShifts = targets.associate { it.fileId to it.shiftMs }
         return targets
+    }
+
+    /**
+     * What makes two guide links the same guide: one Xtream login's xmltv.php (on any of the
+     * provider's addresses), or the same address written differently (http/https, letter case,
+     * order of the parts after "?").
+     */
+    private fun guideKey(link: String): String {
+        val u = runCatching { Url(link.trim()) }.getOrNull() ?: return link.trim()
+        val q = u.parameters
+        val user = q["username"]
+        val pass = q["password"]
+        if (u.encodedPath.endsWith("xmltv.php", ignoreCase = true) && !user.isNullOrBlank() && !pass.isNullOrBlank()) return "xmltv|$user|$pass"
+        val params = q.entries().flatMap { (k, v) -> v.map { "$k=$it" } }.sorted().joinToString("&")
+        val port = if (u.specifiedPort > 0) ":${u.specifiedPort}" else ""
+        return "${u.host.lowercase()}$port${u.encodedPath}?$params"
     }
 
     /**

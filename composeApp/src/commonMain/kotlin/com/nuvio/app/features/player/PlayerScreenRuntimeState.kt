@@ -159,6 +159,9 @@ internal class PlayerScreenRuntime(
     var playbackSnapshotKey by mutableStateOf<PlaybackKey?>(null)
     var playerController by mutableStateOf<PlayerEngineController?>(null)
     var playerControllerSourceUrl by mutableStateOf<String?>(null)
+    var livePlaybackGeneration by mutableStateOf(0)
+    val liveEndRecovery = LiveTvEndRecovery()
+    var liveEndReconnectJob: Job? = null
     var errorMessage by mutableStateOf<String?>(null)
     var isScrubbingTimeline by mutableStateOf(false)
     var scrubbingPositionMs by mutableStateOf<Long?>(null)

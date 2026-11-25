@@ -152,6 +152,8 @@ fun LiveTvGuideScreen(
         }
     }
     val playlistId = PlaylistFilter.effective(savedPlaylist, playlistChoices.map { it.id })
+    // Playlists with nothing in the guide because they're hidden: shown dimmed in the menu (not ones whose groups are only locked).
+    val hiddenPlaylists = rememberHiddenPlaylists(playlists, remember(state.sections) { state.sections.mapNotNullTo(HashSet()) { it.group.sourceId } })
     val sections = if (playlistId == null) allSections else allSections.filter { it.group.sourceId == null || it.group.sourceId == playlistId }
     // Saved, so backing out of a channel returns to the same group and spot in the guide.
     var selectedGroupId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -289,6 +291,7 @@ fun LiveTvGuideScreen(
                     allDetail = allSections.count { it.group.sourceId != null }.let { if (it == 1) "1 group" else "$it groups" },
                     onSelect = PlaylistFilter::select,
                     compact = true,
+                    hidden = hiddenPlaylists,
                 )
             }
             Box(modifier = Modifier.weight(1f).fillMaxHeight().horizontalScroll(hScroll, enabled = false)) {

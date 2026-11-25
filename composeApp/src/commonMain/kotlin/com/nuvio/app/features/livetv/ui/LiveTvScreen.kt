@@ -109,6 +109,7 @@ import com.nuvio.app.features.livetv.model.LiveTvClock
 import com.nuvio.app.features.livetv.ondemand.OnDemandRepository
 import com.nuvio.app.features.livetv.player.LiveTvCatchup
 import com.nuvio.app.features.livetv.record.LiveTvRecorder
+import com.nuvio.app.features.livetv.record.NetworkFolderConfig
 import com.nuvio.app.features.livetv.record.LiveTvRecordingScheduler
 import com.nuvio.app.features.livetv.sports.SportsLive
 import com.nuvio.app.features.livetv.sports.SportsRepository
@@ -187,7 +188,11 @@ fun LiveTvScreen(
     val recordings by remember { LiveTvRecordingScheduler.start(); LiveTvRecorder.recordings }.collectAsStateWithLifecycle()
     val schedules by LiveTvRecordingScheduler.schedules.collectAsStateWithLifecycle()
     val seriesRules by LiveTvRecordingScheduler.series.collectAsStateWithLifecycle()
-    val showRecordings = recordings.isNotEmpty() || schedules.isNotEmpty() || seriesRules.isNotEmpty()
+    // A network folder set up: the TVs' recordings there show in Recordings, so the button shows
+    // even when nothing was recorded or set to record on this phone.
+    val networkFolderJson by LiveTvPreferences.networkFolderJson.collectAsStateWithLifecycle(LiveTvPreferences.currentNetworkFolderJson())
+    val networkFolderSetUp = remember(networkFolderJson) { NetworkFolderConfig.fromJson(networkFolderJson) != null }
+    val showRecordings = recordings.isNotEmpty() || schedules.isNotEmpty() || seriesRules.isNotEmpty() || networkFolderSetUp
     var manualRecording by remember { mutableStateOf<Pair<LiveChannel, Boolean>?>(null) }
     val sportsSettings by remember { SportsRepository.start(); SportsRepository.settings }.collectAsStateWithLifecycle()
     val sportsOn = sportsSettings.showInSidebar
@@ -238,6 +243,7 @@ fun LiveTvScreen(
     }
     val playlistChoices = playlistGroupCounts.map { (p, n) -> PlaylistChoice(p.id, p.name, pluralStringResource(Res.plurals.livetv_ui_groups, n, n)) }
     val playlistId = PlaylistFilter.effective(savedPlaylist, playlistChoices.map { it.id })
+    val hiddenPlaylists = rememberHiddenPlaylists(playlists, remember(playlistGroupCounts) { playlistGroupCounts.mapTo(HashSet()) { it.first.id } })
     val playlistNames = remember(playlists) { playlists.associate { it.id to it.name } }
     val sections = remember(state.sections, playlistId) {
         if (playlistId == null) state.sections
@@ -318,6 +324,8 @@ fun LiveTvScreen(
                         allDetail = (state.sections.count { it.group.sourceId != null }).let { pluralStringResource(Res.plurals.livetv_ui_groups, it, it) },
                         onSelect = PlaylistFilter::select,
                         modifier = Modifier.padding(bottom = NuvioTokens.Space.s8),
+                        hidden = hiddenPlaylists,
+                        onOpenHidden = { h -> if (h.profileHidden) onOpenSettings() else onOpenManage() },
                     )
                     AnimatedVisibility(visible = searching) {
                         NuvioInputField(

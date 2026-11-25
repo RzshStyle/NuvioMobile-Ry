@@ -51,6 +51,10 @@ sealed class PrefValue {
     data class Long(val value: kotlin.Long) : PrefValue()
     data class StringSet(val value: Set<String>) : PrefValue()
     data class Str(val value: String) : PrefValue()
+    /** Original local value retained when it cannot be protected or opened; never portable. */
+    data class UnavailableBackupSecret(val stored: String) : PrefValue() {
+        override fun toString(): String = "UnavailableBackupSecret"
+    }
 }
 
 /** Every key the TV app stores, by the exact DataStore name, so stored data is interchangeable. */
@@ -769,12 +773,19 @@ internal open class LiveTvPreferencesStore {
 
     /** Changes the main store atomically and saves it. */
     fun edit(block: (MutableMap<String, PrefValue>) -> Unit) {
-        val saved: Map<String, PrefValue>? = synchronized(lock) {
+        synchronized(lock) {
             val m = _data.value.toMutableMap()
             block(m)
-            if (m == _data.value) null else { _data.value = m; m }
+            // An unrelated edit or an older backup must not erase an unreadable opaque secret.
+            _data.value.forEach { (key, value) ->
+                if (value is PrefValue.UnavailableBackupSecret && key !in m) m[key] = value
+            }
+            if (m != _data.value) {
+                // A failed protected backup write must leave the last saved setup exportable.
+                savePersisted?.invoke(m)
+                _data.value = m
+            }
         }
-        if (saved != null) savePersisted?.invoke(saved)
     }
 
     /** Changes the per-device store atomically and saves it. */
@@ -1688,6 +1699,9 @@ internal open class LiveTvPreferencesStore {
             p[my(LiveTvKeys.hiddenPlaylists, profileId)] = if (shown) cur - playlistId else cur + playlistId
         }
     }
+
+    /** Shows playlist [playlistId] on the profile in use (for when it's hidden there with no other profiles to pick). */
+    fun showPlaylistOnThisProfile(playlistId: String) = setPlaylistShownOn(playlistId, currentProfile, true)
 
     /** Stars a group (or takes the star off), for this profile. */
     fun setGroupFavorite(groupId: String, favorite: Boolean) = edit { p ->

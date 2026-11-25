@@ -201,6 +201,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
     ) {
         val playerSurfaceSourceUrl = if (isP2pPlaybackActive) p2pResolvedSourceUrl else activeSourceUrl
         val playbackKey = activePlaybackKey
+        val liveGeneration = livePlaybackGeneration
         val sourcePlaybackKey = playbackKey.copy(playbackEngine = null)
         val initialPositionRequestKey = currentInitialPositionRequestKey()
 
@@ -222,7 +223,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
         val resolvedAutoEngine = resolvedAutoEngineState.value
 
         if (playerSurfaceSourceUrl != null) {
-            key(playbackKey) {
+            key(playbackKey, liveGeneration) {
                 val active = remember { mutableStateOf(true) }
                 DisposableEffect(Unit) {
                     onDispose { active.value = false }
@@ -238,6 +239,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
                     sourceResponseHeaders = activeSourceResponseHeaders,
                     externalSubtitles = externalSubtitles,
                     streamType = activeStreamType,
+                    continuousLive = isContinuousLivePlayback,
                     modifier = videoModifier,
                     playWhenReady = shouldPlay,
                     initialPositionMs = activeInitialPositionMs.takeIf { it > 0L },
@@ -245,27 +247,25 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
                     resizeMode = if (partyPanelInset > 0.dp) PlayerResizeMode.Fit else resizeMode,
                     playbackEngine = playbackEngineOverride ?: resolvedAutoEngine,
                     onInitialPositionHandled = { key, handled ->
-                        if (active.value && playbackKey == activePlaybackKey && key == currentInitialPositionRequestKey()) {
+                        if (active.value && playbackKey == activePlaybackKey && liveGeneration == livePlaybackGeneration && key == currentInitialPositionRequestKey()) {
                             initialSeekApplied = handled
                         }
                     },
                     onControllerReady = { controller ->
-                        if (active.value && playbackKey == activePlaybackKey) {
+                        if (active.value && playbackKey == activePlaybackKey && liveGeneration == livePlaybackGeneration) {
                             playerController = controller
                             playerControllerSourceUrl = activeSourceUrl
                         }
                     },
                     onSnapshot = { snapshot ->
-                        if (!active.value || !updatePlaybackSnapshot(snapshot, playbackKey)) return@PlatformPlayerSurface
+                        if (!active.value || liveGeneration != livePlaybackGeneration || !updatePlaybackSnapshot(snapshot, playbackKey)) return@PlatformPlayerSurface
                         refreshAudioTracksIfChanged()
                         if (!snapshot.isLoading) initialLoadCompleted = true
-                        if (snapshot.isEnded) {
-                            shouldPlay = false
-                            controlsVisible = !playerControlsLocked
-                        }
+                        handleLivePlaybackEnd(snapshot, playbackKey, liveGeneration)
                     },
                     onError = { message ->
-                        if (!active.value || playbackKey != activePlaybackKey) return@PlatformPlayerSurface
+                        if (!active.value || playbackKey != activePlaybackKey || liveGeneration != livePlaybackGeneration) return@PlatformPlayerSurface
+                        if (message != null) cancelLiveEndReconnect()
                         if (message != null && tryRefreshExpiredLinkAfterError(message)) {
                             return@PlatformPlayerSurface
                         }

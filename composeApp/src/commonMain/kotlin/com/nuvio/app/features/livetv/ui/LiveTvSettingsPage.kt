@@ -164,6 +164,8 @@ import nuvio.composeapp.generated.resources.livetv_show_on_profiles_all
 import nuvio.composeapp.generated.resources.livetv_show_on_profiles_count
 import nuvio.composeapp.generated.resources.livetv_show_on_profiles_description
 import nuvio.composeapp.generated.resources.livetv_show_on_profiles_value
+import nuvio.composeapp.generated.resources.livetv_show_on_this_profile
+import nuvio.composeapp.generated.resources.livetv_ui_playlist_profile_hidden
 import nuvio.composeapp.generated.resources.livetv_guides_all
 import nuvio.composeapp.generated.resources.livetv_guides_description
 import nuvio.composeapp.generated.resources.livetv_guides_none
@@ -655,7 +657,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean, onlyRecordings: Boolean = fals
                     if (i > 0) SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
                         title = pl.name,
-                        description = playlistStatus(pl, accounts[pl.id]),
+                        description = playlistStatus(pl, accounts[pl.id], hiddenHere = pl.id in userState.hiddenPlaylists),
                         icon = if (pl.isXtream || pl.isStalker) Icons.Filled.Login else Icons.Filled.ListAlt,
                         isTablet = isTablet,
                         onClick = { dialog = LiveDialog.PlaylistActions(pl) },
@@ -1398,7 +1400,7 @@ private fun LiveTvSettingsBody(isTablet: Boolean, onlyRecordings: Boolean = fals
         }
         is LiveDialog.PlaylistActions -> ActionsDialog(
             title = d.source.name,
-            subtitle = playlistStatus(d.source, accounts[d.source.id]),
+            subtitle = playlistStatus(d.source, accounts[d.source.id], hiddenHere = d.source.id in userState.hiddenPlaylists),
             onDismiss = close,
             actions = listOfNotNull(
                 stringResource(Res.string.action_edit) to { withLogins { dialog = LiveDialog.EditPlaylist(d.source) } },
@@ -1432,8 +1434,14 @@ private fun LiveTvSettingsBody(isTablet: Boolean, onlyRecordings: Boolean = fals
                     }
                 },
             ) else emptyList()) + listOfNotNull(
-                // Which Nuvio profiles see this playlist (only with two or more profiles).
-                profiles.takeIf { it.size >= 2 }?.let { list ->
+                // Which Nuvio profiles see this playlist (only with two or more profiles). With one
+                // profile, a playlist still hidden on it (set when there were more, or from sync)
+                // gets a way to show it again.
+                if (profiles.size < 2 && d.source.id in userState.hiddenPlaylists) {
+                    stringResource(Res.string.livetv_show_on_this_profile) to {
+                        LiveTvPreferences.showPlaylistOnThisProfile(d.source.id); close()
+                    }
+                } else profiles.takeIf { it.size >= 2 }?.let { list ->
                     val shownOn = list.count { d.source.id !in LiveTvPreferences.hiddenPlaylistsOf(it.profileIndex) }
                     stringResource(
                         Res.string.livetv_show_on_profiles_value,
@@ -1715,9 +1723,10 @@ private fun leadLabel(m: Int): String = if (m == 0) stringResource(Res.string.li
 private fun streamFormatLabel(f: String) = when (f) { "ts" -> "MPEG-TS"; "m3u8" -> "HLS (m3u8)"; else -> "Auto" }
 
 @Composable
-private fun playlistStatus(pl: PlaylistSource, account: PlaylistAccount?): String {
+private fun playlistStatus(pl: PlaylistSource, account: PlaylistAccount?, hiddenHere: Boolean = false): String {
     val parts = ArrayList<String>()
     if (!pl.enabled) parts += stringResource(Res.string.livetv_ui_off)
+    if (hiddenHere) parts += stringResource(Res.string.livetv_ui_playlist_profile_hidden)
     if ((pl.isXtream || pl.isStalker) && !pl.importLive) {
         // TV channels switched off for this login: nothing to update or count on the Live TV side.
         parts += stringResource(if (pl.importVod) Res.string.livetv_xtream_movies_only else Res.string.livetv_xtream_nothing_included)

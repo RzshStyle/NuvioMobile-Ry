@@ -131,6 +131,9 @@
     <string name="livetv_ui_rec_network">Réseau</string>
     <string name="livetv_ui_all">Toutes</string>
     <string name="livetv_ui_all_playlists">Toutes les playlists</string>
+    <string name="livetv_ui_playlist_all_hidden">Tous les groupes masqués</string>
+    <string name="livetv_ui_playlist_profile_hidden">Masquée sur ce profil</string>
+    <string name="livetv_ui_tap_to_manage">Appuyez pour gérer</string>
     <string name="livetv_ui_add_multiview">Ajouter au Multiview</string>
     <string name="livetv_ui_backups">Secours</string>
     <string name="livetv_ui_also_showing">Diffuse aussi %1$s</string>
