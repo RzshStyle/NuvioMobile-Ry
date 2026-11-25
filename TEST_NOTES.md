@@ -8,6 +8,7 @@ headings as changes land on dev. Typing in the box uses the box instead and leav
 -->
 
 ## Live TV
+- Fixed the app closing for some people with very big playlists when the guide updated while it was being read
 - Playlists with every group hidden (or hidden on this profile) show dimmed in the playlist menu with the reason, instead of disappearing; tap to manage
 - A playlist hidden on your profile can be shown again when there's only one profile, and it says it's hidden on this profile
 - The same guide given twice in different forms (e.g. a playlist's Xtream guide link and the one in its playlist file) is downloaded and read once
