@@ -14,6 +14,7 @@ headings as changes land on dev. Typing in the box uses the box instead and leav
 - Stalker portals that refuse the first login address now try the others instead of giving up
 
 ## Recordings
+- A series can have its own Start early and Keep recording after times (long-press it in Recordings › Series); Default keeps using the Recordings setting, and episodes already set change too
 - Recordings shows up when a network folder is set up, so the TVs' recordings there can be opened with nothing recorded on this phone
 - The player shows the recording's poster instead of the channel logo
 
