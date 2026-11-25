@@ -236,6 +236,15 @@ internal object LiveTvPlayback {
     fun isSportsClip(url: String): Boolean =
         synchronized(lock) { playing[url] }?.sourceId == com.nuvio.app.features.livetv.sports.SportsVideos.SOURCE_ID
 
+    /** Only actual continuous channels: replays, saved recordings and highlight clips end normally. */
+    fun isContinuousLive(providerAddonId: String?, url: String): Boolean = owns(providerAddonId) && synchronized(lock) {
+        val channel = playing[url]
+        channel != null && url !in catchups && url !in recordings &&
+            channel.sourceId != com.nuvio.app.features.livetv.sports.SportsVideos.SOURCE_ID &&
+            // Add-on channels also represent completed-game replays without catch-up metadata.
+            channel.sourceId != com.nuvio.app.features.livetv.sports.SportsAddonSource.SOURCE_ID
+    }
+
     // ---------------------------------------------------------------- catch-up
 
     /**
