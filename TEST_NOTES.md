@@ -12,6 +12,8 @@ headings as changes land on dev. Typing in the box uses the box instead and leav
 - A playlist hidden on your profile can be shown again when there's only one profile, and it says it's hidden on this profile
 - The same guide given twice in different forms (e.g. a playlist's Xtream guide link and the one in its playlist file) is downloaded and read once
 - Stalker portals that refuse the first login address now try the others instead of giving up
+- Live channels connect to the provider once instead of three times (full screen and Multiview), which may stop streams cutting out when Multiview or another device starts
+- When a provider drops a live channel, the player reconnects by itself (with Auto-reconnect on), keeping your audio and subtitle choices, instead of stopping
 
 ## Recordings
 - A series can have its own Start early and Keep recording after times (long-press it in Recordings › Series); Default keeps using the Recordings setting, and episodes already set change too
