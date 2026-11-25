@@ -13,6 +13,9 @@ internal class ContinuousTsDataSourceFactory(private val upstream: DataSource.Fa
     override fun createDataSource(): DataSource = ContinuousTsDataSource(upstream.createDataSource())
 
     private class ContinuousTsDataSource(private val upstream: DataSource) : DataSource by upstream {
+        // Kotlin delegation does not forward this Java interface's default implementation.
+        override fun getResponseHeaders(): Map<String, List<String>> = upstream.responseHeaders
+
         override fun open(dataSpec: DataSpec): Long {
             upstream.open(dataSpec)
             // Keep HTTP requests, headers, reads and real EOF/errors unchanged. Only the loader's
