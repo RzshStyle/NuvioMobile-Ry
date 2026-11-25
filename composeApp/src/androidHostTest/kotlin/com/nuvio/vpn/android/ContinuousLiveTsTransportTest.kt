@@ -211,7 +211,7 @@ class ContinuousLiveTsTransportTest {
         val source = ContinuousTsDataSourceFactory(DataSource.Factory { upstream }).createDataSource()
         val request = DataSpec.Builder().setUri("https://example.test/live.ts").setPosition(188)
             .setHttpRequestHeaders(mapOf("X-Test" to "value")).build()
-        val listener = object : TransferListener {
+        val listener: TransferListener = object : TransferListener {
             override fun onTransferInitializing(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
             override fun onTransferStart(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
             override fun onBytesTransferred(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean, bytesTransferred: Int) = Unit
