@@ -48,6 +48,24 @@ class StalkerEndpointDiscoveryTest {
         assertEquals(listOf("/portal.php", "/server/load.php", "/stalker_portal/server/load.php"), requestedPaths)
     }
 
+    @Test fun authenticationRefusalIsNotHiddenByMissingOrMalformedAlternatives() = runBlocking {
+        val requestedPaths = mutableListOf<String>()
+        val client = StalkerClient(config, StalkerTransport { url, _ ->
+            val request = Url(url)
+            requestedPaths += request.encodedPath
+            assertEquals("handshake", request.parameters["action"])
+            when (request.encodedPath) {
+                "/portal.php" -> StalkerHttpResponse(401, "", finalUrl = url)
+                "/server/load.php" -> StalkerHttpResponse(404, "", finalUrl = url)
+                "/stalker_portal/server/load.php" -> StalkerHttpResponse(200, "not-json", finalUrl = url)
+                else -> error("Unexpected synthetic login path")
+            }
+        }, { 0L })
+
+        assertEquals(StalkerError.AUTHENTICATION_FAILED, failure { client.authenticate() }.error)
+        assertEquals(listOf("/portal.php", "/server/load.php", "/stalker_portal/server/load.php"), requestedPaths)
+    }
+
     @Test fun blockedProfileCannotFallThroughToAnUnrelatedSuccessfulLoginPath() = runBlocking {
         assertProfileFailureStopsDiscovery("""{"id":"fixture-account","status":1}""", StalkerError.ACCOUNT_BLOCKED)
     }
