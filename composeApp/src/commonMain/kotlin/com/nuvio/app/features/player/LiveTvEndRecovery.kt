@@ -4,6 +4,8 @@ import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.model.LiveTvLoadReport
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import nuvio.composeapp.generated.resources.*
+import org.jetbrains.compose.resources.getString
 import kotlin.time.TimeSource
 
 /** A clean EOF is a dropped connection for a continuous channel, not the end of a movie. */
@@ -120,7 +122,14 @@ internal fun PlayerScreenRuntime.handleLivePlaybackEnd(
     } else if (!liveEndRecovery.handled(generation)) {
         shouldPlay = false
         controlsVisible = !playerControlsLocked
-        errorMessage = "Lost the connection to this live channel. Select play or choose another channel."
+        // Shown at once, then in the phone's language as soon as the text is read.
+        val lost = "Lost the connection to this live channel. Select play or choose another channel."
+        errorMessage = lost
+        scope.launch {
+            runCatching { getString(Res.string.livetv_error_connection_lost) }.getOrNull()?.let {
+                if (errorMessage == lost) errorMessage = it
+            }
+        }
         LiveTvLoadReport.add("Live TV: stopped after six reconnects without sustained playback")
     }
 }

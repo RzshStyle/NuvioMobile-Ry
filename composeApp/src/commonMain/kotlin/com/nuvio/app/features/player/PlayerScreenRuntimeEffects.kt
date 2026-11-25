@@ -1057,7 +1057,7 @@ private fun PlayerScreenRuntime.retryOnDemandPortalAfterError(message: String?):
         try {
             val request = com.nuvio.app.features.livetv.ondemand.OnDemandPlayback.fallbackFor(failedUrl)
             if (request == null) {
-                errorMessage = "This title could not be played."
+                errorMessage = getString(Res.string.livetv_error_title_unplayable)
                 controlsVisible = !playerControlsLocked
                 return@launch
             }
@@ -1070,7 +1070,7 @@ private fun PlayerScreenRuntime.retryOnDemandPortalAfterError(message: String?):
             activeInitialProgressFraction = null
             errorMessage = null
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-        catch (_: Exception) { errorMessage = "The provider could not renew this stream. Check the source and VPN settings." }
+        catch (_: Exception) { errorMessage = getString(Res.string.livetv_error_renew) }
     }
     return true
 }
@@ -1107,7 +1107,7 @@ private fun PlayerScreenRuntime.retryLiveTvSourceAfterError(message: String?): B
             controlsVisible = true
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (_: Exception) {
-            errorMessage = "The provider could not renew this stream. Check the source and VPN settings."
+            errorMessage = getString(Res.string.livetv_error_renew)
             controlsVisible = !playerControlsLocked
         }
     }

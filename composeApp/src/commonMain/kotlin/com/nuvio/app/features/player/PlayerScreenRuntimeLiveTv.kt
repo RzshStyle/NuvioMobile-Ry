@@ -15,6 +15,8 @@ import com.nuvio.app.features.livetv.ui.LiveTvViewState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import nuvio.composeapp.generated.resources.*
+import org.jetbrains.compose.resources.getString
 
 /** Whether a Live TV channel (or a catch-up replay of one) is playing. */
 internal val PlayerScreenRuntime.isLiveTv: Boolean
@@ -73,7 +75,7 @@ internal fun PlayerScreenRuntime.switchLiveChannel(channel: LiveChannel, nowTitl
             activeInitialProgressFraction = null
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) {
-            errorMessage = "The provider could not open this channel. Check the source and VPN settings."
+            errorMessage = getString(Res.string.livetv_error_open_channel)
             controlsVisible = !playerControlsLocked
         }
     }
