@@ -1,0 +1,85 @@
+name: Ry Build (phone)
+
+# Personal build of Nuvio + IPTV Mobile for RzshStyle. Builds on every push to ry/plus and publishes
+# the APK as the public release "plus-phone-test". Uses Nuvio's published public client key
+# (nuvio.tv/docs/server-api) so Nuvio account sign-in works. Signed with keystore/ry-mobile.jks,
+# a personal sideload key whose password is public on purpose (not a store-distribution key).
+on:
+  push:
+    branches: ['ry/plus']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ry-build-phone
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: vpn-android/native/go.sum
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Write app keys
+        uses: ./.github/actions/app-keys
+        with:
+          backend_url: https://api.nuvio.tv
+          backend_key: sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN
+          tmdb_api_key: ${{ secrets.TMDB_API_KEY }}
+          trakt_client_id: ${{ secrets.TRAKT_CLIENT_ID }}
+          trakt_client_secret: ${{ secrets.TRAKT_CLIENT_SECRET }}
+
+      - name: Signing
+        run: |
+          {
+            echo "NUVIO_RELEASE_STORE_FILE=$GITHUB_WORKSPACE/keystore/ry-mobile.jks"
+            echo "NUVIO_RELEASE_STORE_PASSWORD=ryfork-public"
+            echo "NUVIO_RELEASE_KEY_ALIAS=ry"
+            echo "NUVIO_RELEASE_KEY_PASSWORD=ryfork-public"
+          } >> local.properties
+
+      - name: Build APK
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          sed -i -E 's/^org\.gradle\.jvmargs=.*/org.gradle.jvmargs=-Xmx6144M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1024m/; s/^kotlin\.daemon\.jvmargs=.*/kotlin.daemon.jvmargs=-Xmx5120M/' gradle.properties
+          echo 'org.gradle.workers.max=3' >> gradle.properties
+          ./gradlew :androidApp:assembleFullRelease -Pnuvio.app.versionName="ry.${{ github.run_number }}" -Pnuvio.app.versionCode="${{ github.run_number }}" --stacktrace --console=plain 2>&1 | tee build.log
+
+      - name: Publish build log to ry/ci-logs
+        if: always()
+        run: |
+          mkdir -p /tmp/logs && tail -n 400 build.log > /tmp/logs/plus-build-tail.log 2>/dev/null || true
+          grep -nE '^e: |error:|FAILURE|What went wrong' -A3 build.log | head -200 > /tmp/logs/plus-errors.log 2>/dev/null || true
+          cd /tmp/logs
+          git init -q && git checkout -q -b ry/ci-logs
+          git -c user.name=ci -c user.email=ci@localhost add -A && git -c user.name=ci -c user.email=ci@localhost commit -qm "logs ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" ry/ci-logs
+
+      - name: Publish APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la androidApp/build/outputs/apk/full/release
+          src=$(find androidApp/build/outputs/apk/full/release -name "*arm64-v8a*.apk" | head -n 1)
+          [ -n "$src" ] || src=$(find androidApp/build/outputs/apk/full/release -name "*universal*.apk" | head -n 1)
+          [ -n "$src" ] || src=$(find androidApp/build/outputs/apk/full/release -name "*.apk" | head -n 1)
+          cp "$src" NuvioPlus-Phone.apk
+          gh release delete plus-phone-test --yes --cleanup-tag 2>/dev/null || true
+          gh release create plus-phone-test NuvioPlus-Phone.apk --prerelease --target "$GITHUB_SHA" \
+            --title "Nuvio + IPTV (Ry) phone build" \
+            --notes "Built from ry/plus at ${GITHUB_SHA::7}. Download NuvioPlus-Phone.apk and install it on your phone."
