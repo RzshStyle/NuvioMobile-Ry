@@ -50,6 +50,22 @@ object CollectionRepository {
     fun initialize() {
         if (hasLoaded) return
         hasLoaded = true
+        loadFromStorage()
+        addPlumePicksIfMissing()
+    }
+
+    /**
+     * Puts Ry's built-in category collection first when it's missing. Saved locally only (no push),
+     * so a fresh install can never overwrite the account's collections; it reaches the account the
+     * next time any collection is edited.
+     */
+    private fun addPlumePicksIfMissing() {
+        if (_collections.value.any { it.id == PlumePicks.COLLECTION_ID }) return
+        _collections.value = listOf(CollectionMobileSettingsRepository.applyToCollection(PlumePicks.collection)) + _collections.value
+        persist(sync = false)
+    }
+
+    private fun loadFromStorage() {
         val payload = CollectionStorage.loadPayload()
         if (payload.isNullOrBlank()) return
 
@@ -207,6 +223,7 @@ object CollectionRepository {
         val normalized = normalizeCollections(collections, source = "remote sync")
         _collections.value = CollectionMobileSettingsRepository.applyToCollections(normalized)
         persist(sync = false)
+        addPlumePicksIfMissing()
     }
 
     internal fun onMobileSettingsChanged() {

@@ -333,26 +333,42 @@ object TmdbCollectionSourceResolver {
             putIfNotBlank("with_origin_country", filters.withOriginCountry)
             putIfNotBlank("with_keywords", filters.withKeywords)
             putIfNotBlank("without_keywords", filters.withoutKeywords)
+            val region = TmdbPlaceholders.region()
+            fun fill(v: String?) = v?.let { TmdbPlaceholders.fill(it, region) }
             val withWatchProviders = filters.withWatchProviders?.takeIf { it.isNotBlank() }
             val withoutWatchProviders = filters.withoutWatchProviders?.takeIf { it.isNotBlank() }
+            val monetization = filters.withWatchMonetizationTypes?.takeIf { it.isNotBlank() }
             if (withWatchProviders != null || withoutWatchProviders != null) {
                 putIfNotBlank("with_watch_providers", withWatchProviders)
                 putIfNotBlank("without_watch_providers", withoutWatchProviders)
-                put("watch_region", filters.watchRegion?.takeIf { it.isNotBlank() } ?: "US")
-                if (withWatchProviders != null) {
-                    put("with_watch_monetization_types", "flatrate|free|ads|rent|buy")
+                put("watch_region", fill(filters.watchRegion)?.takeIf { it.isNotBlank() } ?: "US")
+                if (withWatchProviders != null || monetization != null) {
+                    put("with_watch_monetization_types", monetization ?: "flatrate|free|ads|rent|buy")
                 }
+            } else if (monetization != null) {
+                put("watch_region", fill(filters.watchRegion)?.takeIf { it.isNotBlank() } ?: region)
+                put("with_watch_monetization_types", monetization)
             }
             putIfNotBlank("year", filters.year?.takeIf { mediaType == TmdbCollectionMediaType.MOVIE }?.toString())
             putIfNotBlank("first_air_date_year", filters.year?.takeIf { mediaType == TmdbCollectionMediaType.TV }?.toString())
-            putIfNotBlank(
-                if (mediaType == TmdbCollectionMediaType.MOVIE) "primary_release_date.gte" else "first_air_date.gte",
-                filters.releaseDateGte,
-            )
-            putIfNotBlank(
-                if (mediaType == TmdbCollectionMediaType.MOVIE) "primary_release_date.lte" else "first_air_date.lte",
-                filters.releaseDateLte,
-            )
+            val isMovie = mediaType == TmdbCollectionMediaType.MOVIE
+            // A release type (digital, physical...) filters on any release in the region, not the first one.
+            val byReleaseType = isMovie && !filters.withReleaseType.isNullOrBlank()
+            if (byReleaseType) {
+                put("with_release_type", filters.withReleaseType!!)
+                put("region", region)
+            }
+            val dateKey = when {
+                byReleaseType -> "release_date"
+                isMovie -> "primary_release_date"
+                else -> "first_air_date"
+            }
+            putIfNotBlank("$dateKey.gte", fill(filters.releaseDateGte))
+            putIfNotBlank("$dateKey.lte", fill(filters.releaseDateLte))
+            if (isMovie && !filters.certificationLte.isNullOrBlank()) {
+                put("certification_country", fill(filters.certificationCountry)?.takeIf { it.isNotBlank() } ?: region)
+                put("certification.lte", filters.certificationLte!!)
+            }
         }
     }
 
