@@ -967,6 +967,8 @@ fun HomeScreen(
     }
     // Live TV hook: Live TV, Sports and On Demand rows added from Settings › Homescreen.
     LaunchedEffect(Unit) { com.nuvio.app.features.livetv.home.HomeLiveRows.start() }
+    LaunchedEffect(Unit) { com.nuvio.app.features.collection.PlumeHomeRows.start() }
+    val plumeSections by com.nuvio.app.features.collection.PlumeHomeRows.sections.collectAsStateWithLifecycle()
     val emptyLiveRowIds by com.nuvio.app.features.livetv.home.HomeLiveRows.emptyRowIds.collectAsStateWithLifecycle()
     val hasRenderableCollectionRows = remember(enabledHomeItems, collectionsMap, emptyLiveRowIds) {
         enabledHomeItems.any { item ->
@@ -974,7 +976,7 @@ fun HomeScreen(
                 (item.isLiveRow && com.nuvio.app.features.livetv.home.HomeLiveRow.idOf(item.key) !in emptyLiveRowIds)
         }
     }
-    val hasRenderableHomeRows = homeUiState.sections.isNotEmpty() || hasRenderableCollectionRows
+    val hasRenderableHomeRows = homeUiState.sections.isNotEmpty() || hasRenderableCollectionRows || plumeSections.isNotEmpty()
     val showHeroSlot = shouldShowHomeHeroSlot(
         heroEnabled = homeSettingsUiState.heroEnabled,
         hasHeroItems = homeUiState.heroItems.isNotEmpty(),
@@ -1212,6 +1214,23 @@ fun HomeScreen(
                         disintegrationRequest = continueWatchingDisintegrationRequest,
                     )
 
+                    // Ry: Plume Picks lists, right under Continue Watching.
+                    plumeSections.forEach { section ->
+                        item(key = section.key, contentType = "catalog") {
+                            HomeCatalogRowSection(
+                                section = section,
+                                entries = section.items.take(HOME_CATALOG_PREVIEW_LIMIT),
+                                modifier = Modifier.padding(bottom = 12.dp),
+                                sectionPadding = homeSectionPadding,
+                                onViewAllClick = onCatalogClick?.let { { it(section) } },
+                                watchedKeys = watchedUiState.watchedKeys,
+                                fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                                onPosterClick = onPosterClick,
+                                onPosterLongClick = onPosterLongClick,
+                            )
+                        }
+                    }
+
                     keyedEnabledHomeItems.forEach { keyedSettingsItem ->
                         val settingsItem = keyedSettingsItem.value
                         if (settingsItem.isLiveRow) {
@@ -1226,6 +1245,7 @@ fun HomeScreen(
                             }
                         } else if (settingsItem.isCollection) {
                             val collection = collectionsMap[settingsItem.key]
+                                ?.takeIf { it.id != com.nuvio.app.features.collection.PlumePicks.COLLECTION_ID }
                             if (collection != null) {
                                 item(key = keyedSettingsItem.lazyKey, contentType = "collection") {
                                     HomeCollectionRowSection(

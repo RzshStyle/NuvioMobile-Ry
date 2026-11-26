@@ -60,7 +60,20 @@ object CollectionRepository {
      * next time any collection is edited.
      */
     private fun addPlumePicksIfMissing() {
-        if (_collections.value.any { it.id == PlumePicks.COLLECTION_ID }) return
+        val saved = _collections.value.firstOrNull { it.id == PlumePicks.COLLECTION_ID }
+        if (saved != null) {
+            // An older build's copy: bring its lists up to date (names and rows), keep the rest.
+            val current = PlumePicks.collection.folders.map { it.id to it.sources }
+            if (saved.folders.map { it.id to it.sources } == current) return
+            _collections.value = _collections.value.map { c ->
+                if (c.id != PlumePicks.COLLECTION_ID) c
+                else c.copy(folders = c.folders.map { f ->
+                    PlumePicks.collection.folders.firstOrNull { it.id == f.id }?.let { f.copy(sources = it.sources) } ?: f
+                })
+            }
+            persist(sync = false)
+            return
+        }
         _collections.value = listOf(CollectionMobileSettingsRepository.applyToCollection(PlumePicks.collection)) + _collections.value
         persist(sync = false)
     }
