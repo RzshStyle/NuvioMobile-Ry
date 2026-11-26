@@ -146,6 +146,8 @@ internal fun AddonsSettingsPageContent(
             },
         )
 
+        SetupTransferCard()
+
         SectionHeader(stringResource(Res.string.addons_section_installed))
         if (uiState.addons.isEmpty()) {
             EmptyStateCard(usePersonalMediaCopy = usePersonalMediaCopy)
