@@ -29,5 +29,6 @@ dependencyResolutionManagement {
 }
 
 include(":composeApp")
+include(":iptv-core")
 include(":androidApp")
 include(":baselineprofile")

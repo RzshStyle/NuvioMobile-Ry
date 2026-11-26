@@ -1315,6 +1315,8 @@ object WatchProgressRepository {
         persist: Boolean,
         syncRemote: Boolean,
     ) {
+        // Live TV channels have no resumable position and must not appear in Continue Watching.
+        if (session.parentMetaType == LIVE_TV_META_TYPE) return
         val targetProfileId = session.profileId
         val positionMs = snapshot.positionMs.coerceAtLeast(0L)
         val durationMs = snapshot.durationMs.coerceAtLeast(0L)
@@ -1830,3 +1832,6 @@ internal fun projectWatchProgressUiState(
     hasLoadedRemoteProgress =
         providerSnapshot?.hasLoadedRemoteProgress ?: hasLoadedNuvioRemoteProgress,
 )
+
+/** parentMetaType used for Live TV (IPTV) playback; never stored as watch progress. */
+const val LIVE_TV_META_TYPE = "iptv"

@@ -87,6 +87,8 @@ import com.nuvio.app.core.ui.localizedContinueWatchingSubtitle
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.platformExitApp
 import com.nuvio.app.features.addons.AddAddonResult
+import com.nuvio.app.features.livetv.LiveTvPlayRequest
+import com.nuvio.app.features.watchprogress.LIVE_TV_META_TYPE
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.isWaitingForFirstEnabledManifest
@@ -426,6 +428,7 @@ internal fun MainAppContent(
                 searchScrollToTopRequests.tryEmit(Unit)
             }
             AppScreenTab.Library -> libraryScrollToTopRequests.tryEmit(Unit)
+            AppScreenTab.LiveTv -> Unit
             AppScreenTab.Settings -> settingsRootActionRequests.tryEmit(Unit)
         }
     }
@@ -843,6 +846,29 @@ internal fun MainAppContent(
                     false
                 }
             }
+        }
+
+        fun openLiveTvChannel(request: LiveTvPlayRequest) {
+            val playerLaunch = PlayerLaunch(
+                profileId = activePlaybackProfileId,
+                title = request.title,
+                sourceUrl = request.url,
+                sourceHeaders = request.headers,
+                logo = request.logo,
+                poster = request.logo,
+                streamTitle = request.title,
+                streamSubtitle = request.subtitle,
+                providerName = "Live TV",
+                contentType = LIVE_TV_META_TYPE,
+                parentMetaId = "iptv:${request.channelId}",
+                parentMetaType = LIVE_TV_META_TYPE,
+            )
+            if (playerSettingsUiState.externalPlayerEnabled) {
+                coroutineScope.launch { openExternalPlayback(playerLaunch) }
+                return
+            }
+            val launchId = PlayerLaunchStore.put(playerLaunch)
+            navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title))
         }
 
         fun openDownloadedItem(item: DownloadItem) {
@@ -1454,6 +1480,7 @@ internal fun MainAppContent(
                                     }
                                 },
                                 onDownloadsClick = { navController.navigate(DownloadsRoute(downloadsTitle)) },
+                                onLiveTvPlay = ::openLiveTvChannel,
                                 onContinueWatchingClick = onContinueWatchingClick,
                                 onContinueWatchingLongPress = onContinueWatchingLongPress,
                                 onSwitchProfile = onSwitchProfile,

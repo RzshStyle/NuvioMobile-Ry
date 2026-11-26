@@ -23,6 +23,8 @@ import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.cloud.CloudLibraryContentType
+import com.nuvio.app.features.livetv.LiveTvPlayRequest
+import com.nuvio.app.features.livetv.LiveTvTab
 import com.nuvio.app.features.cloud.CloudLibraryFile
 import com.nuvio.app.features.cloud.CloudLibraryItem
 import com.nuvio.app.features.home.HomeCatalogSection
@@ -93,6 +95,7 @@ internal data class AppTabActions(
     val onCloudFilePlay: ((CloudLibraryItem, CloudLibraryFile) -> Unit)? = null,
     val onConnectCloudClick: (() -> Unit)? = null,
     val onDownloadsClick: () -> Unit = {},
+    val onLiveTvPlay: (LiveTvPlayRequest) -> Unit = {},
     val onContinueWatchingClick: ((ContinueWatchingItem) -> Unit)? = null,
     val onContinueWatchingLongPress: ((ContinueWatchingItem) -> Unit)? = null,
     val onSwitchProfile: (() -> Unit)? = null,
@@ -173,6 +176,10 @@ internal fun AppTabHost(
                     onDownloadsClick = actions.onDownloadsClick,
                     disintegrationRequest = state.libraryDisintegrationRequest,
                 )
+            }
+
+            AppScreenTab.LiveTv -> {
+                LiveTvTab(modifier = Modifier.fillMaxSize(), onPlay = actions.onLiveTvPlay)
             }
 
             AppScreenTab.Settings -> {
