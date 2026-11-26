@@ -69,3 +69,15 @@ jobs:
           archive: false
           if-no-files-found: error
           retention-days: 7
+
+      - name: Publish APK to a public download page (fork only)
+        if: success() && github.repository == 'RzshStyle/NuvioMobile-Ry' && github.ref == 'refs/heads/ry/live-tv'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK=androidApp/build/outputs/apk/full/debug/androidApp-full-debug.apk
+          cp "$APK" Nuvio-LiveTV.apk
+          gh release delete live-tv-test --yes --cleanup-tag 2>/dev/null || true
+          gh release create live-tv-test Nuvio-LiveTV.apk --prerelease --target "$GITHUB_SHA" \
+            --title "Nuvio Live TV test build" \
+            --notes "Test build from ry/live-tv (${GITHUB_SHA::7}). Download Nuvio-LiveTV.apk and install it."
