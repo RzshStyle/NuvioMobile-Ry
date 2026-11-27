@@ -6,7 +6,7 @@ name: Ry Build (phone)
 # a personal sideload key whose password is public on purpose (not a store-distribution key).
 on:
   push:
-    branches: ['ry/plus']
+    branches: ['ry/plus', 'ry/modes']
   workflow_dispatch:
 
 permissions:
@@ -82,4 +82,4 @@ jobs:
           gh release delete plus-phone-test --yes --cleanup-tag 2>/dev/null || true
           gh release create plus-phone-test NuvioPlus-Phone.apk --prerelease --target "$GITHUB_SHA" \
             --title "Nuvio + IPTV (Ry) phone build" \
-            --notes "Built from ry/plus at ${GITHUB_SHA::7}. Download NuvioPlus-Phone.apk and install it on your phone."
+            --notes "Built from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. Download NuvioPlus-Phone.apk and install it on your phone."

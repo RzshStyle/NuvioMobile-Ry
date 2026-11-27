@@ -1731,7 +1731,13 @@ internal fun MainAppContent(
                                 onLiveTvRecordingsClick = { navController.navigate(LiveTvRecordingsRoute(liveTvRecordingsTitle)) },
                                 onLiveTvGuideClick = { navController.navigate(LiveTvGuideRoute(liveTvGuideTitle)) },
                                 onLiveTvSportsClick = ::openSportsRoot,
-                                onSportsBack = { activateTab(AppScreenTab.Home) },
+                                onSportsBack = {
+                                    // Ry fork: Sports is in IPTV; Back goes to Live TV when it's on.
+                                    activateTab(
+                                        if (com.nuvio.app.features.livetv.data.LiveTvPreferences.settings.value.showInSidebar) AppScreenTab.LiveTv
+                                        else AppScreenTab.Home
+                                    )
+                                },
                                 sportsActions = sportsActions,
                                 onLiveTvMultiviewClick = { navController.navigate(LiveTvMultiviewRoute()) { launchSingleTop = true } },
                                 onLiveTvManageClick = { navController.navigate(LiveTvManageRoute(liveTvManageTitle)) },
@@ -1767,8 +1773,13 @@ internal fun MainAppContent(
                             )
                         },
                         onBack = {
-                            if (selectedTab != AppScreenTab.Home) {
-                                activateTab(AppScreenTab.Home)
+                            // Ry fork: in IPTV, Back goes to Live TV (IPTV's first page) first.
+                            val iptvHome = if (
+                                AppMode.mode.value == AppMode.Mode.IPTV &&
+                                com.nuvio.app.features.livetv.data.LiveTvPreferences.settings.value.showInSidebar
+                            ) AppScreenTab.LiveTv else AppScreenTab.Home
+                            if (selectedTab != iptvHome) {
+                                activateTab(iptvHome)
                             } else {
                                 showExitConfirmation = !showExitConfirmation
                             }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -171,7 +172,12 @@ internal fun AppTabHost(
             }
 
             AppScreenTab.Search -> {
+                // Ry fork: in IPTV, Search looks through channels, programmes and On Demand only;
+                // in Nuvio, through your addons' catalogs only (as in Nuvio).
+                val appMode by AppMode.mode.collectAsStateWithLifecycle()
                 SearchScreen(
+                    iptvOnly = appMode == AppMode.Mode.IPTV &&
+                        com.nuvio.app.features.livetv.data.LiveTvPreferences.settings.collectAsStateWithLifecycle().value.showInSidebar,
                     modifier = Modifier.fillMaxSize(),
                     listState = state.searchListState,
                     onPosterClick = actions.onPosterClick,

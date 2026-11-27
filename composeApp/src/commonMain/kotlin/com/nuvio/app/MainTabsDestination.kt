@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.SportsSoccer
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -96,36 +97,65 @@ internal fun MainTabsDestination(
             val availableTab = sportsNavigationFallback(selectedTab, showSportsTab, showLiveTvTab)
             if (rootRouteActive && availableTab != selectedTab) onTabSelected(availableTab)
         }
+        // Ry fork: one half of the app at a time, Nuvio or IPTV, with the switch first.
+        LaunchedEffect(selectedTab) { AppMode.follow(selectedTab) }
+        val appMode by AppMode.mode.collectAsStateWithLifecycle()
+        val iptvLanding = when {
+            showLiveTvTab -> AppScreenTab.LiveTv
+            showSportsTab -> AppScreenTab.Sports
+            else -> null
+        }
+        // With Live TV and Sports both off there's no IPTV half: plain Nuvio.
+        val iptvMode = appMode == AppMode.Mode.IPTV && iptvLanding != null
+        val switchLabel = if (iptvMode) "Nuvio" else "IPTV"
+        val onSwitchMode: () -> Unit = {
+            if (iptvMode) {
+                AppMode.set(AppMode.Mode.NUVIO)
+                onTabSelected(AppScreenTab.Home)
+            } else if (iptvLanding != null) {
+                AppMode.set(AppMode.Mode.IPTV)
+                onTabSelected(iptvLanding)
+            }
+        }
+        val homeLabel = stringResource(Res.string.compose_nav_home)
+        val searchLabel = if (iptvMode) "Search IPTV" else stringResource(Res.string.compose_nav_search)
+        val libraryLabel = stringResource(Res.string.compose_nav_library)
         val floatingNavigationItems = listOfNotNull(
-            FloatingNavigationItem(
+            if (iptvLanding != null) FloatingNavigationItem(
+                selected = false,
+                onClick = onSwitchMode,
+                icon = Icons.Filled.SwapHoriz,
+                label = switchLabel,
+            ) else null,
+            if (!iptvMode) FloatingNavigationItem(
                 selected = selectedTab == AppScreenTab.Home,
                 onClick = { onTabSelected(AppScreenTab.Home) },
                 icon = Icons.Filled.Home,
-                label = stringResource(Res.string.compose_nav_home),
-            ),
-            FloatingNavigationItem(
-                selected = selectedTab == AppScreenTab.Search,
-                onClick = { onTabSelected(AppScreenTab.Search) },
-                drawable = Res.drawable.sidebar_search,
-                label = stringResource(Res.string.compose_nav_search),
-            ),
-            FloatingNavigationItem(
-                selected = selectedTab == AppScreenTab.Library,
-                onClick = { onTabSelected(AppScreenTab.Library) },
-                drawable = Res.drawable.sidebar_library,
-                label = stringResource(Res.string.compose_nav_library),
-            ),
-            if (showLiveTvTab) FloatingNavigationItem(
+                label = homeLabel,
+            ) else null,
+            if (iptvMode && showLiveTvTab) FloatingNavigationItem(
                 selected = selectedTab == AppScreenTab.LiveTv,
                 onClick = { onTabSelected(AppScreenTab.LiveTv) },
                 icon = Icons.Filled.LiveTv,
                 label = liveTvLabel,
             ) else null,
-            if (showSportsTab) FloatingNavigationItem(
+            if (iptvMode && showSportsTab) FloatingNavigationItem(
                 selected = selectedTab == AppScreenTab.Sports,
                 onClick = { onTabSelected(AppScreenTab.Sports) },
                 icon = Icons.Filled.SportsSoccer,
                 label = sportsLabel,
+            ) else null,
+            FloatingNavigationItem(
+                selected = selectedTab == AppScreenTab.Search,
+                onClick = { onTabSelected(AppScreenTab.Search) },
+                drawable = Res.drawable.sidebar_search,
+                label = searchLabel,
+            ),
+            if (!iptvMode) FloatingNavigationItem(
+                selected = selectedTab == AppScreenTab.Library,
+                onClick = { onTabSelected(AppScreenTab.Library) },
+                drawable = Res.drawable.sidebar_library,
+                label = libraryLabel,
             ) else null,
             FloatingNavigationItem(
                 selected = selectedTab == AppScreenTab.Settings,
@@ -153,25 +183,24 @@ internal fun MainTabsDestination(
             bottomBar = {
                 if (!isTabletLayout && !useNativeBottomTabs && navBarStyleSetting == NavBarStyle.CLASSIC) {
                     NuvioClassicNavigationBar(itemCount = floatingNavigationItems.size) {
-                        NavItem(
-                            selected = selectedTab == AppScreenTab.Home,
-                            onClick = { onTabSelected(AppScreenTab.Home) },
-                            icon = Icons.Filled.Home,
-                            contentDescription = stringResource(Res.string.compose_nav_home),
-                        )
-                        NavItem(
-                            selected = selectedTab == AppScreenTab.Search,
-                            onClick = { onTabSelected(AppScreenTab.Search) },
-                            icon = Res.drawable.sidebar_search,
-                            contentDescription = stringResource(Res.string.compose_nav_search),
-                        )
-                        NavItem(
-                            selected = selectedTab == AppScreenTab.Library,
-                            onClick = { onTabSelected(AppScreenTab.Library) },
-                            icon = Res.drawable.sidebar_library,
-                            contentDescription = stringResource(Res.string.compose_nav_library),
-                        )
-                        if (showLiveTvTab) {
+                        if (iptvLanding != null) {
+                            NavItem(
+                                selected = false,
+                                onClick = onSwitchMode,
+                                icon = Icons.Filled.SwapHoriz,
+                                contentDescription = switchLabel,
+                                label = switchLabel,
+                            )
+                        }
+                        if (!iptvMode) {
+                            NavItem(
+                                selected = selectedTab == AppScreenTab.Home,
+                                onClick = { onTabSelected(AppScreenTab.Home) },
+                                icon = Icons.Filled.Home,
+                                contentDescription = homeLabel,
+                            )
+                        }
+                        if (iptvMode && showLiveTvTab) {
                             NavItem(
                                 selected = selectedTab == AppScreenTab.LiveTv,
                                 onClick = { onTabSelected(AppScreenTab.LiveTv) },
@@ -179,12 +208,26 @@ internal fun MainTabsDestination(
                                 contentDescription = liveTvLabel,
                             )
                         }
-                        if (showSportsTab) {
+                        if (iptvMode && showSportsTab) {
                             NavItem(
                                 selected = selectedTab == AppScreenTab.Sports,
                                 onClick = { onTabSelected(AppScreenTab.Sports) },
                                 icon = Icons.Filled.SportsSoccer,
                                 contentDescription = sportsLabel,
+                            )
+                        }
+                        NavItem(
+                            selected = selectedTab == AppScreenTab.Search,
+                            onClick = { onTabSelected(AppScreenTab.Search) },
+                            icon = Res.drawable.sidebar_search,
+                            contentDescription = searchLabel,
+                        )
+                        if (!iptvMode) {
+                            NavItem(
+                                selected = selectedTab == AppScreenTab.Library,
+                                onClick = { onTabSelected(AppScreenTab.Library) },
+                                icon = Res.drawable.sidebar_library,
+                                contentDescription = libraryLabel,
                             )
                         }
                         NavItem(

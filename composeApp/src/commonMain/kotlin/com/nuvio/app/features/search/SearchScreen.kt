@@ -63,7 +63,6 @@ import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import com.nuvio.app.features.home.components.homeSectionHorizontalPaddingForWidth
 import com.nuvio.app.features.home.components.HomeSkeletonRow
 import com.nuvio.app.features.home.components.posterGridColumnCountForWidth
-import com.nuvio.app.features.livetv.data.LiveTvPreferences
 import com.nuvio.app.features.livetv.ui.LiveTvSearchRow
 import com.nuvio.app.features.livetv.ui.OnDemandSearchRows
 import com.nuvio.app.features.watched.WatchedRepository
@@ -99,6 +98,9 @@ fun SearchScreen(
     onPosterLongClick: ((MetaPreview) -> Unit)? = null,
     searchFocusRequestCount: Int = 0,
     scrollToTopRequests: Flow<Unit> = emptyFlow(),
+    // Ry fork: IPTV's own search (channels, programmes and On Demand, none of your addons).
+    // Off, this is Nuvio's search exactly as in Nuvio: your addons' catalogs only.
+    iptvOnly: Boolean = false,
 ) {
     val focusRequester = remember { FocusRequester() }
     var isSearchFocused by remember { mutableStateOf(false) }
@@ -134,7 +136,6 @@ fun SearchScreen(
     val fullyWatchedSeriesKeys by WatchedRepository.fullyWatchedSeriesKeys.collectAsStateWithLifecycle()
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
-    val liveTvSettings by LiveTvPreferences.settings.collectAsStateWithLifecycle()
     var lastRequestedQuery by rememberSaveable { mutableStateOf<String?>(null) }
     var observedOfflineState by remember { mutableStateOf(false) }
     val discoverInFocus by remember(query, listState) {
@@ -160,10 +161,10 @@ fun SearchScreen(
         SearchRepository.refreshDiscover(addonsUiState.addons)
     }
 
-    ScreenActivityEffect(query, addonRefreshKey, homeCatalogSettingsUiState.hideUnreleasedContent) { screenActive ->
+    ScreenActivityEffect(query, addonRefreshKey, homeCatalogSettingsUiState.hideUnreleasedContent, iptvOnly) { screenActive ->
         if (!screenActive) return@ScreenActivityEffect
         val normalizedQuery = query.trim()
-        if (normalizedQuery.isBlank()) {
+        if (normalizedQuery.isBlank() || iptvOnly) {
             lastRequestedQuery = null
             SearchRepository.clear()
         } else {
@@ -244,6 +245,7 @@ fun SearchScreen(
             homeSectionHorizontalPaddingForWidth(maxWidth.value)
         }
         val headerTitle = when {
+            iptvOnly -> "Search IPTV"
             query.isNotBlank() -> stringResource(Res.string.compose_nav_search)
             discoverInFocus -> stringResource(Res.string.compose_search_discover_title)
             else -> stringResource(Res.string.compose_nav_search)
@@ -274,7 +276,7 @@ fun SearchScreen(
                         NuvioInputField(
                             value = query,
                             onValueChange = { query = it },
-                            placeholder = stringResource(Res.string.compose_search_placeholder),
+                            placeholder = if (iptvOnly) "Channels, programmes, On Demand" else stringResource(Res.string.compose_search_placeholder),
                             textStyle = MaterialTheme.typography.bodyLarge.copy(textDirection = TextDirection.Content),
                             shape = RoundedCornerShape(NuvioTokens.Radius.xl),
                             modifier = Modifier
@@ -300,7 +302,26 @@ fun SearchScreen(
             }
         }
 
-        if (query.isBlank()) {
+        if (iptvOnly) {
+            val normalizedQuery = query.trim()
+            if (normalizedQuery.length < 2) {
+                item(key = "iptv_search_hint") {
+                    Text(
+                        text = "Search your IPTV channels, what's on, and the provider's On Demand movies and series.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    )
+                }
+            } else {
+                item(key = "live_tv_search_row") {
+                    LiveTvSearchRow(query = normalizedQuery, modifier = Modifier.padding(bottom = 12.dp))
+                }
+                item(key = "on_demand_search_rows") {
+                    OnDemandSearchRows(query = normalizedQuery)
+                }
+            }
+        } else if (query.isBlank()) {
             if (isSearchFocused && recentSearches.isNotEmpty()) {
                 item(key = "recent_searches") {
                     SearchRecentSection(
@@ -337,14 +358,7 @@ fun SearchScreen(
             } else {
                 val normalizedQuery = query.trim()
                 val isWaitingForSearch = normalizedQuery.isNotBlank() && lastRequestedQuery != normalizedQuery
-                if (liveTvSettings.showInSidebar) {
-                    item(key = "live_tv_search_row") {
-                        LiveTvSearchRow(query = normalizedQuery, modifier = Modifier.padding(bottom = 12.dp))
-                    }
-                    item(key = "on_demand_search_rows") {
-                        OnDemandSearchRows(query = normalizedQuery)
-                    }
-                }
+                // Ry fork: Live TV and On Demand results are in IPTV's own search now.
                 when {
                     isWaitingForSearch -> {
                         items(2) {

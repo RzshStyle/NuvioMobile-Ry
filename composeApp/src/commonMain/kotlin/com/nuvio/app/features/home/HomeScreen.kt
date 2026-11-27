@@ -973,7 +973,8 @@ fun HomeScreen(
     val hasRenderableCollectionRows = remember(enabledHomeItems, collectionsMap, emptyLiveRowIds) {
         enabledHomeItems.any { item ->
             (item.isCollection && collectionsMap[item.key] != null) ||
-                (item.isLiveRow && com.nuvio.app.features.livetv.home.HomeLiveRow.idOf(item.key) !in emptyLiveRowIds)
+                (item.isLiveRow && com.nuvio.app.AppModeSplit.HOME_KEEPS_IPTV_ROWS &&
+                    com.nuvio.app.features.livetv.home.HomeLiveRow.idOf(item.key) !in emptyLiveRowIds)
         }
     }
     val hasRenderableHomeRows = homeUiState.sections.isNotEmpty() || hasRenderableCollectionRows || plumeSections.isNotEmpty()
@@ -1234,7 +1235,9 @@ fun HomeScreen(
                     keyedEnabledHomeItems.forEach { keyedSettingsItem ->
                         val settingsItem = keyedSettingsItem.value
                         if (settingsItem.isLiveRow) {
-                            if (com.nuvio.app.features.livetv.home.HomeLiveRow.idOf(settingsItem.key) !in emptyLiveRowIds) {
+                            // Ry fork: Home is Nuvio's; Live TV, Sports and On Demand rows stay in IPTV.
+                            if (com.nuvio.app.AppModeSplit.HOME_KEEPS_IPTV_ROWS &&
+                                com.nuvio.app.features.livetv.home.HomeLiveRow.idOf(settingsItem.key) !in emptyLiveRowIds) {
                                 item(key = keyedSettingsItem.lazyKey, contentType = "live_row") {
                                     com.nuvio.app.features.livetv.home.HomeLiveRowSection(
                                         rowKey = settingsItem.key,
